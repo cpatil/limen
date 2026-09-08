@@ -66,6 +66,24 @@ final class TransferLog {
         try? data.write(to: fileURL, options: .atomic)
     }
 
+    /// Folds one sample of every row into the log, and closes anything that has gone.
+    ///
+    /// Closing vanished devices matters: a session is only ever finished by a later
+    /// quiet sample for the same row, so pulling a card mid-copy used to leave its
+    /// session open forever and it was never written to the log at all.
+    func record(rows: [Row], now: Date = Date()) {
+        for row in rows { record(row: row, now: now) }
+        let present = Set(rows.map { $0.id })
+        for key in open.keys where !present.contains(key) {
+            if let session = open[key] { finish(key: key, session: session) }
+        }
+    }
+
+    /// Writes out anything still running, so quitting mid-copy does not lose it.
+    func flush() {
+        for (key, session) in open { finish(key: key, session: session) }
+    }
+
     /// Folds one sample of one row into the log.
     func record(row: Row, now: Date = Date()) {
         let key = row.id

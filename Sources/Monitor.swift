@@ -225,7 +225,7 @@ final class Monitor {
         updateNetwork(net, elapsed: elapsed)
         updateUSB(net, previousNet: previousNet, elapsed: elapsed)
         // Fold this sample into the transfer history.
-        for row in networkRows + usbRows { TransferLog.shared.record(row: row) }
+        TransferLog.shared.record(rows: networkRows + usbRows)
 
         allDown = totalDown + usbTotalDown
         allUp = totalUp + usbTotalUp

@@ -355,6 +355,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // Persist any transfer still in progress rather than dropping it.
+        TransferLog.shared.flush()
+    }
+
     @objc private func controlChanged() {
         UserDefaults.standard.set(root.unitControl.selectedSegment, forKey: "RateUnit")
         refresh()
