@@ -96,57 +96,104 @@ enum Analysis {
         return order.compactMap { byKey[$0] }
     }
 
+    // ---- deriving advice from the catalogue ----------------------------
+    //
+    // None of this names a protocol. The catalogue says what supersedes what and how
+    // fast each thing really is, so recommending a newer standard is a lookup and a
+    // division. Adding SD Express 9.0 or USB4 v3 to the JSON makes it recommendable
+    // without touching this file.
+
+    /// How close a measurement must sit to a standard's payload to count as "at its
+    /// limit". A judgement about reading measurements, not a fact about any protocol,
+    /// which is why it belongs in code.
+    private static let atLimitBand = 0.15
+    private static let saturated = 0.85
+
+    private static func times(_ factor: Double) -> String {
+        factor >= 10 ? String(format: "%.0f×", factor) : String(format: "%.1f×", factor)
+    }
+
+    /// "X would be about 3.1× faster", derived from the graph.
+    private static func step(from current: SpeedRef) -> String? {
+        guard let name = current.upgrade, let next = Reference.entry(named: name),
+              current.payloadBytes > 0 else { return nil }
+        var text = "\(next.name) would be about \(times(next.payloadBytes / current.payloadBytes)) faster"
+        if let note = current.upgradeNote { text += ", " + note }
+        return text
+    }
+
+    private static func atLimit(of candidates: [SpeedRef], peak: Double) -> SpeedRef? {
+        candidates.first { ref in
+            let ratio = peak / ref.payloadBytes
+            return ratio > 1 - atLimitBand && ratio < 1 + atLimitBand
+        }
+    }
+
     /// One recommendation for a group: what to change, and what it would buy.
     static func recommendation(for group: Group) -> String {
         let peak = group.bestPeak
         guard peak > 0 else { return "" }
-        let ceiling = group.linkTrusted ? Reference.ceiling(forLinkBits: group.linkBits) : nil
-        let used = ceiling.map { peak / $0.bytes } ?? 0
+        let family: SpeedRef.Family = group.section == "USB" ? .storage : .network
 
         if group.section != "USB" {
-            // Tunnels, bridges and loopback are software. Recommending a cable for a
-            // VPN interface would be nonsense: its speed follows the physical link
-            // beneath it, minus encryption.
+            // Tunnels and bridges are software: their speed follows the link beneath.
             if !group.physical {
                 return "A software interface — its speed follows the physical link "
                     + "underneath it, less the cost of encryption or bridging. "
                     + "Look at the interface it rides over to find the real limit."
             }
-            if group.wireless {
-                return "Wi-Fi tops out well below wired Ethernet — a cable would be "
-                    + "several times faster for bulk copies."
+            let wired = Reference.ladder(role: "bus", family: .network)
+                .first { $0.name.contains("Gigabit") }
+            if group.wireless, let wired = wired, wired.payloadBytes > peak * 1.5 {
+                return "Wi-Fi peaks at \(Fmt.rate(peak, unit: .bytes)) here. "
+                    + "\(wired.name) would be about \(times(wired.payloadBytes / peak)) faster "
+                    + "for bulk copies."
             }
-            if used >= 0.85, let ceiling = ceiling {
-                return "Saturating \(ceiling.name). Only a faster network gets more."
-            }
-            return "The far end, not this link, is setting the pace here."
         }
 
-        // Storage.
-        if used >= 0.85, let ceiling = ceiling {
-            return "Saturating \(ceiling.name) at \(Fmt.rate(peak, unit: .bytes)). "
-                + "Only a faster port would help — the drive is already ahead of the bus."
+        // 1. Is the connection itself the limit?
+        if group.linkTrusted, let link = Reference.standard(forLinkBits: group.linkBits),
+           link.payloadBytes > 0, peak / link.payloadBytes >= saturated {
+            if let next = step(from: link) {
+                return "Saturating \(link.name) at \(Fmt.rate(peak, unit: .bytes)). \(next)."
+            }
+            return "Saturating \(link.name) at \(Fmt.rate(peak, unit: .bytes)) — "
+                + "nothing faster exists in this family."
         }
 
-        if group.removable {
-            let peakBits = peak * 8
-            if peakBits > 560_000_000, peakBits < 900_000_000 {
-                return "Peaks at \(Fmt.rate(peak, unit: .bytes)), right at UHS-I's ceiling. "
-                    + "A UHS-II card and a UHS-II reader would roughly triple this; nothing else here is the limit."
+        // 2. Otherwise the medium is. Place it on the ladder for its kind.
+        let role = group.section == "USB" ? (group.removable ? "card" : "disk") : "bus"
+        let ladder = Reference.ladder(role: role, family: family)
+        guard !ladder.isEmpty else { return "The device, not the link, is setting the pace." }
+
+        if let here = atLimit(of: ladder, peak: peak) {
+            if let next = step(from: here) {
+                return "Peaks at \(Fmt.rate(peak, unit: .bytes)), right at \(here.name)'s limit. \(next)."
             }
-            if peak < 45_000_000 {
-                return "Peaks at only \(Fmt.rate(peak, unit: .bytes)) on a link good for "
-                    + "\(Fmt.rate(ceiling?.bytes ?? 0, unit: .bytes)). This is a slow card — "
-                    + "a UHS-I U3 or better would lift it several times over."
-            }
-            return "The card, not the reader or the port, is setting the pace."
+            return "Peaks at \(here.name)'s limit, and nothing faster exists in this family."
         }
 
-        if peak < 200_000_000 {
-            return "Peaks at \(Fmt.rate(peak, unit: .bytes)), typical of a spinning disk. "
-                + "An SSD in the same enclosure would be several times faster."
+        // Below the slowest rung. A long way below means the item is simply poor for
+        // its class and meeting that rung is the advice; only a little below means the
+        // rung is the floor for this kind of device - a slow hard disk is still a hard
+        // disk - so the next rung up is what actually helps.
+        if let slowest = ladder.first, peak < slowest.payloadBytes * (1 - atLimitBand) {
+            if slowest.payloadBytes / peak >= 2 {
+                return "Peaks at only \(Fmt.rate(peak, unit: .bytes)) — below even \(slowest.name), "
+                    + "which would be about \(times(slowest.payloadBytes / peak)) faster."
+            }
+            if let next = slowest.upgrade.flatMap({ Reference.entry(named: $0) }) {
+                return "Peaks at \(Fmt.rate(peak, unit: .bytes)), about what \(slowest.name) does. "
+                    + "\(next.name) would be about \(times(next.payloadBytes / peak)) faster."
+            }
         }
-        return "Running well within the link — the drive is the limit, and it is a fast one."
+
+        // Between two rungs: name the next one up.
+        if let next = ladder.first(where: { $0.payloadBytes > peak * (1 + atLimitBand) }) {
+            return "Peaks at \(Fmt.rate(peak, unit: .bytes)). "
+                + "\(next.name) would be about \(times(next.payloadBytes / peak)) faster."
+        }
+        return "Running at the top of what this class of device does."
     }
 
     /// A short note on how the copies themselves behaved, when that is the real story.

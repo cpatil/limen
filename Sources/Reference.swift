@@ -23,6 +23,11 @@ struct SpeedRef {
     let line: Double
     let payload: Double
     let family: Family
+    /// bus, card or disk - whether this is a connection or a medium.
+    let role: String?
+    /// The standard that supersedes this one, by name.
+    let upgrade: String?
+    let upgradeNote: String?
 
     var payloadBytes: Double { payload / 8 }
 
@@ -42,7 +47,18 @@ enum Reference {
     static let all: [SpeedRef] = Catalogue.load().entries.map { e in
         SpeedRef(name: e.name, appleName: e.appleName, alias: e.alias,
                  line: e.line, payload: e.payload,
-                 family: SpeedRef.Family(rawValue: e.family) ?? .usb)
+                 family: SpeedRef.Family(rawValue: e.family) ?? .usb,
+                 role: e.role, upgrade: e.upgrade, upgradeNote: e.upgradeNote)
+    }
+
+    static func entry(named name: String) -> SpeedRef? {
+        all.first { $0.name == name }
+    }
+
+    /// Every standard of one role, slowest first - the ladder advice walks.
+    static func ladder(role: String, family: SpeedRef.Family) -> [SpeedRef] {
+        all.filter { $0.role == role && $0.family == family }
+            .sorted { $0.payload < $1.payload }
     }
 
     /// The standard matching a negotiated link rate, for naming a port.
