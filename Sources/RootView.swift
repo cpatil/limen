@@ -95,6 +95,9 @@ final class RootView: NSView, NSSplitViewDelegate {
     private let magnifier = MagnifierView()
     /// Mirrors the monitor's sampling interval so the chart can state its time span.
     var sampleInterval: TimeInterval = 1
+    /// Which row the card is showing, so it can be refreshed on every sample rather
+    /// than only when the pointer moves.
+    private var magnifiedRowID: String?
 
     let sortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let unitControl = NSSegmentedControl(labels: ["B/s", "bit/s"],
@@ -225,8 +228,10 @@ final class RootView: NSView, NSSplitViewDelegate {
                                details: String, at windowPoint: NSPoint) {
         guard let row = row else {
             magnifier.isHidden = true
+            magnifiedRowID = nil
             return
         }
+        magnifiedRowID = row.id
         magnifier.row = row
         magnifier.zone = zone
         magnifier.details = details
@@ -246,6 +251,17 @@ final class RootView: NSView, NSSplitViewDelegate {
             addSubview(magnifier)
         }
         magnifier.isHidden = false
+        magnifier.needsDisplay = true
+    }
+
+    /// Feeds the open card fresh numbers each tick. Without this it froze at
+    /// whatever the values were when the pointer last moved, which reads as broken
+    /// when the row beside it is still counting.
+    func refreshMagnifier(from rows: [Row]) {
+        guard !magnifier.isHidden, let id = magnifiedRowID,
+              let updated = rows.first(where: { $0.id == id }) else { return }
+        magnifier.row = updated
+        magnifier.unit = usbList.unit
         magnifier.needsDisplay = true
     }
 
@@ -467,6 +483,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and counting them made a first launch grow to fill the screen; plugged-in
         // devices are the thing that actually arrives unannounced.
         growForContent(rowCount: monitor.usbRows.count)
+        root.refreshMagnifier(from: monitor.usbRows + monitor.networkRows)
         root.summary.needsDisplay = true
         root.needsLayout = true
     }
