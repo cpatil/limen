@@ -60,12 +60,21 @@ enum Analysis {
     }
 
     /// Everything recorded for one device and one volume.
-    struct Group {
-        var key: String
-        var device: String
-        var section: String
-        var volumes: [String]
+    final class Group: NSObject {
+        let key: String
+        let device: String
+        let section: String
+        let volumes: [String]
         var sessions: [TransferSession]
+
+        init(key: String, device: String, section: String,
+             volumes: [String], sessions: [TransferSession]) {
+            self.key = key
+            self.device = device
+            self.section = section
+            self.volumes = volumes
+            self.sessions = sessions
+        }
 
         var total: UInt64 { sessions.reduce(0) { $0 + $1.total } }
         var bestPeak: Double { sessions.map { $0.peakRate }.max() ?? 0 }

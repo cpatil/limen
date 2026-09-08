@@ -344,6 +344,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Catalogue.seedIfMissing()
         offerUpdateIfDue()
 
+        // Editing the log rebuilds the pane immediately rather than at the next tick.
+        root.historyList.onLogChanged = { [weak self] in self?.refresh() }
         monitor.onUpdate = { [weak self] in self?.refresh() }
         monitor.start()
         refresh()
@@ -446,6 +448,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case 2: NSApp.appearance = NSAppearance(named: .darkAqua)
         default: NSApp.appearance = nil        // follow the system
         }
+    }
+
+    @objc func setMinimumLogged(_ sender: NSMenuItem) {
+        UserDefaults.standard.set(sender.tag, forKey: "MinLoggedTransfer")
+        for item in sender.menu?.items ?? [] { item.state = item === sender ? .on : .off }
     }
 
     @objc private func sortChanged() {

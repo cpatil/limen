@@ -40,6 +40,18 @@ final class TransferLog {
     static let idleGrace: TimeInterval = 6
     static let maxEntries = 500
 
+    /// Smallest transfer worth remembering. Background chatter - a VPN keeping itself
+    /// alive, a sync agent polling - easily clears a few megabytes, and dozens of such
+    /// entries bury the copies you actually care about.
+    static let sizeOptions: [(title: String, bytes: UInt64)] = [
+        ("10 MB", 10_000_000), ("50 MB", 50_000_000),
+        ("250 MB", 250_000_000), ("1 GB", 1_000_000_000),
+    ]
+    static var minimumSize: UInt64 {
+        let stored = UserDefaults.standard.object(forKey: "MinLoggedTransfer") as? Int
+        return UInt64(stored ?? 50_000_000)
+    }
+
     private(set) var sessions: [TransferSession] = []
     private var open: [String: TransferSession] = [:]
     private var lastActive: [String: Date] = [:]
@@ -148,8 +160,7 @@ final class TransferLog {
         startTotals.removeValue(forKey: key)
         lastActive.removeValue(forKey: key)
 
-        // A blip is not a transfer worth remembering.
-        guard closed.total > 4_000_000 else { return }
+        guard closed.total >= TransferLog.minimumSize else { return }
         sessions.insert(closed, at: 0)
         if sessions.count > TransferLog.maxEntries {
             sessions.removeLast(sessions.count - TransferLog.maxEntries)
@@ -166,6 +177,12 @@ final class TransferLog {
 
     func clear() {
         sessions.removeAll()
+        save()
+    }
+
+    /// Forgets one device's history without touching anything else.
+    func clear(device: String, volumes: [String]) {
+        sessions.removeAll { $0.device == device && $0.volumes == volumes }
         save()
     }
 }

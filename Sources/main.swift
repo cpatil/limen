@@ -47,6 +47,22 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
     }
     appearanceItem.submenu = appearanceMenu
     viewMenu.addItem(appearanceItem)
+
+    // How large a transfer has to be before it is worth a log entry.
+    let sizeItem = NSMenuItem(title: "Minimum Logged Transfer", action: nil, keyEquivalent: "")
+    let sizeMenu = NSMenu(title: "Minimum Logged Transfer")
+    let chosenSize = Int(TransferLog.minimumSize)
+    for option in TransferLog.sizeOptions {
+        let item = NSMenuItem(title: option.title,
+                              action: #selector(AppDelegate.setMinimumLogged(_:)),
+                              keyEquivalent: "")
+        item.tag = Int(option.bytes)
+        item.target = target
+        item.state = Int(option.bytes) == chosenSize ? .on : .off
+        sizeMenu.addItem(item)
+    }
+    sizeItem.submenu = sizeMenu
+    viewMenu.addItem(sizeItem)
     viewMenuItem.submenu = viewMenu
     mainMenu.addItem(viewMenuItem)
 

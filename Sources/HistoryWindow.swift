@@ -53,8 +53,51 @@ final class HistoryView: NSView {
     }
     private(set) var items: [HistoryItem] = []
     var unit: RateUnit = .bytes
+    /// Called after the log is edited, so the pane can rebuild itself.
+    var onLogChanged: (() -> Void)?
 
     override var isFlipped: Bool { true }
+
+    /// The item under a point, accounting for the variable row heights.
+    private func item(at point: NSPoint) -> HistoryItem? {
+        var y: CGFloat = 0
+        for item in items {
+            let h = item.height(width: bounds.width)
+            if point.y >= y && point.y < y + h { return item }
+            y += h
+        }
+        return nil
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let local = convert(event.locationInWindow, from: nil)
+        let menu = NSMenu()
+        if case .group(let group)? = item(at: local) {
+            let title = group.volumes.isEmpty ? group.device
+                                              : group.device + " · " + group.volumes.joined(separator: ", ")
+            let item = NSMenuItem(title: "Forget “\(title)”",
+                                  action: #selector(forgetGroup(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = group
+            menu.addItem(item)
+            menu.addItem(NSMenuItem.separator())
+        }
+        let all = NSMenuItem(title: "Clear Entire Log", action: #selector(clearAll(_:)), keyEquivalent: "")
+        all.target = self
+        menu.addItem(all)
+        return menu
+    }
+
+    @objc private func forgetGroup(_ sender: NSMenuItem) {
+        guard let group = sender.representedObject as? Analysis.Group else { return }
+        TransferLog.shared.clear(device: group.device, volumes: group.volumes)
+        onLogChanged?()
+    }
+
+    @objc private func clearAll(_ sender: NSMenuItem) {
+        TransferLog.shared.clear()
+        onLogChanged?()
+    }
 
     private static let clock: DateFormatter = {
         let f = DateFormatter()
