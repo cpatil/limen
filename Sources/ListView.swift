@@ -183,7 +183,7 @@ final class TrafficListView: NSView {
         // suggestion. Kept small and grey so it informs without shouting.
         var footer = ""
         if !row.actors.isEmpty {
-            footer = row.actors.map { "\($0.name) \(Fmt.rate($0.bytesPerSec, unit: unit))" }
+            footer = row.actors.map { "\($0.display) \(Fmt.rate($0.bytesPerSec, unit: unit))" }
                 .joined(separator: "   ")
         }
         if !row.appleName.isEmpty {

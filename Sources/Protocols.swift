@@ -11,6 +11,10 @@ struct SpeedCatalogue: Codable {
     var version: Int
     var updated: String
     var entries: [Entry]
+    /// Helper process -> the application it works on behalf of. macOS parents every
+    /// GUI helper to launchd, so the process tree cannot answer "who asked for this
+    /// copy". A curated map can, and lives here so it updates with the catalogue.
+    var processOwners: [String: String]?
 
     struct Entry: Codable {
         var name: String            // the neutral, current name
@@ -23,10 +27,13 @@ struct SpeedCatalogue: Codable {
 }
 
 enum Catalogue {
-    /// Where an updated catalogue is fetched from. Raw file in the project repo, so
-    /// updating the table is a commit rather than a release.
+    /// Where a catalogue update is fetched from, and only ever when the user asks.
+    /// Nothing in this app contacts the network on its own.
     static let remoteURL = URL(string:
         "https://raw.githubusercontent.com/cpatil/limen/main/Resources/speeds.json")!
+
+    private static let lastCheckKey = "CatalogueLastCheck"
+    static let reminderInterval: TimeInterval = 30 * 24 * 3600
 
     static var cacheURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -35,8 +42,19 @@ enum Catalogue {
         return dir.appendingPathComponent("speeds.json")
     }
 
-    /// Cached catalogue if one has been downloaded and still parses, else the
-    /// built-in one. A corrupt or hostile cache can only fall back, never crash.
+    /// Writes the built-in catalogue to disk when none is there yet.
+    ///
+    /// The shipped copy is the seed, so a missing file is filled locally rather than
+    /// by reaching out. That is what keeps "fetch only when absent" from ever meaning
+    /// a silent download: the file is never absent after first launch, and the first
+    /// launch fills it from the binary.
+    static func seedIfMissing() {
+        guard !FileManager.default.fileExists(atPath: cacheURL.path) else { return }
+        try? builtInJSON.data(using: .utf8)?.write(to: cacheURL, options: .atomic)
+    }
+
+    /// Cached catalogue if it parses, else the built-in one. A corrupt or hostile
+    /// cache can only fall back, never crash.
     static func load() -> SpeedCatalogue {
         if let data = try? Data(contentsOf: cacheURL),
            let parsed = try? JSONDecoder().decode(SpeedCatalogue.self, from: data),
@@ -46,20 +64,43 @@ enum Catalogue {
         return builtIn
     }
 
-    /// Fetches a newer catalogue in the background. Failure is silent and harmless:
-    /// the bundled table stays in use.
-    static func refresh(completion: @escaping (Bool) -> Void = { _ in }) {
+    static var lastChecked: Date? {
+        UserDefaults.standard.object(forKey: lastCheckKey) as? Date
+    }
+
+    /// True when it has been a month since the user last checked, so they can be
+    /// offered the choice. The offer is all this does - it never checks by itself.
+    static var updateReminderDue: Bool {
+        guard let last = lastChecked else { return false }
+        return Date().timeIntervalSince(last) > reminderInterval
+    }
+
+    static func noteChecked() {
+        UserDefaults.standard.set(Date(), forKey: lastCheckKey)
+    }
+
+    /// Downloads a newer catalogue. Only ever called from an explicit user action.
+    static func checkForUpdate(completion: @escaping (Int?, String?) -> Void) {
         var request = URLRequest(url: remoteURL)
-        request.timeoutInterval = 15
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            guard let data = data,
-                  let parsed = try? JSONDecoder().decode(SpeedCatalogue.self, from: data),
-                  !parsed.entries.isEmpty,
-                  parsed.version >= builtIn.version else {
-                completion(false); return
+        request.timeoutInterval = 20
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            noteChecked()
+            DispatchQueue.main.async {
+                if let error = error {
+                    completion(nil, error.localizedDescription); return
+                }
+                guard let data = data,
+                      let parsed = try? JSONDecoder().decode(SpeedCatalogue.self, from: data),
+                      !parsed.entries.isEmpty else {
+                    completion(nil, "the downloaded catalogue could not be read"); return
+                }
+                guard parsed.version > load().version else {
+                    completion(0, nil); return
+                }
+                try? data.write(to: cacheURL, options: .atomic)
+                completion(parsed.version, nil)
             }
-            try? data.write(to: cacheURL, options: .atomic)
-            completion(true)
         }.resume()
     }
 
@@ -101,7 +142,22 @@ enum Catalogue {
         {"name":"SD Express","line":7900000000,"payload":6000000000,"family":"storage"},
         {"name":"NVMe (Gen 3)","line":32000000000,"payload":28000000000,"family":"storage"},
         {"name":"NVMe (Gen 4)","line":64000000000,"payload":56000000000,"family":"storage"}
-      ]
+      ],
+      "processOwners": {
+        "DesktopServicesHelper": "Finder",
+        "diskimages-helper": "Disk Utility",
+        "backupd": "Time Machine",
+        "mds_stores": "Spotlight",
+        "mdworker": "Spotlight",
+        "mdbulkimport": "Spotlight",
+        "photoanalysisd": "Photos",
+        "cloudphotod": "iCloud Photos",
+        "bird": "iCloud Drive",
+        "fileproviderd": "File Provider",
+        "AppleSpell": "Spell Checker",
+        "Google Drive": "Google Drive",
+        "Dropbox": "Dropbox"
+      }
     }
     """
 }

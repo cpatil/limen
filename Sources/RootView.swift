@@ -218,9 +218,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root.inactiveToggle.state = .off
         monitor.showInactive = false
 
-        // Pick up any newer speed catalogue in the background. Silent on failure -
-        // the bundled table is always a working floor.
-        Catalogue.refresh()
+        // Fill the catalogue from the copy inside the binary. No network: the app
+        // never contacts anything unless the user explicitly asks it to.
+        Catalogue.seedIfMissing()
+        offerUpdateIfDue()
 
         monitor.onUpdate = { [weak self] in self?.refresh() }
         monitor.start()
@@ -235,6 +236,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func controlChanged() {
         refresh()
+    }
+
+    /// Once a month, offer to check - and only offer. The download happens solely
+    /// because the user pressed a button.
+    private func offerUpdateIfDue() {
+        guard Catalogue.updateReminderDue else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            let alert = NSAlert()
+            alert.messageText = "Check for an updated speed catalogue?"
+            alert.informativeText = "It has been a month since the last check. Limen does not "
+                + "contact the network on its own, so this only happens if you ask it to."
+            alert.addButton(withTitle: "Check Now")
+            alert.addButton(withTitle: "Not Now")
+            if alert.runModal() == .alertFirstButtonReturn {
+                self?.checkForCatalogueUpdate(nil)
+            } else {
+                Catalogue.noteChecked()   // ask again next month, not next launch
+            }
+        }
+    }
+
+    @objc func checkForCatalogueUpdate(_ sender: Any?) {
+        Catalogue.checkForUpdate { version, error in
+            let alert = NSAlert()
+            if let error = error {
+                alert.messageText = "Could not check for an update"
+                alert.informativeText = error
+            } else if let version = version, version > 0 {
+                alert.messageText = "Speed catalogue updated"
+                alert.informativeText = "Now at version \(version). Restart Limen to use it."
+            } else {
+                alert.messageText = "Already up to date"
+                alert.informativeText = "The catalogue in use is the newest published."
+            }
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
 
     @objc private func sortChanged() {

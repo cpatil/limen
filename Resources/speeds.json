@@ -24,5 +24,20 @@
         {"name":"SD Express","line":7900000000,"payload":6000000000,"family":"storage"},
         {"name":"NVMe (Gen 3)","line":32000000000,"payload":28000000000,"family":"storage"},
         {"name":"NVMe (Gen 4)","line":64000000000,"payload":56000000000,"family":"storage"}
-      ]
+      ],
+      "processOwners": {
+        "DesktopServicesHelper": "Finder",
+        "diskimages-helper": "Disk Utility",
+        "backupd": "Time Machine",
+        "mds_stores": "Spotlight",
+        "mdworker": "Spotlight",
+        "mdbulkimport": "Spotlight",
+        "photoanalysisd": "Photos",
+        "cloudphotod": "iCloud Photos",
+        "bird": "iCloud Drive",
+        "fileproviderd": "File Provider",
+        "AppleSpell": "Spell Checker",
+        "Google Drive": "Google Drive",
+        "Dropbox": "Dropbox"
+      }
     }

@@ -14,6 +14,12 @@ struct Actor {
     var name: String
     var pid: Int32
     var bytesPerSec: Double
+    /// The application this helper works for, when it is a known helper. macOS
+    /// parents every GUI helper to launchd, so the process tree cannot tell you that
+    /// DesktopServicesHelper is doing a Finder copy - a curated map can.
+    var owner: String = ""
+
+    var display: String { owner.isEmpty ? name : "\(name) (\(owner))" }
 }
 
 /// Attributes disk traffic to the processes causing it.

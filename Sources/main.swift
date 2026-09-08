@@ -12,6 +12,11 @@ private func buildMainMenu() -> NSMenu {
                     action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                     keyEquivalent: "")
     appMenu.addItem(NSMenuItem.separator())
+    // The only thing in the app that touches the network, and only from here.
+    appMenu.addItem(withTitle: "Check for Speed Catalogue Update…",
+                    action: #selector(AppDelegate.checkForCatalogueUpdate(_:)),
+                    keyEquivalent: "")
+    appMenu.addItem(NSMenuItem.separator())
     appMenu.addItem(withTitle: "Hide \(appName)",
                     action: #selector(NSApplication.hide(_:)),
                     keyEquivalent: "h")

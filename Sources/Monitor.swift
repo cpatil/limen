@@ -44,6 +44,9 @@ final class Monitor {
 
     static let historyLength = 150
 
+    /// Helper -> owning application, from the catalogue.
+    static let processOwners: [String: String] = Catalogue.load().processOwners ?? [:]
+
     var onUpdate: (() -> Void)?
     var interval: TimeInterval = 1.0 {
         didSet { restartTimer() }
@@ -212,7 +215,8 @@ final class Monitor {
             // Checking descriptors is the expensive part, so only ask about
             // processes that are actually busy.
             if roots.contains(where: { ProcessSampler.hasOpenFile(pid: pid, under: $0) }) {
-                found.append(Actor(name: now.name, pid: pid, bytesPerSec: rate))
+                found.append(Actor(name: now.name, pid: pid, bytesPerSec: rate,
+                                   owner: Monitor.processOwners[now.name] ?? ""))
             }
         }
         found.sort { $0.bytesPerSec > $1.bytesPerSec }
