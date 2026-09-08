@@ -37,6 +37,11 @@ struct Row {
     var volumes: [String] = []
     /// What to draw beside the name.
     var icon: IconKind = .hub
+    /// The medium can be taken out - a card rather than a fixed disk. Drives which
+    /// advice applies.
+    var removable: Bool = false
+    /// Wireless, as reported by SystemConfiguration rather than guessed from a name.
+    var wireless: Bool = false
     /// Whether the reported link rate can be presented as a capacity at all.
     var linkTrusted: Bool = true
     /// Which reference speeds this row may be compared against. Comparing a Wi-Fi
@@ -347,7 +352,8 @@ final class Monitor {
             row.section = "Network"
             row.compareFamilies = [.network]
             row.vendor = friendly[name] ?? ""
-            row.icon = IconKind.forInterface(name: name, wireless: wireless.contains(name))
+            row.wireless = wireless.contains(name)
+            row.icon = IconKind.forInterface(name: name, wireless: row.wireless)
             if counters.ierrors > 0 || counters.oerrors > 0 {
                 row.note = "\(counters.ierrors + counters.oerrors) errors"
             }
@@ -441,6 +447,7 @@ final class Monitor {
             row.section = "USB"
             row.vendor = device.vendor
             row.deviceID = deviceID
+            row.removable = device.removableMedia
             row.icon = IconKind.forUSB(hasDisks: !device.disks.isEmpty,
                                        removableMedia: device.removableMedia,
                                        hasInterfaces: !device.interfaces.isEmpty)

@@ -19,6 +19,10 @@ struct TransferSession: Codable {
     /// Whether linkBits was a real capacity. Wi-Fi reports a PHY rate, and
     /// recomputing credibility later cannot know that, which produced "107% of link".
     var linkTrusted: Bool?
+    var removable: Bool?
+    /// Real hardware, as opposed to a tunnel, bridge or loopback.
+    var physical: Bool?
+    var wireless: Bool?
     var processes: [String]
     var volumes: [String]
 
@@ -91,6 +95,9 @@ final class TransferLog {
                                             peakRate: rate,
                                             linkBits: row.linkBits,
                                             linkTrusted: row.linkTrusted,
+                                            removable: row.removable,
+                                            physical: row.isPhysical,
+                                            wireless: row.wireless,
                                             processes: row.actors.map { $0.display },
                                             volumes: row.volumes)
                 startTotals[key] = (row.totalDown, row.totalUp)

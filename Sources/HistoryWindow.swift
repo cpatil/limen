@@ -1,17 +1,35 @@
 import Cocoa
 
 /// The scrollable log of past transfers.
+/// One line in the log: either a group heading with its recommendation, or a session.
+enum HistoryItem {
+    case group(Analysis.Group)
+    case session(TransferSession)
+
+    var height: CGFloat {
+        switch self {
+        case .group(let g): return Analysis.pattern(for: g).isEmpty ? 74 : 92
+        case .session: return 66
+        }
+    }
+}
+
+/// The scrollable log of past transfers, grouped by device and volume.
 final class HistoryView: NSView {
     static let rowHeight: CGFloat = 66
 
     var sessions: [TransferSession] = [] {
         didSet {
-            let height = max(CGFloat(sessions.count) * HistoryView.rowHeight,
+            items = Analysis.groups(from: sessions).flatMap { group -> [HistoryItem] in
+                [.group(group)] + group.sessions.map { HistoryItem.session($0) }
+            }
+            let height = max(items.reduce(0) { $0 + $1.height },
                              enclosingScrollView?.contentView.bounds.height ?? 0)
             setFrameSize(NSSize(width: frame.width, height: height))
             needsDisplay = true
         }
     }
+    private(set) var items: [HistoryItem] = []
     var unit: RateUnit = .bytes
 
     override var isFlipped: Bool { true }
@@ -29,69 +47,107 @@ final class HistoryView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard !sessions.isEmpty else {
-            let font = NSFont.systemFont(ofSize: 13)
+        guard !items.isEmpty else {
             Text.draw("No transfers recorded yet.", at: NSPoint(x: 20, y: 24),
-                      font: font, color: NSColor.tertiaryLabelColor)
+                      font: NSFont.systemFont(ofSize: 13), color: NSColor.tertiaryLabelColor)
             return
         }
 
-        let nameFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        var y: CGFloat = 0
+        for item in items {
+            let rect = NSRect(x: 0, y: y, width: bounds.width, height: item.height)
+            if rect.intersects(dirtyRect) {
+                switch item {
+                case .group(let group): draw(group: group, in: rect)
+                case .session(let session): draw(session: session, in: rect)
+                }
+            }
+            y += item.height
+        }
+    }
+
+    private func draw(group: Analysis.Group, in rect: NSRect) {
+        NSColor.textColor.withAlphaComponent(0.05).setFill()
+        rect.fill()
+        Palette.hairline.setFill()
+        NSRect(x: 0, y: rect.minY, width: rect.width, height: 1).fill()
+
+        let nameFont = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let metaFont = NSFont.systemFont(ofSize: 11)
+        let adviceFont = NSFont.systemFont(ofSize: 11.5)
+
+        Icons.draw(group.section == "USB" ? (group.removable ? .memoryCard : .hardDisk) : .ethernet,
+                   in: NSRect(x: 16, y: rect.minY + 10, width: 18, height: 18),
+                   color: NSColor.secondaryLabelColor)
+
+        var title = group.device
+        if !group.volumes.isEmpty { title += "  ·  " + group.volumes.joined(separator: ", ") }
+        Text.draw(Text.clip(title, font: nameFont, maxWidth: rect.width - 300),
+                  at: NSPoint(x: 44, y: rect.minY + 9), font: nameFont, color: NSColor.labelColor)
+
+        let summary = "\(group.sessions.count) session\(group.sessions.count == 1 ? "" : "s")"
+            + "  ·  " + Fmt.bytes(Double(group.total))
+            + "  ·  best " + Fmt.rate(group.bestPeak, unit: unit)
+        Text.draw(summary, at: NSPoint(x: 0, y: rect.minY + 11), font: metaFont,
+                  color: NSColor.secondaryLabelColor, alignRight: rect.maxX - 16)
+
+        // The recommendation belongs to the hardware, so it is said once per group
+        // rather than repeated against every copy.
+        let advice = Analysis.recommendation(for: group)
+        if !advice.isEmpty {
+            Text.drawWrapped("→ " + advice,
+                             in: NSRect(x: 44, y: rect.minY + 28, width: rect.width - 60, height: 30),
+                             font: adviceFont, color: NSColor.systemBlue)
+        }
+        let pattern = Analysis.pattern(for: group)
+        if !pattern.isEmpty {
+            Text.drawWrapped("→ " + pattern,
+                             in: NSRect(x: 44, y: rect.minY + 56, width: rect.width - 60, height: 30),
+                             font: adviceFont, color: NSColor.systemOrange)
+        }
+    }
+
+    private func draw(session s: TransferSession, in rect: NSRect) {
+        Palette.hairline.setFill()
+        NSRect(x: 12, y: rect.maxY - 1, width: rect.width - 24, height: 1).fill()
+
+        let nameFont = NSFont.systemFont(ofSize: 12)
         let metaFont = NSFont.systemFont(ofSize: 11)
         let numFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         let bigFont = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .medium)
+        let right = rect.maxX - 16
 
-        for (index, s) in sessions.enumerated() {
-            let rect = NSRect(x: 0, y: CGFloat(index) * HistoryView.rowHeight,
-                              width: bounds.width, height: HistoryView.rowHeight)
-            guard rect.intersects(dirtyRect) else { continue }
+        Text.draw(HistoryView.clock.string(from: s.started) + "  ·  " + duration(s.duration),
+                  at: NSPoint(x: 44, y: rect.minY + 9), font: nameFont, color: NSColor.labelColor)
 
-            if index % 2 == 1 {
-                Palette.rowAlt.setFill()
-                rect.fill()
-            }
-            Palette.hairline.setFill()
-            NSRect(x: 12, y: rect.maxY - 1, width: rect.width - 24, height: 1).fill()
+        // Did it go as fast as it could have, and if not, what stopped it.
+        let verdict = Analysis.verdict(for: s)
+        Text.draw(Text.clip(verdict.summary, font: metaFont, maxWidth: rect.width - 330),
+                  at: NSPoint(x: 44, y: rect.minY + 28), font: metaFont,
+                  color: verdict.maximised ? NSColor.systemGreen : NSColor.secondaryLabelColor)
 
-            let right = rect.maxX - 16
-            Icons.draw(s.section == "USB" ? .hardDisk : .ethernet,
-                       in: NSRect(x: 16, y: rect.minY + 12, width: 18, height: 18),
-                       color: NSColor.secondaryLabelColor)
-
-            Text.draw(Text.clip(s.device, font: nameFont, maxWidth: 230),
-                      at: NSPoint(x: 44, y: rect.minY + 10), font: nameFont, color: NSColor.labelColor)
-
-            var meta = HistoryView.clock.string(from: s.started) + "  ·  " + duration(s.duration)
-            if !s.volumes.isEmpty { meta += "  ·  " + s.volumes.joined(separator: ", ") }
-            Text.draw(Text.clip(meta, font: metaFont, maxWidth: 300),
-                      at: NSPoint(x: 44, y: rect.minY + 30), font: metaFont, color: NSColor.secondaryLabelColor)
-
-            if !s.processes.isEmpty {
-                Text.draw(Text.clip(s.processes.joined(separator: ", "), font: metaFont, maxWidth: 300),
-                          at: NSPoint(x: 44, y: rect.minY + 46),
-                          font: metaFont, color: NSColor.tertiaryLabelColor)
-            }
-
-            // Right side: how much, how fast, and how close to the link's ceiling.
-            Text.draw(Fmt.bytes(Double(s.total)),
-                      at: NSPoint(x: 0, y: rect.minY + 10), font: bigFont,
-                      color: NSColor.labelColor, alignRight: right)
-            Text.draw("avg " + Fmt.rate(s.averageRate, unit: unit)
-                        + "   peak " + Fmt.rate(s.peakRate, unit: unit),
-                      at: NSPoint(x: 0, y: rect.minY + 30), font: numFont,
-                      color: NSColor.secondaryLabelColor, alignRight: right)
-
-            let inTag = s.section == "USB" ? "R" : "IN"
-            let outTag = s.section == "USB" ? "W" : "OUT"
-            var tail = inTag + " " + Fmt.bytes(Double(s.bytesRead))
-                + "  " + outTag + " " + Fmt.bytes(Double(s.bytesWritten))
-            if s.linkTrusted == true,
-               let used = Reference.utilization(bytesPerSec: s.peakRate, linkBits: s.linkBits),
-               Reference.linkRateIsCredible(observedBytesPerSec: s.peakRate, linkBits: s.linkBits) {
-                tail += String(format: "   ·   peak %.0f%% of link", used * 100)
-            }
-            Text.draw(tail, at: NSPoint(x: 0, y: rect.minY + 47), font: metaFont,
-                      color: NSColor.tertiaryLabelColor, alignRight: right)
+        if !s.processes.isEmpty {
+            Text.draw(Text.clip(s.processes.joined(separator: ", "), font: metaFont, maxWidth: rect.width - 330),
+                      at: NSPoint(x: 44, y: rect.minY + 45), font: metaFont,
+                      color: NSColor.tertiaryLabelColor)
         }
+
+        Text.draw(Fmt.bytes(Double(s.total)), at: NSPoint(x: 0, y: rect.minY + 9),
+                  font: bigFont, color: NSColor.labelColor, alignRight: right)
+        Text.draw("avg " + Fmt.rate(s.averageRate, unit: unit)
+                    + "   peak " + Fmt.rate(s.peakRate, unit: unit),
+                  at: NSPoint(x: 0, y: rect.minY + 29), font: numFont,
+                  color: NSColor.secondaryLabelColor, alignRight: right)
+
+        let inTag = s.section == "USB" ? "R" : "IN"
+        let outTag = s.section == "USB" ? "W" : "OUT"
+        var tail = inTag + " " + Fmt.bytes(Double(s.bytesRead))
+            + "  " + outTag + " " + Fmt.bytes(Double(s.bytesWritten))
+        if s.linkTrusted == true,
+           let used = Reference.utilization(bytesPerSec: s.peakRate, linkBits: s.linkBits) {
+            tail += String(format: "   ·   peak %.0f%% of link", used * 100)
+        }
+        Text.draw(tail, at: NSPoint(x: 0, y: rect.minY + 46), font: metaFont,
+                  color: NSColor.tertiaryLabelColor, alignRight: right)
     }
 }
