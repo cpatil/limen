@@ -32,11 +32,17 @@ enum HistoryItem {
 /// The scrollable log of past transfers, grouped by device and volume.
 final class HistoryView: NSView {
     static let rowHeight: CGFloat = 66
+    /// Most recent sessions shown per device; the header states the true total.
+    static let sessionsPerGroup = 5
 
     var sessions: [TransferSession] = [] {
         didSet {
+            // Cap the rows per group. One busy interface can accumulate dozens of
+            // short sessions, and without a limit it pushes every other device off
+            // the bottom - which is how a card reader's log became unreachable.
             items = Analysis.groups(from: sessions).flatMap { group -> [HistoryItem] in
-                [.group(group)] + group.sessions.map { HistoryItem.session($0) }
+                [.group(group)]
+                    + group.sessions.prefix(HistoryView.sessionsPerGroup).map { HistoryItem.session($0) }
             }
             let width = enclosingScrollView?.contentView.bounds.width ?? frame.width
             let height = max(items.reduce(0) { $0 + $1.height(width: width) },
@@ -101,8 +107,11 @@ final class HistoryView: NSView {
         Text.draw(Text.clip(title, font: nameFont, maxWidth: rect.width - 300),
                   at: NSPoint(x: 44, y: rect.minY + 9), font: nameFont, color: NSColor.labelColor)
 
-        let summary = "\(group.sessions.count) session\(group.sessions.count == 1 ? "" : "s")"
-            + "  ·  " + Fmt.bytes(Double(group.total))
+        var summary = "\(group.sessions.count) session\(group.sessions.count == 1 ? "" : "s")"
+        if group.sessions.count > HistoryView.sessionsPerGroup {
+            summary += " (latest \(HistoryView.sessionsPerGroup))"
+        }
+        summary += "  ·  " + Fmt.bytes(Double(group.total))
             + "  ·  best " + Fmt.rate(group.bestPeak, unit: unit)
         Text.draw(summary, at: NSPoint(x: 0, y: rect.minY + 11), font: metaFont,
                   color: NSColor.secondaryLabelColor, alignRight: rect.maxX - 16)
@@ -132,7 +141,11 @@ final class HistoryView: NSView {
         let bigFont = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .medium)
         let right = rect.maxX - 16
 
-        Text.draw(HistoryView.clock.string(from: s.started) + "  ·  " + duration(s.duration),
+        var line = HistoryView.clock.string(from: s.started) + "  ·  " + duration(s.duration)
+        // Repeat the volume here: the group heading scrolls away, and "which card was
+        // that" is the first thing you want from a row.
+        if !s.volumes.isEmpty { line += "  ·  " + s.volumes.joined(separator: ", ") }
+        Text.draw(Text.clip(line, font: nameFont, maxWidth: rect.width - 330),
                   at: NSPoint(x: 44, y: rect.minY + 9), font: nameFont, color: NSColor.labelColor)
 
         // Did it go as fast as it could have, and if not, what stopped it.

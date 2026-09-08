@@ -203,9 +203,10 @@ enum Analysis {
         guard !steady.isEmpty else { return "" }
         let mean = steady.reduce(0, +) / Double(steady.count)
         if mean < 0.45 {
-            return String(format: "Averaging %.0f%% of peak across %d sessions — lots of small files. "
+            let n = group.sessions.count
+            return String(format: "Averaging %.0f%% of peak across %d session%@ — lots of small files. "
                           + "Copying an archive or disk image instead moves the same bytes far faster.",
-                          mean * 100, group.sessions.count)
+                          mean * 100, n, n == 1 ? "" : "s")
         }
         return ""
     }
