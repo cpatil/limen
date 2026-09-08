@@ -48,6 +48,11 @@ final class MagnifierView: NSView {
             out.append((identity.joined(separator: "  ·  "), bodyFont, NSColor.labelColor))
         }
 
+        if !row.appleName.isEmpty {
+            // Its own line. Squeezed onto the link row beside the badge and the speed
+            // it had nowhere to go and was being cut mid-word.
+            out.append(("Apple calls this " + row.appleName, smallFont, NSColor.secondaryLabelColor))
+        }
         return out
     }
 
@@ -57,10 +62,6 @@ final class MagnifierView: NSView {
         var facts = ["total " + Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
                      + " · " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased()]
         if row.peak > 0 { facts.append("peak " + Fmt.rate(row.peak, unit: unit)) }
-        if row.linkTrusted,
-           let used = Reference.utilization(bytesPerSec: row.down + row.up, linkBits: row.linkBits) {
-            facts.append(String(format: "%.0f%% of link", used * 100))
-        }
         out.append((facts.joined(separator: "  ·  "), bodyFont, NSColor.secondaryLabelColor))
 
         for actor in row.actors {
@@ -71,6 +72,12 @@ final class MagnifierView: NSView {
             out.append((row.hint, smallFont, NSColor.systemBlue))
         }
         return out
+    }
+
+    /// How much of the link is in use, when that can be judged.
+    private func usage(_ row: Row) -> Double? {
+        guard row.linkTrusted else { return nil }
+        return Reference.utilization(bytesPerSec: row.down + row.up, linkBits: row.linkBits)
     }
 
     private func hasLinkRow(_ row: Row) -> Bool {
@@ -86,6 +93,7 @@ final class MagnifierView: NSView {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
         }
         if hasLinkRow(row) { height += 26 }
+        if usage(row) != nil { height += 28 }
         height += 10 + 14 + MagnifierView.chartHeight + 12       // scale labels + chart
         height += 46                                             // the two big rates
         for block in footerBlocks(for: row) {
@@ -142,12 +150,6 @@ final class MagnifierView: NSView {
                           color: NSColor.labelColor)
                 x += Text.width(speed, font: bodyFont) + 10
             }
-            if !row.appleName.isEmpty {
-                Text.draw(Text.clip("Apple: " + row.appleName, font: smallFont,
-                                    maxWidth: max(0, left + width - x)),
-                          at: NSPoint(x: x, y: y + 5), font: smallFont,
-                          color: NSColor.secondaryLabelColor)
-            }
             y += 26
         }
 
@@ -184,6 +186,33 @@ final class MagnifierView: NSView {
         Text.draw(Fmt.rate(row.up, unit: unit), at: NSPoint(x: mid, y: y + 13),
                   font: rateFont, color: Palette.up)
         y += 46
+
+        // A bar as well as a number: the share of a link is a proportion, and a
+        // proportion is read faster as a length than as text.
+        if let used = usage(row) {
+            let barWidth = width - 92
+            let bar = NSRect(x: left, y: y + 5, width: barWidth, height: 7)
+            Palette.hairline.setFill()
+            NSBezierPath(roundedRect: bar, xRadius: 3.5, yRadius: 3.5).fill()
+            let fraction = CGFloat(min(1, max(0, used)))
+            let fill = used >= 0.85 ? NSColor.systemOrange
+                     : (used >= 0.40 ? Palette.down : Palette.up)
+            fill.setFill()
+            NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY,
+                                             width: max(3, barWidth * fraction), height: bar.height),
+                         xRadius: 3.5, yRadius: 3.5).fill()
+            if let peakUsed = Reference.utilization(bytesPerSec: row.peak, linkBits: row.linkBits),
+               peakUsed > used + 0.03 {
+                let x = bar.minX + barWidth * CGFloat(min(1, peakUsed))
+                NSColor.labelColor.withAlphaComponent(0.6).setFill()
+                NSRect(x: min(bar.maxX - 2, x - 1), y: bar.minY - 3, width: 2, height: 13).fill()
+            }
+            Text.draw(String(format: "%.0f%% of link", used * 100),
+                      at: NSPoint(x: bar.maxX + 10, y: y),
+                      font: smallFont,
+                      color: used >= 0.85 ? NSColor.systemOrange : NSColor.secondaryLabelColor)
+            y += 28
+        }
 
         for block in footerBlocks(for: row) {
             let h = Text.wrappedHeight(block.text, font: block.font, width: width)
