@@ -1,0 +1,28 @@
+{
+      "version": 1,
+      "updated": "2026-09-08",
+      "entries": [
+        {"name":"USB 1.1","line":12000000,"payload":9600000,"family":"usb"},
+        {"name":"USB 2.0","appleName":"USB 2.0 high speed","line":480000000,"payload":320000000,"family":"usb"},
+        {"name":"USB 3.2 Gen 1","appleName":"USB 3.0 SuperSpeed","alias":"USB 3.0","line":5000000000,"payload":3600000000,"family":"usb"},
+        {"name":"USB 3.2 Gen 2","appleName":"USB 3.1 SuperSpeed+","alias":"USB 3.1 Gen 2","line":10000000000,"payload":8000000000,"family":"usb"},
+        {"name":"USB 3.2 Gen 2x2","line":20000000000,"payload":16000000000,"family":"usb"},
+        {"name":"USB4 / Thunderbolt 3","appleName":"Thunderbolt 3","line":40000000000,"payload":22000000000,"family":"usb"},
+        {"name":"USB4 v2 / Thunderbolt 5","appleName":"Thunderbolt 5","line":80000000000,"payload":50000000000,"family":"usb"},
+        {"name":"10 Mbit Ethernet","line":10000000,"payload":9400000,"family":"network"},
+        {"name":"100 Mbit Ethernet","line":100000000,"payload":94000000,"family":"network"},
+        {"name":"Wi-Fi 5","appleName":"802.11ac","line":866000000,"payload":400000000,"family":"network"},
+        {"name":"Gigabit Ethernet","line":1000000000,"payload":940000000,"family":"network"},
+        {"name":"Wi-Fi 6","appleName":"802.11ax","line":1200000000,"payload":700000000,"family":"network"},
+        {"name":"2.5G Ethernet","line":2500000000,"payload":2350000000,"family":"network"},
+        {"name":"Wi-Fi 6E","line":2400000000,"payload":1400000000,"family":"network"},
+        {"name":"10G Ethernet","line":10000000000,"payload":9400000000,"family":"network"},
+        {"name":"SD card (UHS-I)","line":832000000,"payload":720000000,"family":"storage"},
+        {"name":"hard disk","line":1200000000,"payload":1200000000,"family":"storage"},
+        {"name":"SD card (UHS-II)","line":2500000000,"payload":2200000000,"family":"storage"},
+        {"name":"SATA SSD","alias":"SATA III","line":6000000000,"payload":4400000000,"family":"storage"},
+        {"name":"SD Express","line":7900000000,"payload":6000000000,"family":"storage"},
+        {"name":"NVMe (Gen 3)","line":32000000000,"payload":28000000000,"family":"storage"},
+        {"name":"NVMe (Gen 4)","line":64000000000,"payload":56000000000,"family":"storage"}
+      ]
+    }

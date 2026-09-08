@@ -21,11 +21,12 @@ final class SummaryView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let gap: CGFloat = 18
         let width = (bounds.width - 32 - gap) / 2
-        drawPanel(title: "NETWORK", tint: Palette.up,
-                  down: netDown, up: netUp, downHist: netDownHist, upHist: netUpHist,
-                  in: NSRect(x: 16, y: bounds.minY, width: width, height: bounds.height))
+        // USB first, matching the columns beneath.
         drawPanel(title: "USB", tint: Palette.down,
                   down: usbDown, up: usbUp, downHist: usbDownHist, upHist: usbUpHist,
+                  in: NSRect(x: 16, y: bounds.minY, width: width, height: bounds.height))
+        drawPanel(title: "NETWORK", tint: Palette.up,
+                  down: netDown, up: netUp, downHist: netDownHist, upHist: netUpHist,
                   in: NSRect(x: 16 + width + gap, y: bounds.minY, width: width, height: bounds.height))
 
         // A hairline between the two so they read as separate measurements.
@@ -70,10 +71,14 @@ final class SummaryView: NSView {
 }
 
 final class RootView: NSView {
-    let modeControl = NSSegmentedControl(labels: ["All", "Network", "USB"],
-                                         trackingMode: .selectOne,
-                                         target: nil,
-                                         action: nil)
+    // USB on the left because that is what people are usually watching; network
+    // beside it so a card-to-share copy shows both halves at once.
+    let usbList = TrafficListView()
+    let netList = TrafficListView()
+    let usbScroll = NSScrollView()
+    let netScroll = NSScrollView()
+
+    let sortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let unitControl = NSSegmentedControl(labels: ["B/s", "bit/s"],
                                          trackingMode: .selectOne,
                                          target: nil,
@@ -81,11 +86,10 @@ final class RootView: NSView {
     let intervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let inactiveToggle = NSButton(checkboxWithTitle: "Show all", target: nil, action: nil)
     let summary = SummaryView()
-    let scrollView = NSScrollView()
-    let list = TrafficListView()
 
     private let headerHeight: CGFloat = 46
     private let summaryHeight: CGFloat = 120
+    private let columnLabelHeight: CGFloat = 24
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -99,77 +103,86 @@ final class RootView: NSView {
 
     private func setup() {
         wantsLayer = true
-
-        modeControl.selectedSegment = 0
         unitControl.selectedSegment = 0
+
         intervalPopup.addItems(withTitles: ["0.5 s", "1 s", "2 s", "5 s"])
         intervalPopup.selectItem(at: 1)
         intervalPopup.bezelStyle = .rounded
 
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.documentView = list
+        sortPopup.addItems(withTitles: [Monitor.SortOrder.activeFirst.title,
+                                        Monitor.SortOrder.name.title,
+                                        Monitor.SortOrder.rate.title,
+                                        Monitor.SortOrder.total.title])
+        sortPopup.selectItem(at: 0)
+        sortPopup.bezelStyle = .rounded
 
-        addSubview(modeControl)
+        for (scroll, list) in [(usbScroll, usbList), (netScroll, netList)] {
+            scroll.hasVerticalScroller = true
+            scroll.autohidesScrollers = true
+            scroll.drawsBackground = false
+            scroll.documentView = list
+            addSubview(scroll)
+        }
+        addSubview(sortPopup)
         addSubview(unitControl)
         addSubview(intervalPopup)
         addSubview(inactiveToggle)
         addSubview(summary)
-        addSubview(scrollView)
     }
 
     override var isFlipped: Bool { false }
 
+    private var splitX: CGFloat { (bounds.width / 2).rounded() }
+
     override func draw(_ dirtyRect: NSRect) {
         Palette.hairline.setFill()
         NSRect(x: 0, y: bounds.maxY - headerHeight, width: bounds.width, height: 1).fill()
-        NSRect(x: 0, y: bounds.maxY - headerHeight - summaryHeight, width: bounds.width, height: 1).fill()
+        let listTop = bounds.maxY - headerHeight - summaryHeight
+        NSRect(x: 0, y: listTop, width: bounds.width, height: 1).fill()
+        // The divider runs the whole height of the two columns so they read as two
+        // independent readings rather than one wrapped list.
+        NSRect(x: splitX, y: 0, width: 1, height: listTop).fill()
+
+        let labelFont = NSFont.systemFont(ofSize: 10, weight: .bold)
+        let labelY = listTop - columnLabelHeight + 6
+        Text.draw("USB", at: NSPoint(x: 16, y: labelY), font: labelFont, color: Palette.down)
+        Text.draw("NETWORK", at: NSPoint(x: splitX + 16, y: labelY), font: labelFont, color: Palette.up)
     }
 
     override func layout() {
         super.layout()
         let top = bounds.maxY
 
-        let modeSize = modeControl.fittingSize
-        modeControl.frame = NSRect(x: 16,
-                                   y: top - headerHeight + (headerHeight - modeSize.height) / 2,
-                                   width: modeSize.width,
-                                   height: modeSize.height)
+        func place(_ view: NSView, rightOf x: CGFloat, width: CGFloat, height: CGFloat) -> CGFloat {
+            view.frame = NSRect(x: x - width, y: top - headerHeight + (headerHeight - height) / 2,
+                                width: width, height: height)
+            return x - width
+        }
 
+        var cursor = bounds.maxX - 16
         let unitSize = unitControl.fittingSize
-        unitControl.frame = NSRect(x: bounds.maxX - 16 - unitSize.width,
-                                   y: top - headerHeight + (headerHeight - unitSize.height) / 2,
-                                   width: unitSize.width,
-                                   height: unitSize.height)
-
-        let popupSize = NSSize(width: 78, height: 24)
-        intervalPopup.frame = NSRect(x: unitControl.frame.minX - 10 - popupSize.width,
-                                     y: top - headerHeight + (headerHeight - popupSize.height) / 2,
-                                     width: popupSize.width,
-                                     height: popupSize.height)
-
+        cursor = place(unitControl, rightOf: cursor, width: unitSize.width, height: unitSize.height) - 10
+        cursor = place(intervalPopup, rightOf: cursor, width: 78, height: 24) - 10
         let toggleSize = inactiveToggle.fittingSize
-        inactiveToggle.frame = NSRect(x: intervalPopup.frame.minX - 12 - toggleSize.width,
-                                      y: top - headerHeight + (headerHeight - toggleSize.height) / 2,
-                                      width: toggleSize.width,
-                                      height: toggleSize.height)
+        cursor = place(inactiveToggle, rightOf: cursor, width: toggleSize.width, height: toggleSize.height) - 12
+        _ = place(sortPopup, rightOf: cursor, width: 130, height: 24)
 
-        summary.frame = NSRect(x: 0,
-                               y: top - headerHeight - summaryHeight,
-                               width: bounds.width,
-                               height: summaryHeight)
+        summary.frame = NSRect(x: 0, y: top - headerHeight - summaryHeight,
+                               width: bounds.width, height: summaryHeight)
 
-        scrollView.frame = NSRect(x: 0,
-                                  y: 0,
-                                  width: bounds.width,
-                                  height: max(0, bounds.height - headerHeight - summaryHeight - 1))
+        let listTop = top - headerHeight - summaryHeight - 1
+        let listHeight = max(0, listTop - columnLabelHeight)
+        usbScroll.frame = NSRect(x: 0, y: 0, width: splitX, height: listHeight)
+        netScroll.frame = NSRect(x: splitX + 1, y: 0,
+                                 width: bounds.width - splitX - 1, height: listHeight)
 
-        var listFrame = list.frame
-        listFrame.size.width = scrollView.contentView.bounds.width
-        listFrame.size.height = max(CGFloat(list.rows.count) * TrafficListView.rowHeight,
-                                    scrollView.contentView.bounds.height)
-        list.frame = listFrame
+        for (scroll, list) in [(usbScroll, usbList), (netScroll, netList)] {
+            var f = list.frame
+            f.size.width = scroll.contentView.bounds.width
+            f.size.height = max(CGFloat(list.rows.count) * TrafficListView.rowHeight,
+                                scroll.contentView.bounds.height)
+            list.frame = f
+        }
     }
 }
 
@@ -190,8 +203,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.setFrameAutosaveName("LimenWindow")
         window.makeKeyAndOrderFront(nil)
 
-        root.modeControl.target = self
-        root.modeControl.action = #selector(controlChanged)
+        root.sortPopup.target = self
+        root.sortPopup.action = #selector(sortChanged)
         root.unitControl.target = self
         root.unitControl.action = #selector(controlChanged)
         root.intervalPopup.target = self
@@ -201,10 +214,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Set the initial selection after the controls are wired up. Assigning it during view
         // construction did not stick, and the app opened on the USB tab.
-        root.modeControl.selectedSegment = 0   // All
         root.unitControl.selectedSegment = 0
         root.inactiveToggle.state = .off
         monitor.showInactive = false
+
+        // Pick up any newer speed catalogue in the background. Silent on failure -
+        // the bundled table is always a working floor.
+        Catalogue.refresh()
 
         monitor.onUpdate = { [weak self] in self?.refresh() }
         monitor.start()
@@ -221,6 +237,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh()
     }
 
+    @objc private func sortChanged() {
+        monitor.sortOrder = Monitor.SortOrder(rawValue: root.sortPopup.indexOfSelectedItem)
+            ?? .activeFirst
+        refresh()
+    }
+
     @objc private func intervalChanged() {
         let intervals: [TimeInterval] = [0.5, 1, 2, 5]
         let index = min(max(0, root.intervalPopup.indexOfSelectedItem), intervals.count - 1)
@@ -234,13 +256,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refresh() {
         let unit: RateUnit = root.unitControl.selectedSegment == 1 ? .bits : .bytes
-        let mode = root.modeControl.selectedSegment
 
-        root.list.unit = unit
+        root.usbList.unit = unit
+        root.netList.unit = unit
         root.summary.unit = unit
 
-        // The summary always reports both, whatever the list is filtered to: the
-        // point is watching one against the other.
         root.summary.netDown = monitor.totalDown
         root.summary.netUp = monitor.totalUp
         root.summary.netDownHist = monitor.totalDownHist
@@ -250,17 +270,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root.summary.usbDownHist = monitor.usbDownHist
         root.summary.usbUpHist = monitor.usbUpHist
 
-        switch mode {
-        case 1:
-            root.list.rows = monitor.networkRows
-            root.list.emptyMessage = "No active interfaces"
-        case 2:
-            root.list.rows = monitor.usbRows
-            root.list.emptyMessage = "No USB devices connected"
-        default:
-            root.list.rows = monitor.combinedRows
-            root.list.emptyMessage = "Nothing active"
-        }
+        root.usbList.rows = monitor.usbRows
+        root.usbList.emptyMessage = "No USB devices connected"
+        root.netList.rows = monitor.networkRows
+        root.netList.emptyMessage = "No active interfaces"
 
         root.summary.needsDisplay = true
         root.needsLayout = true

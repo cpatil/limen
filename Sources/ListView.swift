@@ -50,7 +50,6 @@ final class TrafficListView: NSView {
             return
         }
 
-        var previousSection = ""
         for (index, row) in rows.enumerated() {
             let rect = NSRect(x: 0,
                               y: CGFloat(index) * TrafficListView.rowHeight,
@@ -58,22 +57,7 @@ final class TrafficListView: NSView {
                               height: TrafficListView.rowHeight)
             if rect.intersects(dirtyRect) {
                 draw(row: row, in: rect, index: index)
-                // Network and USB share one page, so each group announces itself.
-                // Drawn after the row, because the row paints its own background and
-                // would otherwise cover the heading.
-                if row.section != previousSection && !row.section.isEmpty {
-                    let band = NSRect(x: 0, y: rect.minY, width: rect.width, height: 15)
-                    NSColor.textColor.withAlphaComponent(0.05).setFill()
-                    band.fill()
-                    Palette.hairline.setFill()
-                    NSRect(x: 0, y: rect.minY, width: rect.width, height: 1).fill()
-                    Text.draw(row.section.uppercased(),
-                              at: NSPoint(x: 16, y: rect.minY + 2),
-                              font: NSFont.systemFont(ofSize: 10, weight: .bold),
-                              color: NSColor.secondaryLabelColor)
-                }
             }
-            previousSection = row.section
         }
     }
 
@@ -87,8 +71,9 @@ final class TrafficListView: NSView {
         NSRect(x: 12, y: rect.maxY - 1, width: rect.width - 24, height: 1).fill()
 
         let rightEdge = rect.maxX - 16
-        let rateColumnWidth: CGFloat = 96
-        let chartWidth: CGFloat = 130
+        // The pane is half the window now, so the middle column gives way first.
+        let rateColumnWidth: CGFloat = 92
+        let chartWidth: CGFloat = min(130, max(54, rect.width * 0.22))
         let chartRight = rightEdge - rateColumnWidth - 16
         let chartLeft = chartRight - chartWidth
         let textLimit = chartLeft - 12 - 16
@@ -105,7 +90,8 @@ final class TrafficListView: NSView {
         var cursorX: CGFloat = 16
         let secondLineY = rect.minY + 36
         if !row.badge.isEmpty {
-            cursorX += Text.drawBadge(row.badge, at: NSPoint(x: cursorX, y: secondLineY), font: badgeFont) + 6
+            let badge = Text.clip(row.badge, font: badgeFont, maxWidth: textLimit - 24)
+            cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY), font: badgeFont) + 6
         }
         Text.draw(Text.clip(row.subtitle, font: subtitleFont, maxWidth: max(0, textLimit - cursorX)),
                   at: NSPoint(x: cursorX, y: secondLineY + 1),
@@ -199,6 +185,10 @@ final class TrafficListView: NSView {
         if !row.actors.isEmpty {
             footer = row.actors.map { "\($0.name) \(Fmt.rate($0.bytesPerSec, unit: unit))" }
                 .joined(separator: "   ")
+        }
+        if !row.appleName.isEmpty {
+            let apple = "Apple: " + row.appleName
+            footer += footer.isEmpty ? apple : "   ·   " + apple
         }
         if !row.hint.isEmpty {
             footer += footer.isEmpty ? row.hint : "   ·   " + row.hint

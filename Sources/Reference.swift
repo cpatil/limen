@@ -8,48 +8,49 @@ import Foundation
 /// headline number before a single byte of framing, so a "5 Gbit/s" port tops out
 /// nearer 450 MB/s. Judging a device against the advertised figure alone makes
 /// every device look broken.
+///
+/// The names matter too. The USB-IF has renamed the same wire three times, and
+/// Apple's System Information uses its own vocabulary again, so an entry carries
+/// both and the UI shows how they relate.
 struct SpeedRef {
-    enum Family {
+    enum Family: String {
         case usb, network, storage
     }
 
     let name: String
-    let line: Double        // bits/sec, as advertised
-    let payload: Double     // bits/sec, realistically sustained
+    let appleName: String?
+    let alias: String?
+    let line: Double
+    let payload: Double
     let family: Family
 
     var payloadBytes: Double { payload / 8 }
+
+    /// "USB 3.2 Gen 1 (Apple: USB 3.0 SuperSpeed)" when the two differ.
+    var bothNames: String {
+        guard let apple = appleName, apple != name else { return name }
+        return "\(name) (Apple: \(apple))"
+    }
 }
 
 enum Reference {
     private static let Mb = 1_000_000.0
     private static let Gb = 1_000_000_000.0
 
-    /// Approximate but deliberately conservative: these are the numbers a healthy
-    /// device actually reaches, not best-case marketing figures.
-    static let all: [SpeedRef] = [
-        SpeedRef(name: "USB 1.1", line: 12 * Mb, payload: 9.6 * Mb, family: .usb),
-        SpeedRef(name: "USB 2.0", line: 480 * Mb, payload: 320 * Mb, family: .usb),
-        SpeedRef(name: "USB 3.0", line: 5 * Gb, payload: 3.6 * Gb, family: .usb),
-        SpeedRef(name: "USB 3.1 Gen 2", line: 10 * Gb, payload: 8 * Gb, family: .usb),
-        SpeedRef(name: "USB 3.2 Gen 2x2", line: 20 * Gb, payload: 16 * Gb, family: .usb),
-        SpeedRef(name: "Thunderbolt 3/4", line: 40 * Gb, payload: 22 * Gb, family: .usb),
+    /// Loaded from the catalogue rather than hardcoded, so new transports arrive by
+    /// updating a JSON file instead of shipping a build.
+    static let all: [SpeedRef] = Catalogue.load().entries.map { e in
+        SpeedRef(name: e.name, appleName: e.appleName, alias: e.alias,
+                 line: e.line, payload: e.payload,
+                 family: SpeedRef.Family(rawValue: e.family) ?? .usb)
+    }
 
-        SpeedRef(name: "10 Mbit Ethernet", line: 10 * Mb, payload: 9.4 * Mb, family: .network),
-        SpeedRef(name: "100 Mbit Ethernet", line: 100 * Mb, payload: 94 * Mb, family: .network),
-        SpeedRef(name: "Wi-Fi 5", line: 866 * Mb, payload: 400 * Mb, family: .network),
-        SpeedRef(name: "Gigabit Ethernet", line: 1 * Gb, payload: 940 * Mb, family: .network),
-        SpeedRef(name: "Wi-Fi 6", line: 1.2 * Gb, payload: 700 * Mb, family: .network),
-        SpeedRef(name: "2.5G Ethernet", line: 2.5 * Gb, payload: 2.35 * Gb, family: .network),
-        SpeedRef(name: "10G Ethernet", line: 10 * Gb, payload: 9.4 * Gb, family: .network),
-
-        SpeedRef(name: "SD card (UHS-I)", line: 832 * Mb, payload: 720 * Mb, family: .storage),
-        SpeedRef(name: "hard disk", line: 1.2 * Gb, payload: 1.2 * Gb, family: .storage),
-        SpeedRef(name: "SD card (UHS-II)", line: 2.5 * Gb, payload: 2.2 * Gb, family: .storage),
-        SpeedRef(name: "SATA SSD", line: 6 * Gb, payload: 4.4 * Gb, family: .storage),
-        SpeedRef(name: "NVMe (Gen 3)", line: 32 * Gb, payload: 28 * Gb, family: .storage),
-        SpeedRef(name: "NVMe (Gen 4)", line: 64 * Gb, payload: 56 * Gb, family: .storage),
-    ]
+    /// The standard matching a negotiated link rate, for naming a port.
+    static func standard(forLinkBits linkBits: UInt64) -> SpeedRef? {
+        guard linkBits > 0 else { return nil }
+        let line = Double(linkBits)
+        return all.first { abs($0.line - line) / max($0.line, line) < 0.02 }
+    }
 
     /// The reference closest to a measured rate, compared in log space so "half of"
     /// and "twice" count as equally near.
@@ -78,13 +79,12 @@ enum Reference {
     /// The realistic ceiling for a link advertising `linkBits`, and the standard's name.
     static func ceiling(forLinkBits linkBits: UInt64) -> (bytes: Double, name: String)? {
         guard linkBits > 0 else { return nil }
-        let line = Double(linkBits)
-        if let ref = all.first(where: { abs($0.line - line) / max($0.line, line) < 0.02 }) {
+        if let ref = standard(forLinkBits: linkBits) {
             return (ref.payloadBytes, ref.name)
         }
         // Unknown standard: assume the usual ~15% of a link goes to overhead rather
         // than pretending the advertised rate is reachable.
-        return (line * 0.85 / 8, "")
+        return (Double(linkBits) * 0.85 / 8, "")
     }
 
     /// Whether the advertised link rate can be trusted as a ceiling.
@@ -146,8 +146,13 @@ enum Reference {
                 return "well under the link's ceiling — the media is the limit, not the port"
             }
         }
-        if headroom >= 0.85 {
-            return "saturating the link — a faster port is the only way up"
+        // Worth saying plainly when a transfer is doing as well as the wire allows -
+        // that is a good result, not a problem to investigate.
+        if headroom >= 0.95 {
+            return "at this link's practical ceiling — you cannot do better without faster hardware"
+        }
+        if headroom >= 0.80 {
+            return String(format: "%.0f%% of what this link can carry — about as good as it gets", headroom * 100)
         }
         return ""
     }

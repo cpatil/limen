@@ -28,6 +28,8 @@ struct Row {
     var actors: [Actor] = []
     /// A quiet suggestion about this device, when the measurements support one.
     var hint: String = ""
+    /// What Apple calls this link, when that differs from the neutral name.
+    var appleName: String = ""
     /// Every place this device is mounted. A single enclosure often carries
     /// several partitions, and the traffic may be on any of them.
     var mountRoots: [String] = []
@@ -47,6 +49,55 @@ final class Monitor {
         didSet { restartTimer() }
     }
     var showInactive = false
+    var sortOrder: SortOrder = .activeFirst
+
+    /// How the list is ordered. Rate-ranked ordering is available but not the
+    /// default: it reshuffles the list every second, which is unreadable while
+    /// anything is busy.
+    enum SortOrder: Int {
+        case activeFirst = 0
+        case name = 1
+        case rate = 2
+        case total = 3
+
+        var title: String {
+            switch self {
+            case .activeFirst: return "Active first"
+            case .name: return "Name"
+            case .rate: return "Current rate"
+            case .total: return "Total moved"
+            }
+        }
+    }
+
+    /// Ordering is applied here so both sections agree, and so "active first" stays
+    /// stable: it groups by whether a row is carrying traffic, then sorts by name
+    /// within each group, rather than by a rate that changes every tick.
+    static func ordered(_ rows: [Row], by order: SortOrder) -> [Row] {
+        func byName(_ a: Row, _ b: Row) -> Bool {
+            a.title.localizedStandardCompare(b.title) == .orderedAscending
+        }
+        switch order {
+        case .activeFirst:
+            return rows.sorted { a, b in
+                if a.active != b.active { return a.active }
+                if a.isPhysical != b.isPhysical { return a.isPhysical }
+                return byName(a, b)
+            }
+        case .name:
+            return rows.sorted(by: byName)
+        case .rate:
+            return rows.sorted { a, b in
+                let l = a.down + a.up, r = b.down + b.up
+                return l != r ? l > r : byName(a, b)
+            }
+        case .total:
+            return rows.sorted { a, b in
+                let l = a.totalDown + a.totalUp, r = b.totalDown + b.totalUp
+                return l != r ? l > r : byName(a, b)
+            }
+        }
+    }
 
     private(set) var networkRows: [Row] = []
     private(set) var usbRows: [Row] = []
@@ -243,13 +294,7 @@ final class Monitor {
             rows.append(row)
         }
 
-        // Stable order. Sorting by current rate meant rows swapped places every
-        // second, which makes the list impossible to read while anything is busy.
-        // Hardware first, then by name, and it stays put.
-        rows.sort { lhs, rhs in
-            if lhs.isPhysical != rhs.isPhysical { return lhs.isPhysical }
-            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
-        }
+        rows = Monitor.ordered(rows, by: sortOrder)
 
         // Default view: hardware interfaces (so Wi-Fi stays visible when idle) plus anything
         // currently moving data (so an active VPN tunnel still appears). "Show all" reveals
@@ -316,9 +361,13 @@ final class Monitor {
                 id: "usb:" + device.id,
                 title: device.name,
                 subtitle: subtitleParts.joined(separator: " · "),
-                badge: device.speedLabel + (device.linkSpeedBits > 0
-                    ? " · " + Fmt.linkSpeed(bitsPerSec: device.linkSpeedBits)
-                    : "")
+                // The neutral name on the badge; Apple's name goes in the footer, so
+                // both are visible without the badge overflowing a half-width pane.
+                badge: (Reference.standard(forLinkBits: device.linkSpeedBits)?.name
+                        ?? device.speedLabel)
+                    + (device.linkSpeedBits > 0
+                       ? " · " + Fmt.linkSpeed(bitsPerSec: device.linkSpeedBits)
+                       : "")
             )
             row.down = down
             row.up = up
@@ -331,6 +380,10 @@ final class Monitor {
             row.linkBits = device.linkSpeedBits
             row.peak = notePeak("usb:" + device.id, down + up)
             row.section = "USB"
+            if let std = Reference.standard(forLinkBits: device.linkSpeedBits),
+               let apple = std.appleName, apple != std.name {
+                row.appleName = apple
+            }
             row.hint = Reference.advice(peakBytesPerSec: row.peak,
                                         linkBits: device.linkSpeedBits,
                                         isStorage: !device.disks.isEmpty,
@@ -348,11 +401,7 @@ final class Monitor {
             rows.append(row)
         }
 
-        // Same reasoning: measurable devices first, then by name, held steady.
-        rows.sort { lhs, rhs in
-            if lhs.active != rhs.active { return lhs.active }
-            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
-        }
+        rows = Monitor.ordered(rows, by: sortOrder)
 
         usbRows = rows
         usbTotalDown = sumDown
