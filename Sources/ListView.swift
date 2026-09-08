@@ -3,12 +3,19 @@ import Cocoa
 /// Draws the whole list itself rather than using NSTableView cells. With fixed-height rows and
 /// no interaction beyond scrolling, one draw pass is far cheaper than a tree of subviews —
 /// which matters on the low-power hardware this targets.
-final class TrafficListView: NSView {
+final class TrafficListView: NSView, NSViewToolTipOwner {
     static let rowHeight: CGFloat = 84
+
+    /// Reports what the pointer is over, so the window can magnify it.
+    var onHover: ((Row?, MagnifierView.Zone, NSPoint) -> Void)?
+
+    private var tooltips: [NSView.ToolTipTag: String] = [:]
+    private var tracking: NSTrackingArea?
 
     var rows: [Row] = [] {
         didSet {
             invalidateHeight()
+            rebuildTooltips()
             needsDisplay = true
         }
     }
@@ -37,6 +44,83 @@ final class TrafficListView: NSView {
     override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
         invalidateHeight()
+        rebuildTooltips()
+    }
+
+    // ---- hovering -------------------------------------------------------
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = tracking { removeTrackingArea(existing) }
+        let area = NSTrackingArea(rect: bounds,
+                                  // activeAlways: this is a window you glance at, so
+                                  // hovering should enlarge without having to click
+                                  // into it first.
+                                  options: [.mouseMoved, .mouseEnteredAndExited,
+                                            .activeAlways, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    /// Which part of a row a point falls in. The geometry has to match draw(row:).
+    private func hit(_ point: NSPoint) -> (Row, MagnifierView.Zone)? {
+        let index = Int(point.y / TrafficListView.rowHeight)
+        guard index >= 0, index < rows.count else { return nil }
+        let row = rows[index]
+        let rightEdge = bounds.maxX - 16
+        let rateColumnWidth: CGFloat = 92
+        let chartWidth = min(130, max(54, bounds.width * 0.22))
+        let chartRight = rightEdge - rateColumnWidth - 16
+        if point.x >= chartRight { return (row, .rate) }
+        if point.x >= chartRight - chartWidth { return (row, .chart) }
+        return nil
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        if let (row, zone) = hit(local) {
+            onHover?(row, zone, convert(local, to: nil))
+        } else {
+            onHover?(nil, .rate, .zero)
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHover?(nil, .rate, .zero)
+    }
+
+    // ---- tooltips -------------------------------------------------------
+
+    /// Rows clip their text to fit, so the full value is offered on hover instead of
+    /// being lost to an ellipsis.
+    private func rebuildTooltips() {
+        removeAllToolTips()
+        tooltips.removeAll()
+        guard bounds.width > 0 else { return }
+        let rightEdge = bounds.maxX - 16
+        let chartWidth = min(130, max(54, bounds.width * 0.22))
+        let textWidth = max(40, rightEdge - 92 - 16 - chartWidth - 28)
+
+        for (index, row) in rows.enumerated() {
+            let y = CGFloat(index) * TrafficListView.rowHeight
+            var parts = [row.title]
+            if !row.badge.isEmpty { parts.append(row.badge) }
+            if !row.subtitle.isEmpty { parts.append(row.subtitle) }
+            if !row.appleName.isEmpty { parts.append("Apple: " + row.appleName) }
+            if !row.hint.isEmpty { parts.append(row.hint) }
+            for actor in row.actors {
+                parts.append(actor.display + " " + Fmt.rate(actor.bytesPerSec, unit: unit))
+            }
+            let rect = NSRect(x: 12, y: y, width: textWidth, height: TrafficListView.rowHeight)
+            let tag = addToolTip(rect, owner: self, userData: nil)
+            tooltips[tag] = parts.joined(separator: "\n")
+        }
+    }
+
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag,
+              point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        tooltips[tag] ?? ""
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -103,7 +187,8 @@ final class TrafficListView: NSView {
         // means little on its own, "half of USB 2.0" means something.
         var context = row.note
         if context.isEmpty && combined > 0 {
-            context = Reference.comparison(bytesPerSec: combined)
+            context = Reference.comparison(bytesPerSec: combined,
+                                           families: row.compareFamilies.isEmpty ? nil : row.compareFamilies)
         }
         Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit),
                   at: NSPoint(x: 16, y: rect.minY + 56),
@@ -124,8 +209,9 @@ final class TrafficListView: NSView {
 
         // Only meaningful when the link rate is believable and the row has actually
         // carried traffic; an idle port showing "0% of link" is just noise.
-        let credible = Reference.linkRateIsCredible(observedBytesPerSec: max(combined, row.peak),
-                                                    linkBits: row.linkBits)
+        let credible = row.linkTrusted
+            && Reference.linkRateIsCredible(observedBytesPerSec: max(combined, row.peak),
+                                            linkBits: row.linkBits)
         let showUtilisation = credible && (combined > 0 || row.peak > 0)
         if showUtilisation,
            let used = Reference.utilization(bytesPerSec: combined, linkBits: row.linkBits) {
@@ -194,7 +280,8 @@ final class TrafficListView: NSView {
             footer += footer.isEmpty ? row.hint : "   ·   " + row.hint
         }
         if !footer.isEmpty {
-            Text.draw(Text.clip(footer, font: totalFont, maxWidth: rect.width - 32),
+            // Stop short of the rate column, which shares this baseline.
+            Text.draw(Text.clip(footer, font: totalFont, maxWidth: max(0, chartRight - 24)),
                       at: NSPoint(x: 16, y: rect.minY + 68),
                       font: totalFont,
                       color: NSColor.tertiaryLabelColor)

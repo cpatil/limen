@@ -154,6 +154,9 @@ enum Catalogue {
         "cloudphotod": "iCloud Photos",
         "bird": "iCloud Drive",
         "fileproviderd": "File Provider",
+        "ThumbnailHelper": "Quick Look",
+        "QuickLookUIService": "Quick Look",
+        "quicklookd": "Quick Look",
         "AppleSpell": "Spell Checker",
         "Google Drive": "Google Drive",
         "Dropbox": "Dropbox"

@@ -30,6 +30,12 @@ struct Row {
     var hint: String = ""
     /// What Apple calls this link, when that differs from the neutral name.
     var appleName: String = ""
+    /// Whether the reported link rate can be presented as a capacity at all.
+    var linkTrusted: Bool = true
+    /// Which reference speeds this row may be compared against. Comparing a Wi-Fi
+    /// interface to USB 1.1, or a USB 3.0 card reader to USB 2.0, is arithmetically
+    /// nearest and completely meaningless.
+    var compareFamilies: [SpeedRef.Family] = []
     /// Every place this device is mounted. A single enclosure often carries
     /// several partitions, and the traffic may be on any of them.
     var mountRoots: [String] = []
@@ -127,6 +133,12 @@ final class Monitor {
     private var prevUSB: [String: USBDeviceInfo] = [:]
     private var lastSample: CFAbsoluteTime = 0
     private var peaks: [String: Double] = [:]
+    /// Link rates seen per interface. A real link speed is a constant; a value that
+    /// moves is a per-frame PHY rate, which is not a capacity and must not be shown
+    /// as one. macOS reports Wi-Fi this way - the same interface read 304 Mbit/s and
+    /// 30.2 Mbit/s minutes apart while moving far more than either.
+    private var linkRateSeen: [String: UInt64] = [:]
+    private var linkRateVaries: Set<String> = []
     private var prevProcs: [Int32: ProcSample] = [:]
     private var procs: [Int32: ProcSample] = [:]
     private var mounts: [String: String] = [:]
@@ -279,7 +291,7 @@ final class Monitor {
                 id: "net:" + name,
                 title: name,
                 subtitle: friendly[name] ?? NetSampler.kind(for: name),
-                badge: Fmt.linkSpeed(bitsPerSec: counters.baudrate)
+                badge: ""
             )
             row.down = down
             row.up = up
@@ -289,9 +301,23 @@ final class Monitor {
             row.upHist = hist.up
             row.active = down > 0 || up > 0
             row.isPhysical = isPhysical
+            if let first = linkRateSeen[name], first != counters.baudrate {
+                linkRateVaries.insert(name)
+            } else if linkRateSeen[name] == nil {
+                linkRateSeen[name] = counters.baudrate
+            }
             row.linkBits = counters.baudrate
             row.peak = notePeak("net:" + name, down + up)
+            // Trust it only if it has held steady and nothing has exceeded it.
+            row.linkTrusted = !linkRateVaries.contains(name)
+                && Reference.linkRateIsCredible(observedBytesPerSec: max(down + up, row.peak),
+                                                linkBits: counters.baudrate)
+            // Only present a link rate that is actually a capacity. A constant one
+            // (Thunderbolt, wired Ethernet) is real and stays; a fluctuating or
+            // already-exceeded one is dropped rather than shown as fact.
+            row.badge = row.linkTrusted ? Fmt.linkSpeed(bitsPerSec: counters.baudrate) : ""
             row.section = "Network"
+            row.compareFamilies = [.network]
             if counters.ierrors > 0 || counters.oerrors > 0 {
                 row.note = "\(counters.ierrors + counters.oerrors) errors"
             }
@@ -384,6 +410,10 @@ final class Monitor {
             row.linkBits = device.linkSpeedBits
             row.peak = notePeak("usb:" + device.id, down + up)
             row.section = "USB"
+            // Storage devices are best understood against other storage; a USB
+            // network adapter against other networks.
+            row.compareFamilies = !device.disks.isEmpty ? [.storage]
+                                : (!device.interfaces.isEmpty ? [.network] : [.usb])
             if let std = Reference.standard(forLinkBits: device.linkSpeedBits),
                let apple = std.appleName, apple != std.name {
                 row.appleName = apple

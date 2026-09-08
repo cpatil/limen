@@ -95,6 +95,10 @@ enum Reference {
     /// above the supposed ceiling proves the figure is not one, and a wrong
     /// denominator is worse than no denominator: it produced "270% of link".
     static func linkRateIsCredible(observedBytesPerSec: Double, linkBits: UInt64) -> Bool {
+        // No real interface runs below 1 Mbit/s. macOS reports 100 bit/s for adapters
+        // with no carrier, which is constant and never contradicted by traffic, so
+        // the other checks would happily accept it.
+        guard linkBits >= 1_000_000 else { return false }
         guard let cap = ceiling(forLinkBits: linkBits), cap.bytes > 0 else { return false }
         return observedBytesPerSec <= cap.bytes * 1.1
     }
