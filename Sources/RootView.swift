@@ -33,6 +33,21 @@ final class SummaryView: NSView {
 
         let chartLeft: CGFloat = 380
 
+        // What this rate is comparable to, and a tangible sense of scale. A bare
+        // "412 MB/s" is hard to judge; "= USB 3.0 ceiling, 1 GB in 2.5 s" is not.
+        let combined = downRate + upRate
+        if combined > 0 {
+            var bits: [String] = []
+            let near = Reference.comparison(bytesPerSec: combined)
+            if !near.isEmpty { bits.append(near) }
+            let oneGB = Reference.timeToMove(bytes: Reference.oneGigabyte, atBytesPerSec: combined)
+            if !oneGB.isEmpty { bits.append("1 GB in " + oneGB) }
+            Text.draw(bits.joined(separator: "   ·   "),
+                      at: NSPoint(x: 16, y: top - 72),
+                      font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                      color: NSColor.secondaryLabelColor)
+        }
+
         if !caption.isEmpty {
             // Clip rather than let a long caption run underneath the graph.
             Text.draw(Text.clip(caption, font: captionFont, maxWidth: chartLeft - 32),
@@ -67,7 +82,7 @@ final class RootView: NSView {
     let list = TrafficListView()
 
     private let headerHeight: CGFloat = 46
-    private let summaryHeight: CGFloat = 104
+    private let summaryHeight: CGFloat = 120
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

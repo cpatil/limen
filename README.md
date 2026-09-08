@@ -50,6 +50,31 @@ look like an idle device.
 Throughput is attributed to the device that actually owns it: the registry walk stops at nested
 USB devices, so a hub does not absorb the counters of a drive plugged into it.
 
+## Reading the speed, not just the number
+
+A bare "111 MB/s" says little. Each row also shows what the rate is comparable to,
+and how much of the link's realistic ceiling it is using:
+
+| Rate | Link | Shown as |
+|---|---|---|
+| 35 MB/s flash drive | USB 2.0 | 87.5% of link · ≈ USB 2.0 |
+| 111 MB/s hard disk | USB 3.0 | 24.7% of link · ≈ Gigabit Ethernet |
+| 420 MB/s SSD | USB 3.0 | 93.3% of link · ≈ USB 3.0 |
+| 2.6 GB/s NVMe | Thunderbolt | 94.5% of link · ≈ Thunderbolt 3/4 |
+
+The first and third are near their bus ceiling — the *link* is the limit. The second
+is a quarter of the same bus, so the *drive* is. The bar turns orange past 85%, and a
+tick marks the session peak so a link that briefly maxed out still shows it.
+
+Ceilings are realistic, not advertised. 8b/10b line coding costs USB 3.0 a fifth of
+its headline number before any protocol framing, so its "5 Gbit/s" is treated as
+~450 MB/s. Quoting the advertised rate makes every device look broken.
+
+The percentage is suppressed when the reported link rate is not credible — macOS
+reports `ifi_baudrate` for Wi-Fi as whatever PHY rate it last latched onto, often far
+below real throughput, which produced readings like "270% of link". Where the
+denominator cannot be trusted the row shows the session peak instead.
+
 ## Verified against real hardware
 
 On a 2015 12" MacBook (MacBook8,1, Core M-5Y71, macOS 11.7.11) with a USB 3.0 drive attached,

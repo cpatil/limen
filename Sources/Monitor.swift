@@ -17,6 +17,11 @@ struct Row {
     var active: Bool = false
     /// Backed by real hardware, so it is counted in the headline total and never hidden.
     var isPhysical: Bool = false
+    /// Negotiated link rate in bits/sec, for the utilisation read-out. 0 when unknown.
+    var linkBits: UInt64 = 0
+    /// Highest combined rate seen this session, so you can tell whether a link ever
+    /// approached its ceiling rather than only what it is doing right now.
+    var peak: Double = 0
 }
 
 /// Samples the system on a timer and turns raw cumulative counters into rates.
@@ -50,6 +55,7 @@ final class Monitor {
     private var prevNet: [String: NetCounters] = [:]
     private var prevUSB: [String: USBDeviceInfo] = [:]
     private var lastSample: CFAbsoluteTime = 0
+    private var peaks: [String: Double] = [:]
     private var histDown: [String: [Double]] = [:]
     private var histUp: [String: [Double]] = [:]
     private var friendly: [String: String] = [:]
@@ -106,6 +112,13 @@ final class Monitor {
     /// (interface reconfigured, device replugged), so report no traffic rather than a huge spike.
     private static func delta(_ current: UInt64, _ previous: UInt64) -> Double {
         current >= previous ? Double(current - previous) : 0
+    }
+
+    /// Remembers the highest rate seen for one row and returns it.
+    private func notePeak(_ key: String, _ value: Double) -> Double {
+        let best = max(peaks[key] ?? 0, value)
+        peaks[key] = best
+        return best
     }
 
     private func pushHistory(_ key: String, down: Double, up: Double) -> (down: [Double], up: [Double]) {
@@ -167,6 +180,8 @@ final class Monitor {
             row.upHist = hist.up
             row.active = down > 0 || up > 0
             row.isPhysical = isPhysical
+            row.linkBits = counters.baudrate
+            row.peak = notePeak("net:" + name, down + up)
             if counters.ierrors > 0 || counters.oerrors > 0 {
                 row.note = "\(counters.ierrors + counters.oerrors) errors"
             }
@@ -258,6 +273,8 @@ final class Monitor {
             row.upHist = hist.up
             row.active = measurable
             row.isPhysical = true
+            row.linkBits = device.linkSpeedBits
+            row.peak = notePeak("usb:" + device.id, down + up)
             // Be explicit about the limitation rather than drawing a flat line that looks like idle.
             row.note = measurable ? "" : "no byte counters for this device class"
             rows.append(row)
