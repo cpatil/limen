@@ -146,11 +146,13 @@ final class Monitor {
     private var histDown: [String: [Double]] = [:]
     private var histUp: [String: [Double]] = [:]
     private var friendly: [String: String] = [:]
+    private var wireless: Set<String> = []
     private var friendlyRefresh = 0
     private var timer: Timer?
 
     func start() {
         friendly = NetSampler.friendlyNames()
+        wireless = NetSampler.wirelessNames()
         primeCounters()
         restartTimer()
     }
@@ -184,7 +186,10 @@ final class Monitor {
         // SystemConfiguration lookups are comparatively expensive; refresh names occasionally
         // rather than every tick so the loop stays cheap on slower hardware.
         friendlyRefresh += 1
-        if friendlyRefresh % 10 == 0 { friendly = NetSampler.friendlyNames() }
+        if friendlyRefresh % 10 == 0 {
+            friendly = NetSampler.friendlyNames()
+            wireless = NetSampler.wirelessNames()
+        }
 
         // Snapshot the previous interface counters before updateNetwork replaces them:
         // updateUSB needs them to compute deltas for USB network adapters.
@@ -309,13 +314,16 @@ final class Monitor {
             row.linkBits = counters.baudrate
             row.peak = notePeak("net:" + name, down + up)
             // Trust it only if it has held steady and nothing has exceeded it.
-            row.linkTrusted = !linkRateVaries.contains(name)
+            // Wi-Fi is excluded outright rather than waiting to catch it changing:
+            // the number is a PHY rate by definition, not a link capacity.
+            row.linkTrusted = !wireless.contains(name)
+                && !linkRateVaries.contains(name)
                 && Reference.linkRateIsCredible(observedBytesPerSec: max(down + up, row.peak),
                                                 linkBits: counters.baudrate)
             // Only present a link rate that is actually a capacity. A constant one
             // (Thunderbolt, wired Ethernet) is real and stays; a fluctuating or
             // already-exceeded one is dropped rather than shown as fact.
-            row.badge = row.linkTrusted ? Fmt.linkSpeed(bitsPerSec: counters.baudrate) : ""
+            row.badge = ""   // interfaces have no standard name to show
             row.section = "Network"
             row.compareFamilies = [.network]
             if counters.ierrors > 0 || counters.oerrors > 0 {
@@ -393,11 +401,10 @@ final class Monitor {
                 subtitle: subtitleParts.joined(separator: " · "),
                 // The neutral name on the badge; Apple's name goes in the footer, so
                 // both are visible without the badge overflowing a half-width pane.
-                badge: (Reference.standard(forLinkBits: device.linkSpeedBits)?.name
-                        ?? device.speedLabel)
-                    + (device.linkSpeedBits > 0
-                       ? " · " + Fmt.linkSpeed(bitsPerSec: device.linkSpeedBits)
-                       : "")
+                // Name only. The speed is appended by the view, which knows whether
+                // bytes or bits is selected.
+                badge: Reference.standard(forLinkBits: device.linkSpeedBits)?.name
+                    ?? device.speedLabel
             )
             row.down = down
             row.up = up

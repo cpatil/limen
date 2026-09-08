@@ -119,7 +119,7 @@ enum Reference {
     /// been seen to mean something, so an idle device stays quiet.
     static func advice(peakBytesPerSec: Double, linkBits: UInt64,
                        isStorage: Bool, removableMedia: Bool) -> String {
-        guard isStorage, peakBytesPerSec > 4 * 1024 * 1024 else { return "" }
+        guard isStorage, peakBytesPerSec > 4_000_000 else { return "" }
         let peakBits = peakBytesPerSec * 8
 
         // Connected below the device's own potential: the port or cable is the fault,
@@ -140,13 +140,13 @@ enum Reference {
             if removableMedia, peakBits > 560 * 1_000_000, peakBits < 900 * 1_000_000 {
                 return "plateauing near UHS-I's ~90 MB/s limit — a UHS-II card and reader would roughly triple it"
             }
-            if removableMedia, peakBytesPerSec < 45 * 1024 * 1024 {
+            if removableMedia, peakBytesPerSec < 45_000_000 {
                 return "slow for a modern card — a UHS-I U3 or better would lift this"
             }
-            if !removableMedia, peakBytesPerSec > 60 * 1024 * 1024, peakBytesPerSec < 200 * 1024 * 1024 {
+            if !removableMedia, peakBytesPerSec > 60_000_000, peakBytesPerSec < 200_000_000 {
                 return "typical of a portable hard disk — an SSD would be several times faster"
             }
-            if peakBytesPerSec < 60 * 1024 * 1024 {
+            if peakBytesPerSec < 60_000_000 {
                 return "well under the link's ceiling — the media is the limit, not the port"
             }
         }
@@ -171,5 +171,5 @@ enum Reference {
         return String(format: "%.1f h", seconds / 3600)
     }
 
-    static let oneGigabyte = 1024.0 * 1024 * 1024
+    static let oneGigabyte = 1_000_000_000.0
 }

@@ -7,7 +7,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     static let rowHeight: CGFloat = 84
 
     /// Reports what the pointer is over, so the window can magnify it.
-    var onHover: ((Row?, MagnifierView.Zone, NSPoint) -> Void)?
+    var onHover: ((Row?, MagnifierView.Zone, String, NSPoint) -> Void)?
 
     private var tooltips: [NSView.ToolTipTag: String] = [:]
     private var tracking: NSTrackingArea?
@@ -74,26 +74,81 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         let chartRight = rightEdge - rateColumnWidth - 16
         if point.x >= chartRight { return (row, .rate) }
         if point.x >= chartRight - chartWidth { return (row, .chart) }
-        return nil
+        return (row, .info)
     }
 
     override func mouseMoved(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
         if let (row, zone) = hit(local) {
-            onHover?(row, zone, convert(local, to: nil))
+            onHover?(row, zone, details(for: row), convert(local, to: nil))
         } else {
-            onHover?(nil, .rate, .zero)
+            onHover?(nil, .rate, "", .zero)
         }
     }
 
     override func mouseExited(with event: NSEvent) {
-        onHover?(nil, .rate, .zero)
+        onHover?(nil, .rate, "", .zero)
     }
 
     // ---- tooltips -------------------------------------------------------
 
     /// Rows clip their text to fit, so the full value is offered on hover instead of
     /// being lost to an ellipsis.
+    /// Everything a row knows, unclipped. Shared by the tooltip, the magnified
+    /// panel and the copy command so the three never disagree.
+    func details(for row: Row) -> String {
+        var parts = [row.title]
+        if !row.badge.isEmpty { parts.append(row.badge) }
+        if row.linkTrusted, row.linkBits > 0 {
+            parts.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
+        }
+        if !row.subtitle.isEmpty { parts.append(row.subtitle) }
+        if !row.appleName.isEmpty { parts.append("Apple: " + row.appleName) }
+        if !row.mountRoots.isEmpty { parts.append("Mounted: " + row.mountRoots.joined(separator: ", ")) }
+        parts.append("Down " + Fmt.rate(row.down, unit: unit) + " · up " + Fmt.rate(row.up, unit: unit))
+        parts.append("Total " + Fmt.bytes(Double(row.totalDown)) + " in · "
+                     + Fmt.bytes(Double(row.totalUp)) + " out")
+        if row.peak > 0 { parts.append("Peak " + Fmt.rate(row.peak, unit: unit)) }
+        for actor in row.actors {
+            parts.append(actor.display + " " + Fmt.rate(actor.bytesPerSec, unit: unit))
+        }
+        if !row.hint.isEmpty { parts.append(row.hint) }
+        return parts.joined(separator: "\n")
+    }
+
+    /// Tooltips cannot be selected, so copying gets its own affordance.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let local = convert(event.locationInWindow, from: nil)
+        let index = Int(local.y / TrafficListView.rowHeight)
+        guard index >= 0, index < rows.count else { return nil }
+        let row = rows[index]
+
+        let menu = NSMenu()
+        let all = NSMenuItem(title: "Copy Details", action: #selector(copyText(_:)), keyEquivalent: "")
+        all.target = self
+        all.representedObject = details(for: row)
+        menu.addItem(all)
+
+        if !row.subtitle.isEmpty {
+            let sub = NSMenuItem(title: "Copy “\(Text.clip(row.subtitle, font: subtitleFont, maxWidth: 260))”",
+                                 action: #selector(copyText(_:)), keyEquivalent: "")
+            sub.target = self
+            sub.representedObject = row.subtitle
+            menu.addItem(sub)
+        }
+        let name = NSMenuItem(title: "Copy “\(row.title)”", action: #selector(copyText(_:)), keyEquivalent: "")
+        name.target = self
+        name.representedObject = row.title
+        menu.addItem(name)
+        return menu
+    }
+
+    @objc private func copyText(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     private func rebuildTooltips() {
         removeAllToolTips()
         tooltips.removeAll()
@@ -104,17 +159,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
         for (index, row) in rows.enumerated() {
             let y = CGFloat(index) * TrafficListView.rowHeight
-            var parts = [row.title]
-            if !row.badge.isEmpty { parts.append(row.badge) }
-            if !row.subtitle.isEmpty { parts.append(row.subtitle) }
-            if !row.appleName.isEmpty { parts.append("Apple: " + row.appleName) }
-            if !row.hint.isEmpty { parts.append(row.hint) }
-            for actor in row.actors {
-                parts.append(actor.display + " " + Fmt.rate(actor.bytesPerSec, unit: unit))
-            }
             let rect = NSRect(x: 12, y: y, width: textWidth, height: TrafficListView.rowHeight)
             let tag = addToolTip(rect, owner: self, userData: nil)
-            tooltips[tag] = parts.joined(separator: "\n")
+            tooltips[tag] = details(for: row)
         }
     }
 
@@ -173,8 +220,15 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
         var cursorX: CGFloat = 16
         let secondLineY = rect.minY + 36
-        if !row.badge.isEmpty {
-            let badge = Text.clip(row.badge, font: badgeFont, maxWidth: textLimit - 24)
+        // Standard name plus its speed in the selected unit, with the other in
+        // brackets - the eight-times relationship is the confusing part.
+        var badgeText = row.badge
+        if row.linkTrusted, row.linkBits > 0 {
+            let speed = Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit)
+            badgeText = badgeText.isEmpty ? speed : badgeText + " · " + speed
+        }
+        if !badgeText.isEmpty {
+            let badge = Text.clip(badgeText, font: badgeFont, maxWidth: textLimit - 24)
             cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY), font: badgeFont) + 6
         }
         Text.draw(Text.clip(row.subtitle, font: subtitleFont, maxWidth: max(0, textLimit - cursorX)),

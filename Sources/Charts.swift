@@ -84,6 +84,18 @@ enum Text {
         attributed.draw(at: origin)
     }
 
+    /// Multi-line text inside a box, for the magnified detail panel.
+    static func drawWrapped(_ string: String, in rect: NSRect, font: NSFont, color: NSColor) {
+        guard !string.isEmpty else { return }
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        style.lineSpacing = 2
+        NSAttributedString(string: string, attributes: [
+            .font: font, .foregroundColor: color, .paragraphStyle: style
+        ]).draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                context: nil)
+    }
+
     static func width(_ string: String, font: NSFont) -> CGFloat {
         NSAttributedString(string: string, attributes: [.font: font]).size().width
     }

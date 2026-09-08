@@ -8,16 +8,19 @@ import Cocoa
 /// never takes focus or swallows clicks.
 final class MagnifierView: NSView {
     enum Zone {
-        case rate, chart
+        case rate, chart, info
     }
 
     var row: Row?
     var zone: Zone = .rate
     var unit: RateUnit = .bytes
+    /// Full, unclipped detail text for the hovered row.
+    var details: String = ""
 
-    static let size = NSSize(width: 340, height: 168)
+    static let size = NSSize(width: 360, height: 186)
 
     override var isFlipped: Bool { false }
+    override var isOpaque: Bool { true }
     /// Never intercept the pointer - it sits above the list purely as decoration.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -26,9 +29,13 @@ final class MagnifierView: NSView {
 
         let card = bounds.insetBy(dx: 1, dy: 1)
         let path = NSBezierPath(roundedRect: card, xRadius: 12, yRadius: 12)
-        (NSColor.windowBackgroundColor.withAlphaComponent(0.98)).setFill()
+        // Fully opaque. windowBackgroundColor can composite as translucent, which let
+        // the row underneath show through and made the panel hard to read.
+        NSColor.textBackgroundColor.setFill()
         path.fill()
-        NSColor.labelColor.withAlphaComponent(0.22).setStroke()
+        NSColor.windowBackgroundColor.withAlphaComponent(0.55).setFill()
+        path.fill()
+        NSColor.labelColor.withAlphaComponent(0.35).setStroke()
         path.lineWidth = 1
         path.stroke()
 
@@ -51,6 +58,25 @@ final class MagnifierView: NSView {
                         + Fmt.bytes(Double(row.totalUp)) + " out",
                       at: NSPoint(x: card.minX + 16, y: card.minY + 12),
                       font: small, color: NSColor.tertiaryLabelColor)
+
+        case .info:
+            // The rows clip this text to fit; here it is in full and large enough to
+            // read, which is the whole point of the panel.
+            // details() leads with the name, which the panel already shows as a
+            // heading; drop it rather than printing it twice.
+            var body = details
+            if let firstBreak = body.range(of: "\n"), body.hasPrefix(row.title) {
+                body = String(body[firstBreak.upperBound...])
+            }
+            Text.drawWrapped(body,
+                             in: NSRect(x: card.minX + 16, y: card.minY + 30,
+                                        width: card.width - 32, height: card.height - 62),
+                             font: NSFont.systemFont(ofSize: 13),
+                             color: NSColor.labelColor)
+            Text.draw("right-click the row to copy",
+                      at: NSPoint(x: card.minX + 16, y: card.minY + 10),
+                      font: NSFont.systemFont(ofSize: 10),
+                      color: NSColor.tertiaryLabelColor)
 
         case .chart:
             let chart = NSRect(x: card.minX + 16, y: card.minY + 34,

@@ -162,8 +162,8 @@ final class RootView: NSView, NSSplitViewDelegate {
         // Hovering a rate or a chart enlarges it, so the small type in the rows does
         // not have to be squinted at.
         for list in [usbList, netList] {
-            list.onHover = { [weak self] row, zone, windowPoint in
-                self?.showMagnifier(row: row, zone: zone, at: windowPoint)
+            list.onHover = { [weak self] row, zone, details, windowPoint in
+                self?.showMagnifier(row: row, zone: zone, details: details, at: windowPoint)
             }
         }
 
@@ -196,13 +196,15 @@ final class RootView: NSView, NSSplitViewDelegate {
         max(260, splitView.bounds.width - 260)
     }
 
-    private func showMagnifier(row: Row?, zone: MagnifierView.Zone, at windowPoint: NSPoint) {
+    private func showMagnifier(row: Row?, zone: MagnifierView.Zone,
+                               details: String, at windowPoint: NSPoint) {
         guard let row = row else {
             magnifier.isHidden = true
             return
         }
         magnifier.row = row
         magnifier.zone = zone
+        magnifier.details = details
         magnifier.unit = usbList.unit
         let local = convert(windowPoint, from: nil)
         let size = MagnifierView.size
