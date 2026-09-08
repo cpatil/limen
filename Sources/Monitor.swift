@@ -243,12 +243,12 @@ final class Monitor {
             rows.append(row)
         }
 
+        // Stable order. Sorting by current rate meant rows swapped places every
+        // second, which makes the list impossible to read while anything is busy.
+        // Hardware first, then by name, and it stays put.
         rows.sort { lhs, rhs in
-            let l = lhs.down + lhs.up
-            let r = rhs.down + rhs.up
-            if l != r { return l > r }
-            if lhs.active != rhs.active { return lhs.active }
-            return lhs.title < rhs.title
+            if lhs.isPhysical != rhs.isPhysical { return lhs.isPhysical }
+            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
         }
 
         // Default view: hardware interfaces (so Wi-Fi stays visible when idle) plus anything
@@ -348,12 +348,10 @@ final class Monitor {
             rows.append(row)
         }
 
+        // Same reasoning: measurable devices first, then by name, held steady.
         rows.sort { lhs, rhs in
-            let l = lhs.down + lhs.up
-            let r = rhs.down + rhs.up
-            if l != r { return l > r }
             if lhs.active != rhs.active { return lhs.active }
-            return lhs.title.lowercased() < rhs.title.lowercased()
+            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
         }
 
         usbRows = rows

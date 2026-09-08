@@ -57,14 +57,21 @@ final class TrafficListView: NSView {
                               width: bounds.width,
                               height: TrafficListView.rowHeight)
             if rect.intersects(dirtyRect) {
+                draw(row: row, in: rect, index: index)
                 // Network and USB share one page, so each group announces itself.
+                // Drawn after the row, because the row paints its own background and
+                // would otherwise cover the heading.
                 if row.section != previousSection && !row.section.isEmpty {
+                    let band = NSRect(x: 0, y: rect.minY, width: rect.width, height: 15)
+                    NSColor.textColor.withAlphaComponent(0.05).setFill()
+                    band.fill()
+                    Palette.hairline.setFill()
+                    NSRect(x: 0, y: rect.minY, width: rect.width, height: 1).fill()
                     Text.draw(row.section.uppercased(),
                               at: NSPoint(x: 16, y: rect.minY + 2),
-                              font: NSFont.systemFont(ofSize: 9.5, weight: .bold),
-                              color: NSColor.tertiaryLabelColor)
+                              font: NSFont.systemFont(ofSize: 10, weight: .bold),
+                              color: NSColor.secondaryLabelColor)
                 }
-                draw(row: row, in: rect, index: index)
             }
             previousSection = row.section
         }
