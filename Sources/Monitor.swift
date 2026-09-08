@@ -30,6 +30,11 @@ struct Row {
     var hint: String = ""
     /// What Apple calls this link, when that differs from the neutral name.
     var appleName: String = ""
+    /// Identity, kept as separate fields rather than one joined subtitle so it can be
+    /// shown and copied on its own.
+    var vendor: String = ""
+    var deviceID: String = ""
+    var volumes: [String] = []
     /// Whether the reported link rate can be presented as a capacity at all.
     var linkTrusted: Bool = true
     /// Which reference speeds this row may be compared against. Comparing a Wi-Fi
@@ -326,6 +331,7 @@ final class Monitor {
             row.badge = ""   // interfaces have no standard name to show
             row.section = "Network"
             row.compareFamilies = [.network]
+            row.vendor = friendly[name] ?? ""
             if counters.ierrors > 0 || counters.oerrors > 0 {
                 row.note = "\(counters.ierrors + counters.oerrors) errors"
             }
@@ -388,10 +394,10 @@ final class Monitor {
             let hist = pushHistory("usb:" + device.id, down: down, up: up)
 
             var subtitleParts: [String] = []
+            let deviceID = (device.vendorID != 0 || device.productID != 0)
+                ? String(format: "%04x:%04x", device.vendorID, device.productID) : ""
             if !device.vendor.isEmpty { subtitleParts.append(device.vendor) }
-            if device.vendorID != 0 || device.productID != 0 {
-                subtitleParts.append(String(format: "%04x:%04x", device.vendorID, device.productID))
-            }
+            if !deviceID.isEmpty { subtitleParts.append(deviceID) }
             if !device.disks.isEmpty { subtitleParts.append(device.disks.joined(separator: ", ")) }
             if !device.interfaces.isEmpty { subtitleParts.append(device.interfaces.joined(separator: ", ")) }
 
@@ -417,6 +423,8 @@ final class Monitor {
             row.linkBits = device.linkSpeedBits
             row.peak = notePeak("usb:" + device.id, down + up)
             row.section = "USB"
+            row.vendor = device.vendor
+            row.deviceID = deviceID
             // Storage devices are best understood against other storage; a USB
             // network adapter against other networks.
             row.compareFamilies = !device.disks.isEmpty ? [.storage]
@@ -434,6 +442,8 @@ final class Monitor {
             // be touching any one of them.
             row.mountRoots = device.disks.compactMap { mounts[$0] }
                 .filter { $0.hasPrefix("/Volumes") }
+            // Volume names as shown in Finder, not full paths.
+            row.volumes = row.mountRoots.map { ($0 as NSString).lastPathComponent }
             if combinedActive(down, up), !row.mountRoots.isEmpty {
                 row.actors = actors(under: row.mountRoots, elapsed: elapsed)
             }

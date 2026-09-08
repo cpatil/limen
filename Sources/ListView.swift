@@ -80,7 +80,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     override func mouseMoved(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
         if let (row, zone) = hit(local) {
-            onHover?(row, zone, details(for: row), convert(local, to: nil))
+            onHover?(row, zone, identity(for: row), convert(local, to: nil))
         } else {
             onHover?(nil, .rate, "", .zero)
         }
@@ -94,17 +94,28 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
     /// Rows clip their text to fit, so the full value is offered on hover instead of
     /// being lost to an ellipsis.
-    /// Everything a row knows, unclipped. Shared by the tooltip, the magnified
-    /// panel and the copy command so the three never disagree.
-    func details(for row: Row) -> String {
+    /// Just what the thing is: its name, who made it, its identifier and the volumes
+    /// it presents. This is what the row clips and what hovering should reveal - not
+    /// the live measurements, which are already legible beside it.
+    func identity(for row: Row) -> String {
         var parts = [row.title]
-        if !row.badge.isEmpty { parts.append(row.badge) }
+        if !row.vendor.isEmpty, row.vendor != row.title { parts.append(row.vendor) }
+        if !row.deviceID.isEmpty { parts.append(row.deviceID) }
+        if !row.volumes.isEmpty {
+            parts.append(row.volumes.joined(separator: ", "))
+        } else if !row.subtitle.isEmpty, row.vendor.isEmpty, row.deviceID.isEmpty {
+            parts.append(row.subtitle)
+        }
+        if !row.appleName.isEmpty { parts.append("Apple: " + row.appleName) }
+        return parts.joined(separator: "\n")
+    }
+
+    /// The fuller picture, for the copy command only.
+    func details(for row: Row) -> String {
+        var parts = [identity(for: row)]
         if row.linkTrusted, row.linkBits > 0 {
             parts.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
         }
-        if !row.subtitle.isEmpty { parts.append(row.subtitle) }
-        if !row.appleName.isEmpty { parts.append("Apple: " + row.appleName) }
-        if !row.mountRoots.isEmpty { parts.append("Mounted: " + row.mountRoots.joined(separator: ", ")) }
         parts.append("Down " + Fmt.rate(row.down, unit: unit) + " · up " + Fmt.rate(row.up, unit: unit))
         parts.append("Total " + Fmt.bytes(Double(row.totalDown)) + " in · "
                      + Fmt.bytes(Double(row.totalUp)) + " out")
@@ -124,7 +135,12 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         let row = rows[index]
 
         let menu = NSMenu()
-        let all = NSMenuItem(title: "Copy Details", action: #selector(copyText(_:)), keyEquivalent: "")
+        let ident = NSMenuItem(title: "Copy Name and ID", action: #selector(copyText(_:)), keyEquivalent: "")
+        ident.target = self
+        ident.representedObject = identity(for: row)
+        menu.addItem(ident)
+
+        let all = NSMenuItem(title: "Copy Everything", action: #selector(copyText(_:)), keyEquivalent: "")
         all.target = self
         all.representedObject = details(for: row)
         menu.addItem(all)
@@ -161,7 +177,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             let y = CGFloat(index) * TrafficListView.rowHeight
             let rect = NSRect(x: 12, y: y, width: textWidth, height: TrafficListView.rowHeight)
             let tag = addToolTip(rect, owner: self, userData: nil)
-            tooltips[tag] = details(for: row)
+            tooltips[tag] = identity(for: row)
         }
     }
 
