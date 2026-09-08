@@ -47,15 +47,15 @@ final class MagnifierView: NSView {
         switch zone {
         case .rate:
             let big = NSFont.monospacedDigitSystemFont(ofSize: 30, weight: .medium)
-            Text.draw("\u{25BE} " + Fmt.rate(row.down, unit: unit),
+            Text.draw(row.inLong.padding(toLength: 5, withPad: " ", startingAt: 0) + " " + Fmt.rate(row.down, unit: unit),
                       at: NSPoint(x: card.minX + 16, y: card.maxY - 78),
                       font: big, color: Palette.down)
-            Text.draw("\u{25B4} " + Fmt.rate(row.up, unit: unit),
+            Text.draw(row.outLong.padding(toLength: 5, withPad: " ", startingAt: 0) + " " + Fmt.rate(row.up, unit: unit),
                       at: NSPoint(x: card.minX + 16, y: card.maxY - 122),
                       font: big, color: Palette.up)
             let small = NSFont.systemFont(ofSize: 11)
-            Text.draw("total " + Fmt.bytes(Double(row.totalDown)) + " in · "
-                        + Fmt.bytes(Double(row.totalUp)) + " out",
+            Text.draw("total " + Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased() + " · "
+                        + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased(),
                       at: NSPoint(x: card.minX + 16, y: card.minY + 12),
                       font: small, color: NSColor.tertiaryLabelColor)
 
@@ -83,10 +83,10 @@ final class MagnifierView: NSView {
                                width: card.width - 32, height: card.height - 76)
             Chart.draw(down: row.downHist, up: row.upHist, in: chart, lineWidth: 2)
             let small = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-            Text.draw("\u{25BE} " + Fmt.rate(row.down, unit: unit),
+            Text.draw(row.inShort + " " + Fmt.rate(row.down, unit: unit),
                       at: NSPoint(x: card.minX + 16, y: card.minY + 12),
                       font: small, color: Palette.down)
-            Text.draw("\u{25B4} " + Fmt.rate(row.up, unit: unit),
+            Text.draw(row.outShort + " " + Fmt.rate(row.up, unit: unit),
                       at: NSPoint(x: card.minX + 150, y: card.minY + 12),
                       font: small, color: Palette.up)
         }

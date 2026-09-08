@@ -8,25 +8,36 @@ import Cocoa
 final class ColumnView: NSView {
     let title: String
     let tint: NSColor
-    let list: TrafficListView
+    let content: NSView
     let scroll = NSScrollView()
 
     private let labelHeight: CGFloat = 24
 
-    init(title: String, tint: NSColor, list: TrafficListView) {
+    init(title: String, tint: NSColor, content: NSView) {
         self.title = title
         self.tint = tint
-        self.list = list
+        self.content = content
         super.init(frame: .zero)
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
-        scroll.documentView = list
+        scroll.documentView = content
         addSubview(scroll)
     }
 
     required init?(coder: NSCoder) {
         fatalError("not used")
+    }
+
+    /// Natural height of the content, so the scroller knows its range.
+    private var contentHeight: CGFloat {
+        if let list = content as? TrafficListView {
+            return CGFloat(list.rows.count) * TrafficListView.rowHeight
+        }
+        if let history = content as? HistoryView {
+            return CGFloat(history.sessions.count) * HistoryView.rowHeight
+        }
+        return content.frame.height
     }
 
     override var isFlipped: Bool { false }
@@ -42,10 +53,9 @@ final class ColumnView: NSView {
         super.layout()
         scroll.frame = NSRect(x: 0, y: 0, width: bounds.width,
                               height: max(0, bounds.height - labelHeight))
-        var f = list.frame
+        var f = content.frame
         f.size.width = scroll.contentView.bounds.width
-        f.size.height = max(CGFloat(list.rows.count) * TrafficListView.rowHeight,
-                            scroll.contentView.bounds.height)
-        list.frame = f
+        f.size.height = max(contentHeight, scroll.contentView.bounds.height)
+        content.frame = f
     }
 }

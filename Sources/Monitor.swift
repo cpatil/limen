@@ -35,6 +35,8 @@ struct Row {
     var vendor: String = ""
     var deviceID: String = ""
     var volumes: [String] = []
+    /// What to draw beside the name.
+    var icon: IconKind = .hub
     /// Whether the reported link rate can be presented as a capacity at all.
     var linkTrusted: Bool = true
     /// Which reference speeds this row may be compared against. Comparing a Wi-Fi
@@ -44,6 +46,16 @@ struct Row {
     /// Every place this device is mounted. A single enclosure often carries
     /// several partitions, and the traffic may be on any of them.
     var mountRoots: [String] = []
+}
+
+extension Row {
+    /// Storage is read and written; a network carries traffic in and out. Using one
+    /// vocabulary for both would be wrong for one of them.
+    var isStorageLike: Bool { section == "USB" }
+    var inShort: String { isStorageLike ? "R" : "IN" }
+    var outShort: String { isStorageLike ? "W" : "OUT" }
+    var inLong: String { isStorageLike ? "READ" : "IN" }
+    var outLong: String { isStorageLike ? "WRITE" : "OUT" }
 }
 
 /// Samples the system on a timer and turns raw cumulative counters into rates.
@@ -207,6 +219,9 @@ final class Monitor {
         procs = ProcessSampler.sample()
         updateNetwork(net, elapsed: elapsed)
         updateUSB(net, previousNet: previousNet, elapsed: elapsed)
+        // Fold this sample into the transfer history.
+        for row in networkRows + usbRows { TransferLog.shared.record(row: row) }
+
         allDown = totalDown + usbTotalDown
         allUp = totalUp + usbTotalUp
         Monitor.appendCapped(&allDownHist, allDown)
@@ -332,6 +347,7 @@ final class Monitor {
             row.section = "Network"
             row.compareFamilies = [.network]
             row.vendor = friendly[name] ?? ""
+            row.icon = IconKind.forInterface(name: name, wireless: wireless.contains(name))
             if counters.ierrors > 0 || counters.oerrors > 0 {
                 row.note = "\(counters.ierrors + counters.oerrors) errors"
             }
@@ -425,6 +441,9 @@ final class Monitor {
             row.section = "USB"
             row.vendor = device.vendor
             row.deviceID = deviceID
+            row.icon = IconKind.forUSB(hasDisks: !device.disks.isEmpty,
+                                       removableMedia: device.removableMedia,
+                                       hasInterfaces: !device.interfaces.isEmpty)
             // Storage devices are best understood against other storage; a USB
             // network adapter against other networks.
             row.compareFamilies = !device.disks.isEmpty ? [.storage]

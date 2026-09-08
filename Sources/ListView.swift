@@ -116,9 +116,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if row.linkTrusted, row.linkBits > 0 {
             parts.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
         }
-        parts.append("Down " + Fmt.rate(row.down, unit: unit) + " · up " + Fmt.rate(row.up, unit: unit))
-        parts.append("Total " + Fmt.bytes(Double(row.totalDown)) + " in · "
-                     + Fmt.bytes(Double(row.totalUp)) + " out")
+        parts.append(row.inLong.capitalized + " " + Fmt.rate(row.down, unit: unit)
+                     + " · " + row.outLong.lowercased() + " " + Fmt.rate(row.up, unit: unit))
+        parts.append("Total " + Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
+                     + " · " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased())
         if row.peak > 0 { parts.append("Peak " + Fmt.rate(row.peak, unit: unit)) }
         for actor in row.actors {
             parts.append(actor.display + " " + Fmt.rate(actor.bytesPerSec, unit: unit))
@@ -228,13 +229,18 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         let dimmed = row.active ? 1.0 : 0.55
 
         // ---- left column: what this is -----------------------------------
-        let title = Text.clip(row.title, font: titleFont, maxWidth: textLimit - 16)
+        let iconBox = NSRect(x: 16, y: rect.minY + 18, width: 18, height: 18)
+        Icons.draw(row.icon, in: iconBox,
+                   color: NSColor.secondaryLabelColor.withAlphaComponent(row.active ? 0.9 : 0.45))
+
+        let textLeft: CGFloat = 42
+        let title = Text.clip(row.title, font: titleFont, maxWidth: textLimit - textLeft)
         Text.draw(title,
-                  at: NSPoint(x: 16, y: rect.minY + 16),
+                  at: NSPoint(x: textLeft, y: rect.minY + 16),
                   font: titleFont,
                   color: NSColor.labelColor.withAlphaComponent(CGFloat(dimmed)))
 
-        var cursorX: CGFloat = 16
+        var cursorX: CGFloat = textLeft
         let secondLineY = rect.minY + 36
         // Standard name plus its speed in the selected unit, with the other in
         // brackets - the eight-times relationship is the confusing part.
@@ -260,8 +266,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             context = Reference.comparison(bytesPerSec: combined,
                                            families: row.compareFamilies.isEmpty ? nil : row.compareFamilies)
         }
-        Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit),
-                  at: NSPoint(x: 16, y: rect.minY + 56),
+        Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit - textLeft),
+                  at: NSPoint(x: textLeft, y: rect.minY + 56),
                   font: subtitleFont,
                   color: NSColor.tertiaryLabelColor)
 
@@ -312,10 +318,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         }
 
         // ---- right column: the numbers -----------------------------------
-        Text.draw("\u{25BE} " + Fmt.rate(row.down, unit: unit),
+        Text.draw(row.inShort + " " + Fmt.rate(row.down, unit: unit),
                   at: NSPoint(x: 0, y: rect.minY + 16),
                   font: rateFont, color: Palette.down, alignRight: rightEdge)
-        Text.draw("\u{25B4} " + Fmt.rate(row.up, unit: unit),
+        Text.draw(row.outShort + " " + Fmt.rate(row.up, unit: unit),
                   at: NSPoint(x: 0, y: rect.minY + 34),
                   font: rateFont, color: Palette.up, alignRight: rightEdge)
         Text.draw(Fmt.bytes(Double(row.totalDown)) + " / " + Fmt.bytes(Double(row.totalUp)),
@@ -351,8 +357,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         }
         if !footer.isEmpty {
             // Stop short of the rate column, which shares this baseline.
-            Text.draw(Text.clip(footer, font: totalFont, maxWidth: max(0, chartRight - 24)),
-                      at: NSPoint(x: 16, y: rect.minY + 68),
+            Text.draw(Text.clip(footer, font: totalFont, maxWidth: max(0, chartRight - textLeft - 8)),
+                      at: NSPoint(x: textLeft, y: rect.minY + 68),
                       font: totalFont,
                       color: NSColor.tertiaryLabelColor)
         }

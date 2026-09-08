@@ -23,9 +23,11 @@ final class SummaryView: NSView {
         let width = (bounds.width - 32 - gap) / 2
         // USB first, matching the columns beneath.
         drawPanel(title: "USB", tint: Palette.down, families: [.storage],
+                  inLabel: "READ", outLabel: "WRITE",
                   down: usbDown, up: usbUp, downHist: usbDownHist, upHist: usbUpHist,
                   in: NSRect(x: 16, y: bounds.minY, width: width, height: bounds.height))
         drawPanel(title: "NETWORK", tint: Palette.up, families: [.network],
+                  inLabel: "IN", outLabel: "OUT",
                   down: netDown, up: netUp, downHist: netDownHist, upHist: netUpHist,
                   in: NSRect(x: 16 + width + gap, y: bounds.minY, width: width, height: bounds.height))
 
@@ -36,24 +38,25 @@ final class SummaryView: NSView {
     }
 
     private func drawPanel(title: String, tint: NSColor, families: [SpeedRef.Family],
+                           inLabel: String, outLabel: String,
                            down: Double, up: Double,
                            downHist: [Double], upHist: [Double], in rect: NSRect) {
         let labelFont = NSFont.systemFont(ofSize: 9.5, weight: .bold)
-        let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 24, weight: .medium)
+        let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 22, weight: .medium)
+        let tagFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
         let smallFont = NSFont.systemFont(ofSize: 10.5)
         let top = rect.maxY - 16
 
         Text.draw(title, at: NSPoint(x: rect.minX, y: top - 11), font: labelFont, color: tint)
 
-        // Down and up on one line, side by side: easier to compare at a glance and
-        // it frees the vertical space to set them larger.
-        let downText = "\u{25BE} " + Fmt.rate(down, unit: unit)
-        let upText = "\u{25B4} " + Fmt.rate(up, unit: unit)
-        let rateY = top - 48
-        Text.draw(downText, at: NSPoint(x: rect.minX, y: rateY), font: rateFont, color: Palette.down)
-        let gapAfterDown = max(Text.width(downText, font: rateFont) + 26, 168)
-        Text.draw(upText, at: NSPoint(x: rect.minX + gapAfterDown, y: rateY),
-                  font: rateFont, color: Palette.up)
+        // Stacked, with the chart beside them rather than underneath: side by side put
+        // the graph behind the numbers as soon as anything moved.
+        Text.draw(inLabel, at: NSPoint(x: rect.minX, y: top - 36), font: tagFont, color: Palette.down)
+        Text.draw(Fmt.rate(down, unit: unit),
+                  at: NSPoint(x: rect.minX + 42, y: top - 44), font: rateFont, color: Palette.down)
+        Text.draw(outLabel, at: NSPoint(x: rect.minX, y: top - 68), font: tagFont, color: Palette.up)
+        Text.draw(Fmt.rate(up, unit: unit),
+                  at: NSPoint(x: rect.minX + 42, y: top - 76), font: rateFont, color: Palette.up)
 
         let combined = down + up
         if combined > 0 {
@@ -67,10 +70,11 @@ final class SummaryView: NSView {
                       font: smallFont, color: NSColor.tertiaryLabelColor)
         }
 
-        let chartRect = NSRect(x: rect.minX, y: rect.minY + 26,
-                               width: rect.width, height: max(0, rect.height - 78))
-        if chartRect.width > 30 {
-            Chart.draw(down: downHist, up: upHist, in: chartRect, lineWidth: 1.4)
+        let chartLeft = rect.minX + 214
+        let chartRect = NSRect(x: chartLeft, y: rect.minY + 26,
+                               width: max(0, rect.maxX - chartLeft), height: rect.height - 46)
+        if chartRect.width > 40 {
+            Chart.draw(down: downHist, up: upHist, in: chartRect, lineWidth: 1.5)
         }
     }
 }
@@ -78,9 +82,16 @@ final class SummaryView: NSView {
 final class RootView: NSView, NSSplitViewDelegate {
     let usbList = TrafficListView()
     let netList = TrafficListView()
-    private lazy var usbColumn = ColumnView(title: "USB", tint: Palette.down, list: usbList)
-    private lazy var netColumn = ColumnView(title: "NETWORK", tint: Palette.up, list: netList)
-    let splitView = NSSplitView()
+    let historyList = HistoryView()
+    private lazy var usbColumn = ColumnView(title: "USB", tint: Palette.down, content: usbList)
+    private lazy var netColumn = ColumnView(title: "NETWORK", tint: Palette.up, content: netList)
+    private lazy var historyColumn = ColumnView(title: "TRANSFER SESSIONS",
+                                                tint: NSColor.secondaryLabelColor,
+                                                content: historyList)
+    /// USB beside network, with the session log underneath - all three draggable and
+    /// all three remembered.
+    let columnsSplit = NSSplitView()
+    let outerSplit = NSSplitView()
     private let magnifier = MagnifierView()
 
     let sortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -144,14 +155,21 @@ final class RootView: NSView, NSSplitViewDelegate {
             + "data. Turning this on also reveals loopback, VPN tunnels, bridges and "
             + "other virtual interfaces, and USB hubs with nothing attached."
 
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
-        splitView.delegate = self
-        // AppKit persists the divider position under this name, so the split you
+        columnsSplit.isVertical = true
+        columnsSplit.dividerStyle = .thin
+        columnsSplit.delegate = self
+        // AppKit persists divider positions under these names, so the layout you
         // choose survives relaunching.
-        splitView.autosaveName = "LimenColumns"
-        splitView.addArrangedSubview(usbColumn)
-        splitView.addArrangedSubview(netColumn)
+        columnsSplit.autosaveName = "LimenColumns"
+        columnsSplit.addArrangedSubview(usbColumn)
+        columnsSplit.addArrangedSubview(netColumn)
+
+        outerSplit.isVertical = false
+        outerSplit.dividerStyle = .thin
+        outerSplit.delegate = self
+        outerSplit.autosaveName = "LimenRows"
+        outerSplit.addArrangedSubview(columnsSplit)
+        outerSplit.addArrangedSubview(historyColumn)
 
         magnifier.isHidden = true
         magnifier.wantsLayer = true
@@ -167,7 +185,7 @@ final class RootView: NSView, NSSplitViewDelegate {
             }
         }
 
-        addSubview(splitView)
+        addSubview(outerSplit)
         addSubview(magnifier)
         addSubview(sortPopup)
         addSubview(unitControl)
@@ -188,12 +206,14 @@ final class RootView: NSView, NSSplitViewDelegate {
     // Keep either column from being dragged away entirely.
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMin: CGFloat,
                    ofSubviewAt dividerIndex: Int) -> CGFloat {
-        260
+        splitView === outerSplit ? 150 : 260
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMax: CGFloat,
                    ofSubviewAt dividerIndex: Int) -> CGFloat {
-        max(260, splitView.bounds.width - 260)
+        splitView === outerSplit
+            ? max(150, splitView.bounds.height - 110)
+            : max(260, splitView.bounds.width - 260)
     }
 
     private func showMagnifier(row: Row?, zone: MagnifierView.Zone,
@@ -238,8 +258,8 @@ final class RootView: NSView, NSSplitViewDelegate {
 
         summary.frame = NSRect(x: 0, y: top - headerHeight - summaryHeight,
                                width: bounds.width, height: summaryHeight)
-        splitView.frame = NSRect(x: 0, y: 0, width: bounds.width,
-                                 height: max(0, top - headerHeight - summaryHeight - 1))
+        outerSplit.frame = NSRect(x: 0, y: 0, width: bounds.width,
+                                  height: max(0, top - headerHeight - summaryHeight - 1))
     }
 }
 
@@ -247,6 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
     private let root = RootView(frame: NSRect(x: 0, y: 0, width: 980, height: 660))
     private let monitor = Monitor()
+
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 660),
@@ -376,6 +397,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root.netList.rows = monitor.networkRows
         root.netList.emptyMessage = "No active interfaces"
 
+        root.historyList.unit = unit
+        // Running sessions first, so the pane is useful while a copy is happening.
+        root.historyList.sessions = TransferLog.shared.inFlight + TransferLog.shared.sessions
         root.summary.needsDisplay = true
         root.needsLayout = true
     }
