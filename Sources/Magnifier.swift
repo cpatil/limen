@@ -1,11 +1,11 @@
 import Cocoa
 
-/// An enlarged view of whatever the pointer is over.
+/// An enlarged card for whatever the pointer is over.
 ///
-/// The rows pack a lot into small type. Rather than making every row bigger, the
-/// one thing being looked at is shown large: hovering a rate enlarges the numbers,
-/// hovering a chart redraws it several times the size. It follows the pointer and
-/// never takes focus or swallows clicks.
+/// The rows pack a lot into small type. Rather than making every row bigger, the one
+/// being looked at is shown properly: identity, link, live rates, history and what
+/// is driving it, all at a size that can be read without leaning in. It follows the
+/// pointer, never takes focus and never swallows clicks.
 final class MagnifierView: NSView {
     enum Zone {
         case rate, chart, info
@@ -14,12 +14,10 @@ final class MagnifierView: NSView {
     var row: Row?
     var zone: Zone = .rate
     var unit: RateUnit = .bytes
-    /// Full, unclipped detail text for the hovered row.
     var details: String = ""
-    /// Seconds per sample, so the chart can say how much time it covers.
     var sampleInterval: TimeInterval = 1
 
-    static let size = NSSize(width: 360, height: 186)
+    static let size = NSSize(width: 392, height: 268)
 
     override var isFlipped: Bool { false }
     /// Never intercept the pointer - it sits above the list purely as decoration.
@@ -40,71 +38,91 @@ final class MagnifierView: NSView {
         path.lineWidth = 1
         path.stroke()
 
-        let titleFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
-        Text.draw(Text.clip(row.title, font: titleFont, maxWidth: card.width - 32),
-                  at: NSPoint(x: card.minX + 16, y: card.maxY - 30),
+        let left = card.minX + 18
+        let right = card.maxX - 18
+        let width = right - left
+
+        // ---- identity ----------------------------------------------------
+        Icons.draw(row.icon, in: NSRect(x: left, y: card.maxY - 38, width: 20, height: 20),
+                   color: NSColor.secondaryLabelColor)
+        let titleFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        Text.draw(Text.clip(row.title, font: titleFont, maxWidth: width - 30),
+                  at: NSPoint(x: left + 28, y: card.maxY - 38),
                   font: titleFont, color: NSColor.labelColor)
 
-        switch zone {
-        case .rate:
-            let big = NSFont.monospacedDigitSystemFont(ofSize: 30, weight: .medium)
-            Text.draw(row.inLong.padding(toLength: 5, withPad: " ", startingAt: 0) + " " + Fmt.rate(row.down, unit: unit),
-                      at: NSPoint(x: card.minX + 16, y: card.maxY - 78),
-                      font: big, color: Palette.down)
-            Text.draw(row.outLong.padding(toLength: 5, withPad: " ", startingAt: 0) + " " + Fmt.rate(row.up, unit: unit),
-                      at: NSPoint(x: card.minX + 16, y: card.maxY - 122),
-                      font: big, color: Palette.up)
-            let small = NSFont.systemFont(ofSize: 11)
-            Text.draw("total " + Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased() + " · "
-                        + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased(),
-                      at: NSPoint(x: card.minX + 16, y: card.minY + 12),
-                      font: small, color: NSColor.tertiaryLabelColor)
+        let subFont = NSFont.systemFont(ofSize: 11.5)
+        var identity: [String] = []
+        if !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
+        if !row.deviceID.isEmpty { identity.append(row.deviceID) }
+        if !row.volumes.isEmpty { identity.append(row.volumes.joined(separator: ", ")) }
+        if identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
+        Text.draw(Text.clip(identity.joined(separator: "  ·  "), font: subFont, maxWidth: width),
+                  at: NSPoint(x: left, y: card.maxY - 58), font: subFont,
+                  color: NSColor.secondaryLabelColor)
 
-        case .info:
-            // The rows clip this text to fit; here it is in full and large enough to
-            // read, which is the whole point of the panel.
-            // details() leads with the name, which the panel already shows as a
-            // heading; drop it rather than printing it twice.
-            var body = details
-            if let firstBreak = body.range(of: "\n"), body.hasPrefix(row.title) {
-                body = String(body[firstBreak.upperBound...])
-            }
-            Text.drawWrapped(body,
-                             in: NSRect(x: card.minX + 16, y: card.minY + 30,
-                                        width: card.width - 32, height: card.height - 62),
-                             font: NSFont.systemFont(ofSize: 13),
-                             color: NSColor.labelColor)
-            Text.draw("right-click the row to copy",
-                      at: NSPoint(x: card.minX + 16, y: card.minY + 10),
-                      font: NSFont.systemFont(ofSize: 10),
+        // ---- link --------------------------------------------------------
+        var link: [String] = []
+        if !row.badge.isEmpty { link.append(row.badge) }
+        if row.linkTrusted, row.linkBits > 0 {
+            link.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
+        }
+        if !row.appleName.isEmpty { link.append("Apple: " + row.appleName) }
+        if !link.isEmpty {
+            Text.draw(Text.clip(link.joined(separator: "  ·  "), font: subFont, maxWidth: width),
+                      at: NSPoint(x: left, y: card.maxY - 76), font: subFont,
                       color: NSColor.tertiaryLabelColor)
+        }
 
-        case .chart:
-            let chart = NSRect(x: card.minX + 16, y: card.minY + 34,
-                               width: card.width - 32, height: card.height - 76)
-            Chart.draw(down: row.downHist, up: row.upHist, in: chart, lineWidth: 2)
+        // ---- history -----------------------------------------------------
+        let chart = NSRect(x: left, y: card.minY + 96, width: width, height: 74)
+        Chart.draw(down: row.downHist, up: row.upHist, in: chart, lineWidth: 1.8)
+        let tick = NSFont.systemFont(ofSize: 10)
+        NSColor.tertiaryLabelColor.withAlphaComponent(0.4).setFill()
+        NSRect(x: chart.minX, y: chart.maxY, width: chart.width, height: 1).fill()
+        let scale = Chart.peak(down: row.downHist, up: row.upHist)
+        Text.draw(Fmt.rate(scale, unit: unit) + " full scale",
+                  at: NSPoint(x: 0, y: chart.maxY + 3), font: tick,
+                  color: NSColor.secondaryLabelColor, alignRight: right)
+        let span = Double(Monitor.historyLength) * sampleInterval
+        Text.draw(span >= 120 ? String(format: "last %.0f min", span / 60)
+                              : String(format: "last %.0f s", span),
+                  at: NSPoint(x: chart.minX, y: chart.maxY + 3), font: tick,
+                  color: NSColor.tertiaryLabelColor)
 
-            // Label the scale. Without it the shape conveys nothing about magnitude:
-            // an idle line and a saturated one look identical.
-            let scale = Chart.peak(down: row.downHist, up: row.upHist)
-            let tick = NSFont.systemFont(ofSize: 10)
-            NSColor.tertiaryLabelColor.withAlphaComponent(0.45).setFill()
-            NSRect(x: chart.minX, y: chart.maxY, width: chart.width, height: 1).fill()
-            Text.draw(Fmt.rate(scale, unit: unit) + " full scale",
-                      at: NSPoint(x: 0, y: chart.maxY + 3), font: tick,
-                      color: NSColor.secondaryLabelColor, alignRight: chart.maxX)
-            let span = Double(Monitor.historyLength) * sampleInterval
-            Text.draw(span >= 120 ? String(format: "last %.0f min", span / 60)
-                                  : String(format: "last %.0f s", span),
-                      at: NSPoint(x: chart.minX, y: chart.maxY + 3), font: tick,
-                      color: NSColor.tertiaryLabelColor)
-            let small = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-            Text.draw(row.inShort + " " + Fmt.rate(row.down, unit: unit),
-                      at: NSPoint(x: card.minX + 16, y: card.minY + 12),
-                      font: small, color: Palette.down)
-            Text.draw(row.outShort + " " + Fmt.rate(row.up, unit: unit),
-                      at: NSPoint(x: card.minX + 150, y: card.minY + 12),
-                      font: small, color: Palette.up)
+        // ---- live rates --------------------------------------------------
+        let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .medium)
+        let tagFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
+        let rateY = card.minY + 62
+        Text.draw(row.inLong, at: NSPoint(x: left, y: rateY + 20), font: tagFont, color: Palette.down)
+        Text.draw(Fmt.rate(row.down, unit: unit),
+                  at: NSPoint(x: left, y: rateY), font: rateFont, color: Palette.down)
+        let mid = left + width / 2
+        Text.draw(row.outLong, at: NSPoint(x: mid, y: rateY + 20), font: tagFont, color: Palette.up)
+        Text.draw(Fmt.rate(row.up, unit: unit),
+                  at: NSPoint(x: mid, y: rateY), font: rateFont, color: Palette.up)
+
+        // ---- totals, peak, utilisation ------------------------------------
+        var facts = ["total " + Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
+                     + " · " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased()]
+        if row.peak > 0 { facts.append("peak " + Fmt.rate(row.peak, unit: unit)) }
+        if row.linkTrusted,
+           let used = Reference.utilization(bytesPerSec: row.down + row.up, linkBits: row.linkBits) {
+            facts.append(String(format: "%.0f%% of link", used * 100))
+        }
+        Text.draw(Text.clip(facts.joined(separator: "  ·  "), font: subFont, maxWidth: width),
+                  at: NSPoint(x: left, y: card.minY + 40), font: subFont,
+                  color: NSColor.secondaryLabelColor)
+
+        // ---- who is doing it, and any advice -------------------------------
+        var footer: [String] = row.actors.map {
+            $0.display + " " + Fmt.rate($0.bytesPerSec, unit: unit)
+        }
+        if !row.hint.isEmpty { footer.append(row.hint) }
+        if !footer.isEmpty {
+            Text.drawWrapped(footer.joined(separator: "  ·  "),
+                             in: NSRect(x: left, y: card.minY + 10, width: width, height: 28),
+                             font: NSFont.systemFont(ofSize: 11),
+                             color: NSColor.tertiaryLabelColor)
         }
     }
 }

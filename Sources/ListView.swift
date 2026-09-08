@@ -113,62 +113,28 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         var parts = [row.title]
         if !row.vendor.isEmpty, row.vendor != row.title { parts.append(row.vendor) }
         if !row.deviceID.isEmpty { parts.append(row.deviceID) }
-        if !row.volumes.isEmpty {
-            parts.append(row.volumes.joined(separator: ", "))
-        } else if !row.subtitle.isEmpty, row.vendor.isEmpty, row.deviceID.isEmpty {
-            parts.append(row.subtitle)
+        if !row.volumes.isEmpty { parts.append(row.volumes.joined(separator: ", ")) }
+        if parts.count == 1, !row.subtitle.isEmpty { parts.append(row.subtitle) }
+        if !row.badge.isEmpty { parts.append(row.badge) }
+        if row.linkTrusted, row.linkBits > 0 {
+            parts.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
         }
         if !row.appleName.isEmpty { parts.append("Apple: " + row.appleName) }
         return parts.joined(separator: "\n")
     }
 
-    /// The fuller picture, for the copy command only.
-    func details(for row: Row) -> String {
-        var parts = [identity(for: row)]
-        if row.linkTrusted, row.linkBits > 0 {
-            parts.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
-        }
-        parts.append(row.inLong.capitalized + " " + Fmt.rate(row.down, unit: unit)
-                     + " · " + row.outLong.lowercased() + " " + Fmt.rate(row.up, unit: unit))
-        parts.append("Total " + Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
-                     + " · " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased())
-        if row.peak > 0 { parts.append("Peak " + Fmt.rate(row.peak, unit: unit)) }
-        for actor in row.actors {
-            parts.append(actor.display + " " + Fmt.rate(actor.bytesPerSec, unit: unit))
-        }
-        if !row.hint.isEmpty { parts.append(row.hint) }
-        return parts.joined(separator: "\n")
-    }
-
-    /// Tooltips cannot be selected, so copying gets its own affordance.
+    /// Tooltips cannot be selected, so copying gets its own affordance. Only the
+    /// facts that identify the thing - live rates change the moment they are pasted.
     override func menu(for event: NSEvent) -> NSMenu? {
         let local = convert(event.locationInWindow, from: nil)
         let index = Int(local.y / TrafficListView.rowHeight)
         guard index >= 0, index < rows.count else { return nil }
-        let row = rows[index]
 
         let menu = NSMenu()
-        let ident = NSMenuItem(title: "Copy Name and ID", action: #selector(copyText(_:)), keyEquivalent: "")
-        ident.target = self
-        ident.representedObject = identity(for: row)
-        menu.addItem(ident)
-
-        let all = NSMenuItem(title: "Copy Everything", action: #selector(copyText(_:)), keyEquivalent: "")
-        all.target = self
-        all.representedObject = details(for: row)
-        menu.addItem(all)
-
-        if !row.subtitle.isEmpty {
-            let sub = NSMenuItem(title: "Copy “\(Text.clip(row.subtitle, font: subtitleFont, maxWidth: 260))”",
-                                 action: #selector(copyText(_:)), keyEquivalent: "")
-            sub.target = self
-            sub.representedObject = row.subtitle
-            menu.addItem(sub)
-        }
-        let name = NSMenuItem(title: "Copy “\(row.title)”", action: #selector(copyText(_:)), keyEquivalent: "")
-        name.target = self
-        name.representedObject = row.title
-        menu.addItem(name)
+        let item = NSMenuItem(title: "Copy", action: #selector(copyText(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = identity(for: rows[index])
+        menu.addItem(item)
         return menu
     }
 
