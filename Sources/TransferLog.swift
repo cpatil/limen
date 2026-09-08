@@ -16,6 +16,9 @@ struct TransferSession: Codable {
     var bytesWritten: UInt64
     var peakRate: Double
     var linkBits: UInt64
+    /// Whether linkBits was a real capacity. Wi-Fi reports a PHY rate, and
+    /// recomputing credibility later cannot know that, which produced "107% of link".
+    var linkTrusted: Bool?
     var processes: [String]
     var volumes: [String]
 
@@ -87,6 +90,7 @@ final class TransferLog {
                                             bytesWritten: row.totalUp,
                                             peakRate: rate,
                                             linkBits: row.linkBits,
+                                            linkTrusted: row.linkTrusted,
                                             processes: row.actors.map { $0.display },
                                             volumes: row.volumes)
                 startTotals[key] = (row.totalDown, row.totalUp)

@@ -287,6 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
         window.setFrameAutosaveName("LimenWindow")
         window.makeKeyAndOrderFront(nil)
+        AppDelegate.applyAppearance()
 
         root.sortPopup.target = self
         root.sortPopup.action = #selector(sortChanged)
@@ -387,6 +388,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         frame.origin.y -= min(grow, frame.minY - screen.visibleFrame.minY)
         frame.size.height = min(frame.size.height, screen.visibleFrame.height)
         window.setFrame(frame, display: true, animate: true)
+    }
+
+    /// Appearance is explicit rather than only following the system, so the window
+    /// can be dark on a light desktop when that is easier to read.
+    @objc func setAppearance(_ sender: NSMenuItem) {
+        UserDefaults.standard.set(sender.tag, forKey: "Appearance")
+        AppDelegate.applyAppearance()
+        for item in sender.menu?.items ?? [] { item.state = item === sender ? .on : .off }
+        root.needsDisplay = true
+    }
+
+    static func applyAppearance() {
+        switch UserDefaults.standard.integer(forKey: "Appearance") {
+        case 1: NSApp.appearance = NSAppearance(named: .aqua)
+        case 2: NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil        // follow the system
+        }
     }
 
     @objc private func sortChanged() {

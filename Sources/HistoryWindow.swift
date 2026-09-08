@@ -85,7 +85,8 @@ final class HistoryView: NSView {
             let outTag = s.section == "USB" ? "W" : "OUT"
             var tail = inTag + " " + Fmt.bytes(Double(s.bytesRead))
                 + "  " + outTag + " " + Fmt.bytes(Double(s.bytesWritten))
-            if let used = Reference.utilization(bytesPerSec: s.peakRate, linkBits: s.linkBits),
+            if s.linkTrusted == true,
+               let used = Reference.utilization(bytesPerSec: s.peakRate, linkBits: s.linkBits),
                Reference.linkRateIsCredible(observedBytesPerSec: s.peakRate, linkBits: s.linkBits) {
                 tail += String(format: "   ·   peak %.0f%% of link", used * 100)
             }

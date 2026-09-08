@@ -2,7 +2,7 @@ import Cocoa
 
 // Minimal programmatic main menu. Without one, an app launched outside Xcode has no
 // working Quit/Copy shortcuts.
-private func buildMainMenu() -> NSMenu {
+private func buildMainMenu(target: AppDelegate) -> NSMenu {
     let mainMenu = NSMenu()
 
     let appMenuItem = NSMenuItem()
@@ -13,9 +13,13 @@ private func buildMainMenu() -> NSMenu {
                     keyEquivalent: "")
     appMenu.addItem(NSMenuItem.separator())
     // The only thing in the app that touches the network, and only from here.
-    appMenu.addItem(withTitle: "Check for Speed Catalogue Update…",
-                    action: #selector(AppDelegate.checkForCatalogueUpdate(_:)),
-                    keyEquivalent: "")
+    // Explicit targets: a nil-target menu item is dispatched through the responder
+    // chain, which does not resolve dependably when the app is not frontmost.
+    let updateItem = NSMenuItem(title: "Check for Speed Catalogue Update…",
+                                action: #selector(AppDelegate.checkForCatalogueUpdate(_:)),
+                                keyEquivalent: "")
+    updateItem.target = target
+    appMenu.addItem(updateItem)
     appMenu.addItem(NSMenuItem.separator())
     appMenu.addItem(withTitle: "Hide \(appName)",
                     action: #selector(NSApplication.hide(_:)),
@@ -26,6 +30,25 @@ private func buildMainMenu() -> NSMenu {
                     keyEquivalent: "q")
     appMenuItem.submenu = appMenu
     mainMenu.addItem(appMenuItem)
+
+    let viewMenuItem = NSMenuItem()
+    let viewMenu = NSMenu(title: "View")
+    let appearanceItem = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
+    let appearanceMenu = NSMenu(title: "Appearance")
+    let chosen = UserDefaults.standard.integer(forKey: "Appearance")
+    for (tag, title) in [(0, "Match System"), (1, "Light"), (2, "Dark")] {
+        let item = NSMenuItem(title: title,
+                              action: #selector(AppDelegate.setAppearance(_:)),
+                              keyEquivalent: "")
+        item.tag = tag
+        item.target = target
+        item.state = tag == chosen ? .on : .off
+        appearanceMenu.addItem(item)
+    }
+    appearanceItem.submenu = appearanceMenu
+    viewMenu.addItem(appearanceItem)
+    viewMenuItem.submenu = viewMenu
+    mainMenu.addItem(viewMenuItem)
 
     let windowMenuItem = NSMenuItem()
     let windowMenu = NSMenu(title: "Window")
@@ -44,6 +67,6 @@ private func buildMainMenu() -> NSMenu {
 let application = NSApplication.shared
 let appDelegate = AppDelegate()
 application.setActivationPolicy(.regular)
-application.mainMenu = buildMainMenu()
+application.mainMenu = buildMainMenu(target: appDelegate)
 application.delegate = appDelegate
 application.run()

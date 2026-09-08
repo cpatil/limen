@@ -10,6 +10,11 @@ enum Palette {
     static var hairline: NSColor {
         NSColor.textColor.withAlphaComponent(0.10)
     }
+    /// Behind the row under the pointer. Tinted rather than grey so it reads as
+    /// deliberate at a glance, and subtle enough not to fight the text.
+    static var hover: NSColor {
+        NSColor.controlAccentColor.withAlphaComponent(0.14)
+    }
 }
 
 enum Chart {

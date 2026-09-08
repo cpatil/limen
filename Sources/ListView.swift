@@ -11,6 +11,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
     private var tooltips: [NSView.ToolTipTag: String] = [:]
     private var tracking: NSTrackingArea?
+    /// Row under the pointer, highlighted so it is easy to keep your place.
+    private var hoveredIndex: Int?
 
     var rows: [Row] = [] {
         didSet {
@@ -79,6 +81,12 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
     override func mouseMoved(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
+        let index = Int(local.y / TrafficListView.rowHeight)
+        let newHover = (index >= 0 && index < rows.count) ? index : nil
+        if newHover != hoveredIndex {
+            hoveredIndex = newHover
+            needsDisplay = true
+        }
         if let (row, zone) = hit(local) {
             onHover?(row, zone, identity(for: row), convert(local, to: nil))
         } else {
@@ -87,6 +95,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     }
 
     override func mouseExited(with event: NSEvent) {
+        if hoveredIndex != nil {
+            hoveredIndex = nil
+            needsDisplay = true
+        }
         onHover?(nil, .rate, "", .zero)
     }
 
@@ -213,6 +225,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if index % 2 == 1 {
             Palette.rowAlt.setFill()
             rect.fill()
+        }
+        if index == hoveredIndex {
+            Palette.hover.setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 6, dy: 2), xRadius: 7, yRadius: 7).fill()
         }
 
         Palette.hairline.setFill()
