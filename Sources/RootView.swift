@@ -1,73 +1,76 @@
 import Cocoa
 
-/// The large "current throughput" panel above the list.
+/// The panel above the list: network and USB reported side by side.
+///
+/// Deliberately not one combined figure. Copying from a card to an SMB share is
+/// both USB and network traffic at once, and the useful thing is seeing the two
+/// move together - a single total would hide exactly the relationship you want.
 final class SummaryView: NSView {
-    var downRate: Double = 0
-    var upRate: Double = 0
-    var downHist: [Double] = []
-    var upHist: [Double] = []
+    var netDown: Double = 0
+    var netUp: Double = 0
+    var netDownHist: [Double] = []
+    var netUpHist: [Double] = []
+    var usbDown: Double = 0
+    var usbUp: Double = 0
+    var usbDownHist: [Double] = []
+    var usbUpHist: [Double] = []
     var unit: RateUnit = .bytes
-    var caption = ""
 
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
-        let bigFont = NSFont.monospacedDigitSystemFont(ofSize: 26, weight: .medium)
-        let labelFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        let captionFont = NSFont.systemFont(ofSize: 11)
+        let gap: CGFloat = 18
+        let width = (bounds.width - 32 - gap) / 2
+        drawPanel(title: "NETWORK", tint: Palette.up,
+                  down: netDown, up: netUp, downHist: netDownHist, upHist: netUpHist,
+                  in: NSRect(x: 16, y: bounds.minY, width: width, height: bounds.height))
+        drawPanel(title: "USB", tint: Palette.down,
+                  down: usbDown, up: usbUp, downHist: usbDownHist, upHist: usbUpHist,
+                  in: NSRect(x: 16 + width + gap, y: bounds.minY, width: width, height: bounds.height))
 
-        let top = bounds.maxY - 16
+        // A hairline between the two so they read as separate measurements.
+        Palette.hairline.setFill()
+        NSRect(x: 16 + width + gap / 2, y: bounds.minY + 14,
+               width: 1, height: bounds.height - 28).fill()
+    }
 
-        Text.draw("DOWNLOAD", at: NSPoint(x: 16, y: top - 12), font: labelFont, color: Palette.down)
-        Text.draw(Fmt.rate(downRate, unit: unit),
-                  at: NSPoint(x: 16, y: top - 44),
-                  font: bigFont,
-                  color: NSColor.labelColor)
+    private func drawPanel(title: String, tint: NSColor, down: Double, up: Double,
+                           downHist: [Double], upHist: [Double], in rect: NSRect) {
+        let labelFont = NSFont.systemFont(ofSize: 9.5, weight: .bold)
+        let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 21, weight: .medium)
+        let smallFont = NSFont.systemFont(ofSize: 10.5)
+        let top = rect.maxY - 16
 
-        let upX: CGFloat = 190
-        Text.draw("UPLOAD", at: NSPoint(x: upX, y: top - 12), font: labelFont, color: Palette.up)
-        Text.draw(Fmt.rate(upRate, unit: unit),
-                  at: NSPoint(x: upX, y: top - 44),
-                  font: bigFont,
-                  color: NSColor.labelColor)
+        Text.draw(title, at: NSPoint(x: rect.minX, y: top - 11), font: labelFont, color: tint)
 
-        let chartLeft: CGFloat = 380
+        Text.draw("\u{25BE} " + Fmt.rate(down, unit: unit),
+                  at: NSPoint(x: rect.minX, y: top - 40), font: rateFont, color: Palette.down)
+        Text.draw("\u{25B4} " + Fmt.rate(up, unit: unit),
+                  at: NSPoint(x: rect.minX, y: top - 66), font: rateFont, color: Palette.up)
 
-        // What this rate is comparable to, and a tangible sense of scale. A bare
-        // "412 MB/s" is hard to judge; "= USB 3.0 ceiling, 1 GB in 2.5 s" is not.
-        let combined = downRate + upRate
+        let combined = down + up
         if combined > 0 {
             var bits: [String] = []
             let near = Reference.comparison(bytesPerSec: combined)
             if !near.isEmpty { bits.append(near) }
             let oneGB = Reference.timeToMove(bytes: Reference.oneGigabyte, atBytesPerSec: combined)
             if !oneGB.isEmpty { bits.append("1 GB in " + oneGB) }
-            Text.draw(bits.joined(separator: "   ·   "),
-                      at: NSPoint(x: 16, y: top - 72),
-                      font: NSFont.systemFont(ofSize: 12, weight: .medium),
-                      color: NSColor.secondaryLabelColor)
+            Text.draw(Text.clip(bits.joined(separator: "   ·   "), font: smallFont, maxWidth: rect.width - 8),
+                      at: NSPoint(x: rect.minX, y: rect.minY + 8),
+                      font: smallFont, color: NSColor.tertiaryLabelColor)
         }
 
-        if !caption.isEmpty {
-            // Clip rather than let a long caption run underneath the graph.
-            Text.draw(Text.clip(caption, font: captionFont, maxWidth: chartLeft - 32),
-                      at: NSPoint(x: 16, y: bounds.minY + 10),
-                      font: captionFont,
-                      color: NSColor.tertiaryLabelColor)
-        }
-
-        let chartRect = NSRect(x: chartLeft,
-                               y: bounds.minY + 12,
-                               width: max(0, bounds.width - chartLeft - 16),
-                               height: bounds.height - 26)
-        if chartRect.width > 20 {
-            Chart.draw(down: downHist, up: upHist, in: chartRect, lineWidth: 1.5)
+        let chartLeft = rect.minX + 168
+        let chartRect = NSRect(x: chartLeft, y: rect.minY + 26,
+                               width: max(0, rect.maxX - chartLeft), height: rect.height - 46)
+        if chartRect.width > 30 {
+            Chart.draw(down: downHist, up: upHist, in: chartRect, lineWidth: 1.4)
         }
     }
 }
 
 final class RootView: NSView {
-    let modeControl = NSSegmentedControl(labels: ["Network", "USB"],
+    let modeControl = NSSegmentedControl(labels: ["All", "Network", "USB"],
                                          trackingMode: .selectOne,
                                          target: nil,
                                          action: nil)
@@ -198,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Set the initial selection after the controls are wired up. Assigning it during view
         // construction did not stick, and the app opened on the USB tab.
-        root.modeControl.selectedSegment = 0
+        root.modeControl.selectedSegment = 0   // All
         root.unitControl.selectedSegment = 0
         root.inactiveToggle.state = .off
         monitor.showInactive = false
@@ -231,27 +234,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refresh() {
         let unit: RateUnit = root.unitControl.selectedSegment == 1 ? .bits : .bytes
-        let isUSB = root.modeControl.selectedSegment == 1
+        let mode = root.modeControl.selectedSegment
 
         root.list.unit = unit
         root.summary.unit = unit
 
-        if isUSB {
-            root.list.rows = monitor.usbRows
-            root.list.emptyMessage = "No USB devices connected"
-            root.summary.downRate = monitor.usbTotalDown
-            root.summary.upRate = monitor.usbTotalUp
-            root.summary.downHist = monitor.usbDownHist
-            root.summary.upHist = monitor.usbUpHist
-            root.summary.caption = "Storage and network devices only"
-        } else {
+        // The summary always reports both, whatever the list is filtered to: the
+        // point is watching one against the other.
+        root.summary.netDown = monitor.totalDown
+        root.summary.netUp = monitor.totalUp
+        root.summary.netDownHist = monitor.totalDownHist
+        root.summary.netUpHist = monitor.totalUpHist
+        root.summary.usbDown = monitor.usbTotalDown
+        root.summary.usbUp = monitor.usbTotalUp
+        root.summary.usbDownHist = monitor.usbDownHist
+        root.summary.usbUpHist = monitor.usbUpHist
+
+        switch mode {
+        case 1:
             root.list.rows = monitor.networkRows
             root.list.emptyMessage = "No active interfaces"
-            root.summary.downRate = monitor.totalDown
-            root.summary.upRate = monitor.totalUp
-            root.summary.downHist = monitor.totalDownHist
-            root.summary.upHist = monitor.totalUpHist
-            root.summary.caption = "Hardware interfaces only; tunnels excluded"
+        case 2:
+            root.list.rows = monitor.usbRows
+            root.list.emptyMessage = "No USB devices connected"
+        default:
+            root.list.rows = monitor.combinedRows
+            root.list.emptyMessage = "Nothing active"
         }
 
         root.summary.needsDisplay = true

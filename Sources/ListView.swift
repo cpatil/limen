@@ -4,7 +4,7 @@ import Cocoa
 /// no interaction beyond scrolling, one draw pass is far cheaper than a tree of subviews —
 /// which matters on the low-power hardware this targets.
 final class TrafficListView: NSView {
-    static let rowHeight: CGFloat = 72
+    static let rowHeight: CGFloat = 84
 
     var rows: [Row] = [] {
         didSet {
@@ -50,14 +50,23 @@ final class TrafficListView: NSView {
             return
         }
 
+        var previousSection = ""
         for (index, row) in rows.enumerated() {
             let rect = NSRect(x: 0,
                               y: CGFloat(index) * TrafficListView.rowHeight,
                               width: bounds.width,
                               height: TrafficListView.rowHeight)
             if rect.intersects(dirtyRect) {
+                // Network and USB share one page, so each group announces itself.
+                if row.section != previousSection && !row.section.isEmpty {
+                    Text.draw(row.section.uppercased(),
+                              at: NSPoint(x: 16, y: rect.minY + 2),
+                              font: NSFont.systemFont(ofSize: 9.5, weight: .bold),
+                              color: NSColor.tertiaryLabelColor)
+                }
                 draw(row: row, in: rect, index: index)
             }
+            previousSection = row.section
         }
     }
 
@@ -82,12 +91,12 @@ final class TrafficListView: NSView {
         // ---- left column: what this is -----------------------------------
         let title = Text.clip(row.title, font: titleFont, maxWidth: textLimit - 16)
         Text.draw(title,
-                  at: NSPoint(x: 16, y: rect.minY + 8),
+                  at: NSPoint(x: 16, y: rect.minY + 16),
                   font: titleFont,
                   color: NSColor.labelColor.withAlphaComponent(CGFloat(dimmed)))
 
         var cursorX: CGFloat = 16
-        let secondLineY = rect.minY + 28
+        let secondLineY = rect.minY + 36
         if !row.badge.isEmpty {
             cursorX += Text.drawBadge(row.badge, at: NSPoint(x: cursorX, y: secondLineY), font: badgeFont) + 6
         }
@@ -104,12 +113,12 @@ final class TrafficListView: NSView {
             context = Reference.comparison(bytesPerSec: combined)
         }
         Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit),
-                  at: NSPoint(x: 16, y: rect.minY + 48),
+                  at: NSPoint(x: 16, y: rect.minY + 56),
                   font: subtitleFont,
                   color: NSColor.tertiaryLabelColor)
 
         // ---- middle column: history, then link utilisation ---------------
-        let chartRect = NSRect(x: chartLeft, y: rect.minY + 12, width: chartWidth, height: 30)
+        let chartRect = NSRect(x: chartLeft, y: rect.minY + 20, width: chartWidth, height: 30)
         if row.downHist.count > 1 || row.upHist.count > 1 {
             NSGraphicsContext.saveGraphicsState()
             let flip = NSAffineTransform()
@@ -127,7 +136,7 @@ final class TrafficListView: NSView {
         let showUtilisation = credible && (combined > 0 || row.peak > 0)
         if showUtilisation,
            let used = Reference.utilization(bytesPerSec: combined, linkBits: row.linkBits) {
-            let bar = NSRect(x: chartLeft, y: rect.minY + 48, width: chartWidth, height: 5)
+            let bar = NSRect(x: chartLeft, y: rect.minY + 56, width: chartWidth, height: 5)
             Palette.hairline.setFill()
             NSBezierPath(roundedRect: bar, xRadius: 2.5, yRadius: 2.5).fill()
 
@@ -155,26 +164,43 @@ final class TrafficListView: NSView {
 
         // ---- right column: the numbers -----------------------------------
         Text.draw("\u{25BE} " + Fmt.rate(row.down, unit: unit),
-                  at: NSPoint(x: 0, y: rect.minY + 8),
+                  at: NSPoint(x: 0, y: rect.minY + 16),
                   font: rateFont, color: Palette.down, alignRight: rightEdge)
         Text.draw("\u{25B4} " + Fmt.rate(row.up, unit: unit),
-                  at: NSPoint(x: 0, y: rect.minY + 26),
+                  at: NSPoint(x: 0, y: rect.minY + 34),
                   font: rateFont, color: Palette.up, alignRight: rightEdge)
         Text.draw(Fmt.bytes(Double(row.totalDown)) + " / " + Fmt.bytes(Double(row.totalUp)),
-                  at: NSPoint(x: 0, y: rect.minY + 45),
+                  at: NSPoint(x: 0, y: rect.minY + 53),
                   font: totalFont, color: NSColor.tertiaryLabelColor, alignRight: rightEdge)
 
         if showUtilisation,
            let used = Reference.utilization(bytesPerSec: combined, linkBits: row.linkBits) {
             Text.draw(String(format: "%.0f%% of link", used * 100),
-                      at: NSPoint(x: 0, y: rect.minY + 57),
+                      at: NSPoint(x: 0, y: rect.minY + 65),
                       font: totalFont,
                       color: used >= 0.85 ? NSColor.systemOrange : NSColor.tertiaryLabelColor,
                       alignRight: rightEdge)
         } else if row.peak > 0 {
             Text.draw("peak " + Fmt.rate(row.peak, unit: unit),
-                      at: NSPoint(x: 0, y: rect.minY + 57),
+                      at: NSPoint(x: 0, y: rect.minY + 65),
                       font: totalFont, color: NSColor.tertiaryLabelColor, alignRight: rightEdge)
+        }
+
+        // Fourth line: the processes the kernel says are responsible, then any
+        // suggestion. Kept small and grey so it informs without shouting.
+        var footer = ""
+        if !row.actors.isEmpty {
+            footer = row.actors.map { "\($0.name) \(Fmt.rate($0.bytesPerSec, unit: unit))" }
+                .joined(separator: "   ")
+        }
+        if !row.hint.isEmpty {
+            footer += footer.isEmpty ? row.hint : "   ·   " + row.hint
+        }
+        if !footer.isEmpty {
+            Text.draw(Text.clip(footer, font: totalFont, maxWidth: rect.width - 32),
+                      at: NSPoint(x: 16, y: rect.minY + 68),
+                      font: totalFont,
+                      color: NSColor.tertiaryLabelColor)
         }
     }
 }

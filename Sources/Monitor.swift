@@ -22,6 +22,15 @@ struct Row {
     /// Highest combined rate seen this session, so you can tell whether a link ever
     /// approached its ceiling rather than only what it is doing right now.
     var peak: Double = 0
+    /// "Network" or "USB" - both are shown on one page now, grouped under headings.
+    var section: String = ""
+    /// Processes the kernel says are moving this data, most active first.
+    var actors: [Actor] = []
+    /// A quiet suggestion about this device, when the measurements support one.
+    var hint: String = ""
+    /// Every place this device is mounted. A single enclosure often carries
+    /// several partitions, and the traffic may be on any of them.
+    var mountRoots: [String] = []
 }
 
 /// Samples the system on a timer and turns raw cumulative counters into rates.
@@ -51,11 +60,23 @@ final class Monitor {
     private(set) var usbTotalUp: Double = 0
     private(set) var usbDownHist: [Double] = Array(repeating: 0, count: Monitor.historyLength)
     private(set) var usbUpHist: [Double] = Array(repeating: 0, count: Monitor.historyLength)
+    // Everything at once, for the combined view.
+    private(set) var allDown: Double = 0
+    private(set) var allUp: Double = 0
+    private(set) var allDownHist: [Double] = Array(repeating: 0, count: Monitor.historyLength)
+    private(set) var allUpHist: [Double] = Array(repeating: 0, count: Monitor.historyLength)
+
+    /// Interfaces and USB devices on one page, each under its own heading.
+    var combinedRows: [Row] { networkRows + usbRows }
 
     private var prevNet: [String: NetCounters] = [:]
     private var prevUSB: [String: USBDeviceInfo] = [:]
     private var lastSample: CFAbsoluteTime = 0
     private var peaks: [String: Double] = [:]
+    private var prevProcs: [Int32: ProcSample] = [:]
+    private var procs: [Int32: ProcSample] = [:]
+    private var mounts: [String: String] = [:]
+    private var mountRefresh = 0
     private var histDown: [String: [Double]] = [:]
     private var histUp: [String: [Double]] = [:]
     private var friendly: [String: String] = [:]
@@ -103,8 +124,17 @@ final class Monitor {
         // updateUSB needs them to compute deltas for USB network adapters.
         let previousNet = prevNet
         let net = NetSampler.sample()
+        // Mount points move rarely; processes change constantly.
+        mountRefresh += 1
+        if mounts.isEmpty || mountRefresh % 10 == 0 { mounts = ProcessSampler.mountPoints() }
+        prevProcs = procs
+        procs = ProcessSampler.sample()
         updateNetwork(net, elapsed: elapsed)
         updateUSB(net, previousNet: previousNet, elapsed: elapsed)
+        allDown = totalDown + usbTotalDown
+        allUp = totalUp + usbTotalUp
+        Monitor.appendCapped(&allDownHist, allDown)
+        Monitor.appendCapped(&allUpHist, allUp)
         onUpdate?()
     }
 
@@ -112,6 +142,30 @@ final class Monitor {
     /// (interface reconfigured, device replugged), so report no traffic rather than a huge spike.
     private static func delta(_ current: UInt64, _ previous: UInt64) -> Double {
         current >= previous ? Double(current - previous) : 0
+    }
+
+    private func combinedActive(_ down: Double, _ up: Double) -> Bool {
+        down + up > 256 * 1024
+    }
+
+    /// Processes moving meaningful disk traffic that also hold a file open under
+    /// `root`. The rate comes from the kernel's per-process counters; the open
+    /// descriptor is what ties the process to this particular volume.
+    private func actors(under roots: [String], elapsed: Double) -> [Actor] {
+        var found: [Actor] = []
+        for (pid, now) in procs {
+            guard let before = prevProcs[pid] else { continue }
+            let moved = Monitor.delta(now.read, before.read) + Monitor.delta(now.written, before.written)
+            let rate = moved / elapsed
+            guard rate > 512 * 1024 else { continue }
+            // Checking descriptors is the expensive part, so only ask about
+            // processes that are actually busy.
+            if roots.contains(where: { ProcessSampler.hasOpenFile(pid: pid, under: $0) }) {
+                found.append(Actor(name: now.name, pid: pid, bytesPerSec: rate))
+            }
+        }
+        found.sort { $0.bytesPerSec > $1.bytesPerSec }
+        return Array(found.prefix(3))
     }
 
     /// Remembers the highest rate seen for one row and returns it.
@@ -182,6 +236,7 @@ final class Monitor {
             row.isPhysical = isPhysical
             row.linkBits = counters.baudrate
             row.peak = notePeak("net:" + name, down + up)
+            row.section = "Network"
             if counters.ierrors > 0 || counters.oerrors > 0 {
                 row.note = "\(counters.ierrors + counters.oerrors) errors"
             }
@@ -275,6 +330,19 @@ final class Monitor {
             row.isPhysical = true
             row.linkBits = device.linkSpeedBits
             row.peak = notePeak("usb:" + device.id, down + up)
+            row.section = "USB"
+            row.hint = Reference.advice(peakBytesPerSec: row.peak,
+                                        linkBits: device.linkSpeedBits,
+                                        isStorage: !device.disks.isEmpty,
+                                        removableMedia: device.removableMedia)
+            // Where this device is mounted, so its traffic can be tied to the
+            // processes holding files open there. All partitions, since a copy may
+            // be touching any one of them.
+            row.mountRoots = device.disks.compactMap { mounts[$0] }
+                .filter { $0.hasPrefix("/Volumes") }
+            if combinedActive(down, up), !row.mountRoots.isEmpty {
+                row.actors = actors(under: row.mountRoots, elapsed: elapsed)
+            }
             // Be explicit about the limitation rather than drawing a flat line that looks like idle.
             row.note = measurable ? "" : "no byte counters for this device class"
             rows.append(row)

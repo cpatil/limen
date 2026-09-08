@@ -105,6 +105,53 @@ enum Reference {
         return bytesPerSec / cap.bytes
     }
 
+    /// A quiet, evidence-based note about a removable device: what is limiting it and
+    /// what would actually help.
+    ///
+    /// Deliberately inferred from measurement rather than claimed specification. A
+    /// card reader does not report the card's UHS class - it presents as USB mass
+    /// storage - but a transfer that plateaus near 90 MB/s on a link good for 450
+    /// MB/s has told you what the card is. Hints only appear once enough traffic has
+    /// been seen to mean something, so an idle device stays quiet.
+    static func advice(peakBytesPerSec: Double, linkBits: UInt64,
+                       isStorage: Bool, removableMedia: Bool) -> String {
+        guard isStorage, peakBytesPerSec > 4 * 1024 * 1024 else { return "" }
+        let peakBits = peakBytesPerSec * 8
+
+        // Connected below the device's own potential: the port or cable is the fault,
+        // and that is worth saying because it is trivially fixable.
+        if linkBits > 0 && linkBits <= 480_000_000 {
+            return "connected at USB 2.0 — a USB 3 port would lift this ceiling"
+        }
+
+        guard let cap = ceiling(forLinkBits: linkBits), cap.bytes > 0 else { return "" }
+        let headroom = peakBytesPerSec / cap.bytes
+
+        // Plateauing well under the link ceiling means the media is the limit. Around
+        // 90 MB/s that is almost certainly a UHS-I card, whose bus tops out at 104.
+        if headroom < 0.45 {
+            // The UHS ceilings only mean anything for a card in a reader. A portable
+            // hard disk sits in the same throughput band for entirely different
+            // reasons, and telling someone to buy a faster card would be nonsense.
+            if removableMedia, peakBits > 560 * 1_000_000, peakBits < 900 * 1_000_000 {
+                return "plateauing near UHS-I's ~90 MB/s limit — a UHS-II card and reader would roughly triple it"
+            }
+            if removableMedia, peakBytesPerSec < 45 * 1024 * 1024 {
+                return "slow for a modern card — a UHS-I U3 or better would lift this"
+            }
+            if !removableMedia, peakBytesPerSec > 60 * 1024 * 1024, peakBytesPerSec < 200 * 1024 * 1024 {
+                return "typical of a portable hard disk — an SSD would be several times faster"
+            }
+            if peakBytesPerSec < 60 * 1024 * 1024 {
+                return "well under the link's ceiling — the media is the limit, not the port"
+            }
+        }
+        if headroom >= 0.85 {
+            return "saturating the link — a faster port is the only way up"
+        }
+        return ""
+    }
+
     /// A tangible sense of scale: how long this rate needs for a familiar payload.
     static func timeToMove(bytes: Double, atBytesPerSec rate: Double) -> String {
         guard rate > 1024 else { return "" }

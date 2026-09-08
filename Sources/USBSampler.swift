@@ -20,6 +20,10 @@ struct USBDeviceInfo {
 
     /// True when this device exposes byte counters we can actually measure.
     var hasStorageCounters = false
+    /// The medium itself can be removed from the device - a card in a reader, not a
+    /// fixed disk in an enclosure. Read from IOMedia rather than guessed from the
+    /// product name, so advice about cards only ever reaches actual cards.
+    var removableMedia = false
 
     /// Negotiated link speed as advertised by the port, in bits/sec.
     var linkSpeedBits: UInt64 {
@@ -166,6 +170,11 @@ enum USBSampler {
             info.diskRead += (stats["Bytes (Read)"] as? NSNumber)?.uint64Value ?? 0
             info.diskWritten += (stats["Bytes (Write)"] as? NSNumber)?.uint64Value ?? 0
             info.hasStorageCounters = true
+        }
+
+        if IOObjectConformsTo(entry, "IOMedia") != 0,
+           let removable = property(entry, "Removable") as? Bool, removable {
+            info.removableMedia = true
         }
 
         if let bsd = property(entry, "BSD Name") as? String {

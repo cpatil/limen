@@ -75,6 +75,50 @@ reports `ifi_baudrate` for Wi-Fi as whatever PHY rate it last latched onto, ofte
 below real throughput, which produced readings like "270% of link". Where the
 denominator cannot be trusted the row shows the session peak instead.
 
+## One pane, two measurements
+
+Network and USB appear together, but as **separate readouts** rather than one total.
+Copying a card to an SMB share is both at once, and the useful thing is watching the
+two move against each other — a combined figure would hide exactly that. The list
+below groups rows under each heading; `All / Network / USB` filters the list without
+changing the summary.
+
+## Who is actually moving the data
+
+Rows for USB storage name the processes responsible:
+
+```
+Elements 2621   down 89.9 MB/s  21% link
+  mounted at: /Volumes/nam DDLJ, /Volumes/necromancer, /Volumes/media
+  processes:  dd (pid 58384) 89.9 MB/s
+```
+
+Matching on process names would be both incomplete and misleading — a Finder copy is
+performed by `DesktopServicesHelper`, not Finder. Instead this reads the kernel's own
+per-process I/O counters (`proc_pid_rusage`, the same source as Activity Monitor's
+Disk tab) and confirms the link to a specific volume through the process's open file
+descriptors (`PROC_PIDFDVNODEPATHINFO`) — evidence the kernel vouches for. Descriptor
+enumeration is only done for processes already moving meaningful traffic, since it is
+the expensive half.
+
+Two limits, stated rather than hidden. Processes owned by other users are unreadable
+without root — roughly 20 of 230 on a typical machine, mostly system daemons — so
+their traffic is absent rather than misattributed. And `ri_diskio_*` counts a
+process's disk I/O as a whole, not per device; the open-file check establishes that a
+process is working on this volume, not that every byte went there.
+
+## Quiet advice about removable media
+
+When the measurements support it, a device gets one short suggestion — a card
+plateauing near 90 MB/s on a link good for 450 MB/s has told you it is UHS-I, so it
+says so and notes what UHS-II would buy.
+
+Whether the medium is removable comes from IOKit's `Removable` property on `IOMedia`,
+not from the product name. That distinction matters: a portable hard disk sits in the
+same throughput band as a UHS-I card for entirely different reasons, and advising
+someone to buy a faster *card* for their spinning disk would be nonsense. It gets
+"typical of a portable hard disk — an SSD would be several times faster" instead.
+
 ## Verified against real hardware
 
 On a 2015 12" MacBook (MacBook8,1, Core M-5Y71, macOS 11.7.11) with a USB 3.0 drive attached,
