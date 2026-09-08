@@ -21,8 +21,9 @@ final class MagnifierView: NSView {
     private static let chartHeight: CGFloat = 76
 
     private let titleFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    private let bodyFont = NSFont.systemFont(ofSize: 11.5)
-    private let smallFont = NSFont.systemFont(ofSize: 11)
+    private let bodyFont = NSFont.systemFont(ofSize: 12.5)
+    private let smallFont = NSFont.systemFont(ofSize: 12)
+    private let badgeFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     private let tickFont = NSFont.systemFont(ofSize: 10)
     private let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .medium)
     private let tagFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
@@ -44,18 +45,9 @@ final class MagnifierView: NSView {
         if !row.volumes.isEmpty { identity.append(row.volumes.joined(separator: ", ")) }
         if identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
         if !identity.isEmpty {
-            out.append((identity.joined(separator: "  ·  "), bodyFont, NSColor.secondaryLabelColor))
+            out.append((identity.joined(separator: "  ·  "), bodyFont, NSColor.labelColor))
         }
 
-        var link: [String] = []
-        if !row.badge.isEmpty { link.append(row.badge) }
-        if row.linkTrusted, row.linkBits > 0 {
-            link.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
-        }
-        if !row.appleName.isEmpty { link.append("Apple: " + row.appleName) }
-        if !link.isEmpty {
-            out.append((link.joined(separator: "  ·  "), bodyFont, NSColor.tertiaryLabelColor))
-        }
         return out
     }
 
@@ -73,22 +65,27 @@ final class MagnifierView: NSView {
 
         for actor in row.actors {
             out.append((actor.display + "   " + Fmt.rate(actor.bytesPerSec, unit: unit),
-                        smallFont, NSColor.secondaryLabelColor))
+                        smallFont, NSColor.labelColor))
         }
         if !row.hint.isEmpty {
-            out.append((row.hint, smallFont, NSColor.tertiaryLabelColor))
+            out.append((row.hint, smallFont, NSColor.systemBlue))
         }
         return out
+    }
+
+    private func hasLinkRow(_ row: Row) -> Bool {
+        !row.badge.isEmpty || (row.linkTrusted && row.linkBits > 0) || !row.appleName.isEmpty
     }
 
     /// Exactly as tall as its content needs, so nothing is ever cut off.
     var fittingHeight: CGFloat {
         guard let row = row else { return 120 }
         let pad = MagnifierView.pad
-        var height = pad + 24                                    // icon + title
+        var height = pad + 26                                    // icon + title
         for block in blocks(for: row) {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
         }
+        if hasLinkRow(row) { height += 26 }
         height += 10 + 14 + MagnifierView.chartHeight + 12       // scale labels + chart
         height += 46                                             // the two big rates
         for block in footerBlocks(for: row) {
@@ -128,6 +125,30 @@ final class MagnifierView: NSView {
             Text.drawWrapped(block.text, in: NSRect(x: left, y: y, width: width, height: h),
                              font: block.font, color: block.color)
             y += h + 5
+        }
+
+        // ---- the link, given the weight it deserves -------------------------
+        // The standard is what a row is most often read for, so it gets a badge and
+        // full-strength text rather than being the faintest thing on the card.
+        if hasLinkRow(row) {
+            var x = left
+            if !row.badge.isEmpty {
+                x += Text.drawBadge(row.badge, at: NSPoint(x: x, y: y + 2),
+                                    font: badgeFont, prominent: true) + 8
+            }
+            if row.linkTrusted, row.linkBits > 0 {
+                let speed = Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit)
+                Text.draw(speed, at: NSPoint(x: x, y: y + 4), font: bodyFont,
+                          color: NSColor.labelColor)
+                x += Text.width(speed, font: bodyFont) + 10
+            }
+            if !row.appleName.isEmpty {
+                Text.draw(Text.clip("Apple: " + row.appleName, font: smallFont,
+                                    maxWidth: max(0, left + width - x)),
+                          at: NSPoint(x: x, y: y + 5), font: smallFont,
+                          color: NSColor.secondaryLabelColor)
+            }
+            y += 26
         }
 
         // ---- history, labelled with its own scale ---------------------------

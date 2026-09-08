@@ -233,7 +233,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         }
         if !badgeText.isEmpty {
             let badge = Text.clip(badgeText, font: badgeFont, maxWidth: textLimit - 24)
-            cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY), font: badgeFont) + 6
+            cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY),
+                                      font: badgeFont, prominent: true) + 6
         }
         Text.draw(Text.clip(row.subtitle, font: subtitleFont, maxWidth: max(0, textLimit - cursorX)),
                   at: NSPoint(x: cursorX, y: secondLineY + 1),

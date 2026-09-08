@@ -131,11 +131,61 @@ enum Analysis {
         return text
     }
 
+    /// What to recommend from a given standard, and the gain it would actually
+    /// deliver here.
+    ///
+    /// Two corrections to stepping one rung. Anything below the mainstream choice is
+    /// legacy, and telling someone with a default-speed card to buy a high-speed one
+    /// is useless when a common UHS-I card is ten times quicker. And the gain is
+    /// bounded by the connection: a SATA SSD behind USB 3 delivers the bus's 450 MB/s,
+    /// not its own 550, which is still a large win worth recommending.
+    private static func target(from here: SpeedRef, role: String, family: SpeedRef.Family,
+                               ceiling: Double?) -> (ref: SpeedRef, factor: Double)? {
+        func realised(_ ref: SpeedRef) -> Double {
+            guard let cap = ceiling else { return ref.payloadBytes }
+            return min(ref.payloadBytes, cap)
+        }
+        let base = realised(here)
+        guard base > 0 else { return nil }
+
+        if let common = Reference.mainstream(role: role, family: family),
+           common.payloadBytes > here.payloadBytes * 1.2 {
+            let gain = realised(common) / base
+            if gain > 1.2 { return (common, gain) }
+        }
+        guard let name = here.upgrade, let next = Reference.entry(named: name) else { return nil }
+        let gain = realised(next) / base
+        return gain > 1.05 ? (next, gain) : nil
+    }
+
     private static func atLimit(of candidates: [SpeedRef], peak: Double) -> SpeedRef? {
         candidates.first { ref in
             let ratio = peak / ref.payloadBytes
             return ratio > 1 - atLimitBand && ratio < 1 + atLimitBand
         }
+    }
+
+    /// What the machine could offer that this connection is not using.
+    ///
+    /// Only worth saying when the gap is large and the device is not already the
+    /// limit: a card reader at its card's ceiling gains nothing from a better cable,
+    /// however fast the port beside it is.
+    static func hostNote(for group: Group) -> String {
+        guard group.section == "USB",
+              let host = HostPorts.best,
+              let link = Reference.standard(forLinkBits: group.linkBits, family: .usb),
+              group.linkTrusted,
+              host.payloadBytes > link.payloadBytes * 1.5,
+              // Only when the connection is plausibly the constraint. A card sitting
+              // at its own ceiling gains nothing from a faster port, and saying so on
+              // every device would be noise.
+              group.bestPeak >= link.payloadBytes * 0.6 else { return "" }
+
+        let factor = host.payloadBytes / link.payloadBytes
+        return "This Mac has \(host.name) ports (\(Fmt.rate(host.payloadBytes, unit: .bytes))), "
+            + "but this is connected at \(link.name) (\(Fmt.rate(link.payloadBytes, unit: .bytes))). "
+            + "A \(host.name) cable and enclosure would raise the ceiling about \(times(factor)) — "
+            + "worth it only if the drive itself can go faster."
     }
 
     /// One recommendation for a group: what to change, and what it would buy.
@@ -161,7 +211,7 @@ enum Analysis {
         }
 
         // 1. Is the connection itself the limit?
-        if group.linkTrusted, let link = Reference.standard(forLinkBits: group.linkBits),
+        if group.linkTrusted, let link = Reference.standard(forLinkBits: group.linkBits, family: .usb),
            link.payloadBytes > 0, peak / link.payloadBytes >= saturated {
             if let next = step(from: link) {
                 return "Saturating \(link.name) at \(Fmt.rate(peak, unit: .bytes)). \(next)."
@@ -175,9 +225,15 @@ enum Analysis {
         let ladder = Reference.ladder(role: role, family: family)
         guard !ladder.isEmpty else { return "The device, not the link, is setting the pace." }
 
+        let cap = group.linkTrusted
+            ? Reference.ceiling(forLinkBits: group.linkBits, family: .usb)?.bytes : nil
+
         if let here = atLimit(of: ladder, peak: peak) {
-            if let next = step(from: here) {
-                return "Peaks at \(Fmt.rate(peak, unit: .bytes)), right at \(here.name)'s limit. \(next)."
+            if let step = target(from: here, role: role, family: family, ceiling: cap) {
+                var text = "Peaks at \(Fmt.rate(peak, unit: .bytes)), right at \(here.name)'s limit. "
+                    + "\(step.ref.name) would be about \(times(step.factor)) faster"
+                if let note = here.upgradeNote, step.ref.name == here.upgrade { text += ", " + note }
+                return text + "."
             }
             return "Peaks at \(here.name)'s limit, and nothing faster exists in this family."
         }
@@ -191,9 +247,9 @@ enum Analysis {
                 return "Peaks at only \(Fmt.rate(peak, unit: .bytes)) — below even \(slowest.name), "
                     + "which would be about \(times(slowest.payloadBytes / peak)) faster."
             }
-            if let next = slowest.upgrade.flatMap({ Reference.entry(named: $0) }) {
+            if let step = target(from: slowest, role: role, family: family, ceiling: cap) {
                 return "Peaks at \(Fmt.rate(peak, unit: .bytes)), about what \(slowest.name) does. "
-                    + "\(next.name) would be about \(times(next.payloadBytes / peak)) faster."
+                    + "\(step.ref.name) would be about \(times(step.ref.payloadBytes / peak)) faster."
             }
         }
 

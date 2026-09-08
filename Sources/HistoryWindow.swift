@@ -14,9 +14,8 @@ enum HistoryItem {
         switch self {
         case .group(let g):
             var h: CGFloat = 34
-            let advice = Analysis.recommendation(for: g)
-            if !advice.isEmpty {
-                h += Text.wrappedHeight("→ " + advice, font: font, width: textWidth) + 6
+            for text in [Analysis.recommendation(for: g), Analysis.hostNote(for: g)] where !text.isEmpty {
+                h += Text.wrappedHeight("→ " + text, font: font, width: textWidth) + 6
             }
             let pattern = Analysis.pattern(for: g)
             if !pattern.isEmpty {
@@ -164,6 +163,7 @@ final class HistoryView: NSView {
         let textWidth = max(80, rect.width - 60)
         var y = rect.minY + 30
         for (text, colour) in [(Analysis.recommendation(for: group), NSColor.systemBlue),
+                               (Analysis.hostNote(for: group), NSColor.systemTeal),
                                (Analysis.pattern(for: group), NSColor.systemOrange)]
                 where !text.isEmpty {
             let line = "→ " + text

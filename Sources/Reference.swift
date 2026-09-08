@@ -28,6 +28,7 @@ struct SpeedRef {
     /// The standard that supersedes this one, by name.
     let upgrade: String?
     let upgradeNote: String?
+    let mainstream: Bool?
 
     var payloadBytes: Double { payload / 8 }
 
@@ -48,11 +49,17 @@ enum Reference {
         SpeedRef(name: e.name, appleName: e.appleName, alias: e.alias,
                  line: e.line, payload: e.payload,
                  family: SpeedRef.Family(rawValue: e.family) ?? .usb,
-                 role: e.role, upgrade: e.upgrade, upgradeNote: e.upgradeNote)
+                 role: e.role, upgrade: e.upgrade, upgradeNote: e.upgradeNote,
+                 mainstream: e.mainstream)
     }
 
     static func entry(named name: String) -> SpeedRef? {
         all.first { $0.name == name }
+    }
+
+    /// What a buyer would sensibly choose today for this kind of medium.
+    static func mainstream(role: String, family: SpeedRef.Family) -> SpeedRef? {
+        ladder(role: role, family: family).first { $0.mainstream == true }
     }
 
     /// Every standard of one role, slowest first - the ladder advice walks.
@@ -62,10 +69,14 @@ enum Reference {
     }
 
     /// The standard matching a negotiated link rate, for naming a port.
-    static func standard(forLinkBits linkBits: UInt64) -> SpeedRef? {
+    static func standard(forLinkBits linkBits: UInt64, family: SpeedRef.Family? = nil) -> SpeedRef? {
         guard linkBits > 0 else { return nil }
         let line = Double(linkBits)
-        return all.first { abs($0.line - line) / max($0.line, line) < 0.02 }
+        // Scoped by family because line rates collide across them: 5 Gbit/s is USB 3.2
+        // Gen 1 on a port and 5G Ethernet on a wire, and 10 Gbit/s is likewise both.
+        let pool = all.filter { $0.role == "bus" && (family == nil || $0.family == family!) }
+        return pool.first { abs($0.line - line) / max($0.line, line) < 0.02 }
+            ?? all.first { $0.role == "bus" && abs($0.line - line) / max($0.line, line) < 0.02 }
     }
 
     /// The reference closest to a measured rate, compared in log space so "half of"
@@ -93,9 +104,10 @@ enum Reference {
     }
 
     /// The realistic ceiling for a link advertising `linkBits`, and the standard's name.
-    static func ceiling(forLinkBits linkBits: UInt64) -> (bytes: Double, name: String)? {
+    static func ceiling(forLinkBits linkBits: UInt64,
+                        family: SpeedRef.Family? = nil) -> (bytes: Double, name: String)? {
         guard linkBits > 0 else { return nil }
-        if let ref = standard(forLinkBits: linkBits) {
+        if let ref = standard(forLinkBits: linkBits, family: family) {
             return (ref.payloadBytes, ref.name)
         }
         // Unknown standard: assume the usual ~15% of a link goes to overhead rather

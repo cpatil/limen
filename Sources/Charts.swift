@@ -10,6 +10,14 @@ enum Palette {
     static var hairline: NSColor {
         NSColor.textColor.withAlphaComponent(0.10)
     }
+    /// Behind a standard's name. Enough contrast to be read at a glance, since it is
+    /// the fact people look for.
+    static var badge: NSColor {
+        NSColor.textColor.withAlphaComponent(0.10)
+    }
+    static var badgeStrong: NSColor {
+        NSColor.controlAccentColor.withAlphaComponent(0.22)
+    }
     /// Behind the figures of a row that is actually transferring.
     static var emphasis: NSColor {
         NSColor.systemGreen.withAlphaComponent(0.13)
@@ -140,16 +148,21 @@ enum Text {
         return result + "…"
     }
 
-    static func drawBadge(_ string: String, at point: NSPoint, font: NSFont) -> CGFloat {
+    /// A pill for the thing a row is most often read for - which standard this is.
+    /// It was drawn on a hairline fill in secondary text and was the faintest element
+    /// on screen despite being the most useful.
+    static func drawBadge(_ string: String, at point: NSPoint, font: NSFont,
+                          prominent: Bool = false) -> CGFloat {
         guard !string.isEmpty else { return 0 }
-        let padding: CGFloat = 5
+        let padding: CGFloat = 6
         let textWidth = width(string, font: font)
-        let rect = NSRect(x: point.x, y: point.y - 2, width: textWidth + padding * 2, height: font.pointSize + 6)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
-        Palette.hairline.setFill()
+        let rect = NSRect(x: point.x, y: point.y - 2,
+                          width: textWidth + padding * 2, height: font.pointSize + 7)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
+        (prominent ? Palette.badgeStrong : Palette.badge).setFill()
         path.fill()
         draw(string, at: NSPoint(x: point.x + padding, y: point.y + 1),
-             font: font, color: NSColor.secondaryLabelColor)
+             font: font, color: prominent ? NSColor.labelColor : NSColor.secondaryLabelColor)
         return rect.width
     }
 }
