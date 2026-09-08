@@ -226,15 +226,24 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         let secondLineY = rect.minY + 36
         // Standard name plus its speed in the selected unit, with the other in
         // brackets - the eight-times relationship is the confusing part.
+        // The selected unit goes in the pill; the other follows in lighter text, so
+        // switching units visibly changes the row instead of only reordering it.
         var badgeText = row.badge
+        var alternate = ""
         if row.linkTrusted, row.linkBits > 0 {
-            let speed = Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit)
-            badgeText = badgeText.isEmpty ? speed : badgeText + " · " + speed
+            let primary = Fmt.speed(bitsPerSec: row.linkBits, unit: unit)
+            badgeText = badgeText.isEmpty ? primary : badgeText + " · " + primary
+            alternate = "= " + Fmt.alternateSpeed(bitsPerSec: row.linkBits, unit: unit)
         }
         if !badgeText.isEmpty {
             let badge = Text.clip(badgeText, font: badgeFont, maxWidth: textLimit - 24)
             cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY),
                                       font: badgeFont, prominent: true) + 6
+        }
+        if !alternate.isEmpty, cursorX + Text.width(alternate, font: badgeFont) < textLimit {
+            Text.draw(alternate, at: NSPoint(x: cursorX, y: secondLineY + 1),
+                      font: badgeFont, color: NSColor.tertiaryLabelColor)
+            cursorX += Text.width(alternate, font: badgeFont) + 8
         }
         Text.draw(Text.clip(row.subtitle, font: subtitleFont, maxWidth: max(0, textLimit - cursorX)),
                   at: NSPoint(x: cursorX, y: secondLineY + 1),

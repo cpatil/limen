@@ -145,10 +145,13 @@ final class MagnifierView: NSView {
                                     font: badgeFont, prominent: true) + 8
             }
             if row.linkTrusted, row.linkBits > 0 {
-                let speed = Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit)
-                Text.draw(speed, at: NSPoint(x: x, y: y + 4), font: bodyFont,
+                let primary = Fmt.speed(bitsPerSec: row.linkBits, unit: unit)
+                Text.draw(primary, at: NSPoint(x: x, y: y + 4), font: bodyFont,
                           color: NSColor.labelColor)
-                x += Text.width(speed, font: bodyFont) + 10
+                x += Text.width(primary, font: bodyFont) + 8
+                let other = "= " + Fmt.alternateSpeed(bitsPerSec: row.linkBits, unit: unit)
+                Text.draw(other, at: NSPoint(x: x, y: y + 5), font: smallFont,
+                          color: NSColor.tertiaryLabelColor)
             }
             y += 26
         }

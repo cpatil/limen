@@ -49,6 +49,21 @@ enum Fmt {
         return scale(Double(bitsPerSec), units: ["bit/s", "Kbit/s", "Mbit/s", "Gbit/s", "Tbit/s"], divisor: 1000)
     }
 
+    /// A link speed in the chosen unit alone.
+    static func speed(bitsPerSec: UInt64, unit: RateUnit) -> String {
+        guard bitsPerSec > 0 else { return "" }
+        switch unit {
+        case .bits: return linkSpeed(bitsPerSec: bitsPerSec)
+        case .bytes: return scale(Double(bitsPerSec) / 8,
+                                  units: ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"], divisor: 1000)
+        }
+    }
+
+    /// The same link speed in the other vocabulary, for showing alongside.
+    static func alternateSpeed(bitsPerSec: UInt64, unit: RateUnit) -> String {
+        speed(bitsPerSec: bitsPerSec, unit: unit == .bits ? .bytes : .bits)
+    }
+
     /// A link speed in both vocabularies, the chosen unit first.
     ///
     /// Ports are advertised in bits and files are measured in bytes, and the factor
