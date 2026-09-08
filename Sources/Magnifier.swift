@@ -16,6 +16,8 @@ final class MagnifierView: NSView {
     var unit: RateUnit = .bytes
     /// Full, unclipped detail text for the hovered row.
     var details: String = ""
+    /// Seconds per sample, so the chart can say how much time it covers.
+    var sampleInterval: TimeInterval = 1
 
     static let size = NSSize(width: 360, height: 186)
 
@@ -28,9 +30,8 @@ final class MagnifierView: NSView {
 
         let card = bounds.insetBy(dx: 1, dy: 1)
         let path = NSBezierPath(roundedRect: card, xRadius: 12, yRadius: 12)
-        // Resolve the dynamic colour to concrete components and force full alpha.
-        // The semantic colours can composite with transparency depending on the
-        // appearance, which let the row underneath show through the panel.
+        // Concrete components with full alpha, so the fill cannot be translucent
+        // whatever the appearance resolves to.
         let base = (NSColor.controlBackgroundColor.usingColorSpace(.sRGB)
                     ?? NSColor.white).withAlphaComponent(1.0)
         base.setFill()
@@ -82,6 +83,21 @@ final class MagnifierView: NSView {
             let chart = NSRect(x: card.minX + 16, y: card.minY + 34,
                                width: card.width - 32, height: card.height - 76)
             Chart.draw(down: row.downHist, up: row.upHist, in: chart, lineWidth: 2)
+
+            // Label the scale. Without it the shape conveys nothing about magnitude:
+            // an idle line and a saturated one look identical.
+            let scale = Chart.peak(down: row.downHist, up: row.upHist)
+            let tick = NSFont.systemFont(ofSize: 10)
+            NSColor.tertiaryLabelColor.withAlphaComponent(0.45).setFill()
+            NSRect(x: chart.minX, y: chart.maxY, width: chart.width, height: 1).fill()
+            Text.draw(Fmt.rate(scale, unit: unit) + " full scale",
+                      at: NSPoint(x: 0, y: chart.maxY + 3), font: tick,
+                      color: NSColor.secondaryLabelColor, alignRight: chart.maxX)
+            let span = Double(Monitor.historyLength) * sampleInterval
+            Text.draw(span >= 120 ? String(format: "last %.0f min", span / 60)
+                                  : String(format: "last %.0f s", span),
+                      at: NSPoint(x: chart.minX, y: chart.maxY + 3), font: tick,
+                      color: NSColor.tertiaryLabelColor)
             let small = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
             Text.draw(row.inShort + " " + Fmt.rate(row.down, unit: unit),
                       at: NSPoint(x: card.minX + 16, y: card.minY + 12),

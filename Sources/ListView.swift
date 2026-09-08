@@ -334,6 +334,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         }
 
         // ---- right column: the numbers -----------------------------------
+        // A row that is moving data gets its figures on a tinted plate, so the ones
+        // that matter are findable at a glance among a column of zeroes.
+        if row.active {
+            let plate = NSRect(x: rightEdge - rateColumnWidth - 8, y: rect.minY + 10,
+                               width: rateColumnWidth + 14, height: 40)
+            Palette.emphasis.setFill()
+            NSBezierPath(roundedRect: plate, xRadius: 7, yRadius: 7).fill()
+        }
         Text.draw(row.inShort + " " + Fmt.rate(row.down, unit: unit),
                   at: NSPoint(x: 0, y: rect.minY + 16),
                   font: rateFont, color: Palette.down, alignRight: rightEdge)

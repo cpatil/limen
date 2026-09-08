@@ -93,6 +93,8 @@ final class RootView: NSView, NSSplitViewDelegate {
     let columnsSplit = NSSplitView()
     let outerSplit = NSSplitView()
     private let magnifier = MagnifierView()
+    /// Mirrors the monitor's sampling interval so the chart can state its time span.
+    var sampleInterval: TimeInterval = 1
 
     let sortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let unitControl = NSSegmentedControl(labels: ["B/s", "bit/s"],
@@ -186,12 +188,15 @@ final class RootView: NSView, NSSplitViewDelegate {
         }
 
         addSubview(outerSplit)
-        addSubview(magnifier)
         addSubview(sortPopup)
         addSubview(unitControl)
         addSubview(intervalPopup)
         addSubview(inactiveToggle)
         addSubview(summary)
+        // Last, so it is drawn above everything. Added earlier it sat beneath the
+        // summary, which then painted its text over the panel and made it look
+        // translucent when it never was.
+        addSubview(magnifier)
     }
 
     override var isFlipped: Bool { false }
@@ -226,6 +231,7 @@ final class RootView: NSView, NSSplitViewDelegate {
         magnifier.zone = zone
         magnifier.details = details
         magnifier.unit = usbList.unit
+        magnifier.sampleInterval = sampleInterval
         let local = convert(windowPoint, from: nil)
         let size = MagnifierView.size
         // Keep it beside the pointer but always fully on screen.
@@ -234,6 +240,11 @@ final class RootView: NSView, NSSplitViewDelegate {
         var y = local.y - size.height / 2
         y = min(max(8, y), max(8, bounds.maxY - size.height - 8))
         magnifier.frame = NSRect(x: max(8, x), y: y, width: size.width, height: size.height)
+        // Keep it in front even if subviews are added later.
+        if subviews.last !== magnifier {
+            magnifier.removeFromSuperview()
+            addSubview(magnifier)
+        }
         magnifier.isHidden = false
         magnifier.needsDisplay = true
     }
@@ -419,6 +430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let intervals: [TimeInterval] = [0.5, 1, 2, 5]
         let index = min(max(0, root.intervalPopup.indexOfSelectedItem), intervals.count - 1)
         monitor.interval = intervals[index]
+        root.sampleInterval = intervals[index]
     }
 
     @objc private func inactiveChanged() {

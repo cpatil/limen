@@ -10,6 +10,10 @@ enum Palette {
     static var hairline: NSColor {
         NSColor.textColor.withAlphaComponent(0.10)
     }
+    /// Behind the figures of a row that is actually transferring.
+    static var emphasis: NSColor {
+        NSColor.systemGreen.withAlphaComponent(0.13)
+    }
     /// Behind the row under the pointer. Tinted rather than grey so it reads as
     /// deliberate at a glance, and subtle enough not to fight the text.
     static var hover: NSColor {
@@ -20,6 +24,12 @@ enum Palette {
 enum Chart {
     /// Draws download (filled area) and upload (line) on a shared scale so the two are comparable.
     /// `floorMax` keeps an idle graph pinned flat at the bottom instead of amplifying noise.
+    /// The value the top of the chart represents. Exposed so a chart can be labelled
+    /// with its own scale - a shape with no numbers on it says nothing about size.
+    static func peak(down: [Double], up: [Double], floorMax: Double = 8 * 1024) -> Double {
+        max(down.max() ?? 0, up.max() ?? 0, floorMax)
+    }
+
     static func draw(down: [Double],
                      up: [Double],
                      in rect: NSRect,
@@ -27,7 +37,7 @@ enum Chart {
                      floorMax: Double = 8 * 1024) {
         guard rect.width > 2, rect.height > 2 else { return }
 
-        let peak = max(down.max() ?? 0, up.max() ?? 0, floorMax)
+        let peak = peak(down: down, up: up, floorMax: floorMax)
         let count = max(down.count, up.count)
         guard count > 1 else { return }
 
