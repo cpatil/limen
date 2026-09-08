@@ -20,7 +20,6 @@ final class MagnifierView: NSView {
     static let size = NSSize(width: 360, height: 186)
 
     override var isFlipped: Bool { false }
-    override var isOpaque: Bool { true }
     /// Never intercept the pointer - it sits above the list purely as decoration.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -29,11 +28,12 @@ final class MagnifierView: NSView {
 
         let card = bounds.insetBy(dx: 1, dy: 1)
         let path = NSBezierPath(roundedRect: card, xRadius: 12, yRadius: 12)
-        // Fully opaque. windowBackgroundColor can composite as translucent, which let
-        // the row underneath show through and made the panel hard to read.
-        NSColor.textBackgroundColor.setFill()
-        path.fill()
-        NSColor.windowBackgroundColor.withAlphaComponent(0.55).setFill()
+        // Resolve the dynamic colour to concrete components and force full alpha.
+        // The semantic colours can composite with transparency depending on the
+        // appearance, which let the row underneath show through the panel.
+        let base = (NSColor.controlBackgroundColor.usingColorSpace(.sRGB)
+                    ?? NSColor.white).withAlphaComponent(1.0)
+        base.setFill()
         path.fill()
         NSColor.labelColor.withAlphaComponent(0.35).setStroke()
         path.lineWidth = 1

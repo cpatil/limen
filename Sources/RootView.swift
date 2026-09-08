@@ -265,8 +265,12 @@ final class RootView: NSView, NSSplitViewDelegate {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
+
     private let root = RootView(frame: NSRect(x: 0, y: 0, width: 980, height: 660))
     private let monitor = Monitor()
+    /// Most rows seen so far, so the window grows when devices appear but never
+    /// fights a size the user chose.
+    private var tallestSeen = 0
 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -356,6 +360,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Grows the window so newly appeared devices are visible without scrolling.
+    ///
+    /// Plugging in ten cards should not leave nine of them hidden. It only ever grows,
+    /// only when the row count reaches a new high, and never past the screen - so a
+    /// window you have deliberately sized is left alone.
+    private func growForContent(rowCount: Int) {
+        guard rowCount > tallestSeen, let window = window,
+              let screen = window.screen ?? NSScreen.main else { return }
+        tallestSeen = rowCount
+
+        let needed = CGFloat(rowCount) * TrafficListView.rowHeight + 24   // + column heading
+        let visible = root.columnsSplit.bounds.height
+        // Before the first layout the pane reports zero height, which would make the
+        // shortfall look like the entire content and snap the window to full screen.
+        guard visible > 50, needed > visible else {
+            tallestSeen = 0          // try again once the view has a real size
+            return
+        }
+
+        var frame = window.frame
+        let grow = min(needed - visible, screen.visibleFrame.maxY - frame.maxY
+                        + (frame.minY - screen.visibleFrame.minY))
+        guard grow > 8 else { return }
+        frame.size.height += grow
+        frame.origin.y -= min(grow, frame.minY - screen.visibleFrame.minY)
+        frame.size.height = min(frame.size.height, screen.visibleFrame.height)
+        window.setFrame(frame, display: true, animate: true)
+    }
+
     @objc private func sortChanged() {
         UserDefaults.standard.set(root.sortPopup.indexOfSelectedItem, forKey: "SortOrder")
         monitor.sortOrder = Monitor.SortOrder(rawValue: root.sortPopup.indexOfSelectedItem)
@@ -400,6 +433,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root.historyList.unit = unit
         // Running sessions first, so the pane is useful while a copy is happening.
         root.historyList.sessions = TransferLog.shared.inFlight + TransferLog.shared.sessions
+        // Sized on USB devices only. Interfaces are a fixed set that is mostly idle,
+        // and counting them made a first launch grow to fill the screen; plugged-in
+        // devices are the thing that actually arrives unannounced.
+        growForContent(rowCount: monitor.usbRows.count)
         root.summary.needsDisplay = true
         root.needsLayout = true
     }
