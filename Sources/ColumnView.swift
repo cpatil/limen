@@ -35,7 +35,7 @@ final class ColumnView: NSView {
             return CGFloat(list.rows.count) * TrafficListView.rowHeight
         }
         if let history = content as? HistoryView {
-            return history.items.reduce(0) { $0 + $1.height }
+            return history.items.reduce(0) { $0 + $1.height(width: scroll.contentView.bounds.width) }
         }
         return content.frame.height
     }

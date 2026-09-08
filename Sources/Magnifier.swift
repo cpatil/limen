@@ -2,10 +2,9 @@ import Cocoa
 
 /// An enlarged card for whatever the pointer is over.
 ///
-/// The rows pack a lot into small type. Rather than making every row bigger, the one
-/// being looked at is shown properly: identity, link, live rates, history and what
-/// is driving it, all at a size that can be read without leaning in. It follows the
-/// pointer, never takes focus and never swallows clicks.
+/// The rows clip text to fit their columns, so this is where the full value has to be
+/// readable - which means it sizes itself to its content and wraps rather than
+/// truncating. A panel that also cut its text off would defeat its own purpose.
 final class MagnifierView: NSView {
     enum Zone {
         case rate, chart, info
@@ -17,11 +16,86 @@ final class MagnifierView: NSView {
     var details: String = ""
     var sampleInterval: TimeInterval = 1
 
-    static let size = NSSize(width: 392, height: 268)
+    static let width: CGFloat = 400
+    private static let pad: CGFloat = 18
+    private static let chartHeight: CGFloat = 76
 
-    override var isFlipped: Bool { false }
-    /// Never intercept the pointer - it sits above the list purely as decoration.
+    private let titleFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    private let bodyFont = NSFont.systemFont(ofSize: 11.5)
+    private let smallFont = NSFont.systemFont(ofSize: 11)
+    private let tickFont = NSFont.systemFont(ofSize: 10)
+    private let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .medium)
+    private let tagFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
+
+    /// Text-only in a flipped space, so blocks can be laid out top-down and measured
+    /// with the same code that draws them.
+    override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private var contentWidth: CGFloat { MagnifierView.width - MagnifierView.pad * 2 }
+
+    // The variable-length blocks, in the order they appear.
+    private func blocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
+        var out: [(String, NSFont, NSColor)] = []
+
+        var identity: [String] = []
+        if !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
+        if !row.deviceID.isEmpty { identity.append(row.deviceID) }
+        if !row.volumes.isEmpty { identity.append(row.volumes.joined(separator: ", ")) }
+        if identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
+        if !identity.isEmpty {
+            out.append((identity.joined(separator: "  ·  "), bodyFont, NSColor.secondaryLabelColor))
+        }
+
+        var link: [String] = []
+        if !row.badge.isEmpty { link.append(row.badge) }
+        if row.linkTrusted, row.linkBits > 0 {
+            link.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
+        }
+        if !row.appleName.isEmpty { link.append("Apple: " + row.appleName) }
+        if !link.isEmpty {
+            out.append((link.joined(separator: "  ·  "), bodyFont, NSColor.tertiaryLabelColor))
+        }
+        return out
+    }
+
+    private func footerBlocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
+        var out: [(String, NSFont, NSColor)] = []
+
+        var facts = ["total " + Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
+                     + " · " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased()]
+        if row.peak > 0 { facts.append("peak " + Fmt.rate(row.peak, unit: unit)) }
+        if row.linkTrusted,
+           let used = Reference.utilization(bytesPerSec: row.down + row.up, linkBits: row.linkBits) {
+            facts.append(String(format: "%.0f%% of link", used * 100))
+        }
+        out.append((facts.joined(separator: "  ·  "), bodyFont, NSColor.secondaryLabelColor))
+
+        for actor in row.actors {
+            out.append((actor.display + "   " + Fmt.rate(actor.bytesPerSec, unit: unit),
+                        smallFont, NSColor.secondaryLabelColor))
+        }
+        if !row.hint.isEmpty {
+            out.append((row.hint, smallFont, NSColor.tertiaryLabelColor))
+        }
+        return out
+    }
+
+    /// Exactly as tall as its content needs, so nothing is ever cut off.
+    var fittingHeight: CGFloat {
+        guard let row = row else { return 120 }
+        let pad = MagnifierView.pad
+        var height = pad + 24                                    // icon + title
+        for block in blocks(for: row) {
+            height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
+        }
+        height += 10 + 14 + MagnifierView.chartHeight + 12       // scale labels + chart
+        height += 46                                             // the two big rates
+        for block in footerBlocks(for: row) {
+            height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 4
+        }
+        return height + pad
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let row = row else { return }
@@ -38,91 +112,63 @@ final class MagnifierView: NSView {
         path.lineWidth = 1
         path.stroke()
 
-        let left = card.minX + 18
-        let right = card.maxX - 18
-        let width = right - left
+        let pad = MagnifierView.pad
+        let left = card.minX + pad
+        let width = contentWidth
+        var y = card.minY + pad
 
-        // ---- identity ----------------------------------------------------
-        Icons.draw(row.icon, in: NSRect(x: left, y: card.maxY - 38, width: 20, height: 20),
+        Icons.draw(row.icon, in: NSRect(x: left, y: y, width: 20, height: 20),
                    color: NSColor.secondaryLabelColor)
-        let titleFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
-        Text.draw(Text.clip(row.title, font: titleFont, maxWidth: width - 30),
-                  at: NSPoint(x: left + 28, y: card.maxY - 38),
+        Text.draw(row.title, at: NSPoint(x: left + 28, y: y + 1),
                   font: titleFont, color: NSColor.labelColor)
+        y += 24
 
-        let subFont = NSFont.systemFont(ofSize: 11.5)
-        var identity: [String] = []
-        if !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
-        if !row.deviceID.isEmpty { identity.append(row.deviceID) }
-        if !row.volumes.isEmpty { identity.append(row.volumes.joined(separator: ", ")) }
-        if identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
-        Text.draw(Text.clip(identity.joined(separator: "  ·  "), font: subFont, maxWidth: width),
-                  at: NSPoint(x: left, y: card.maxY - 58), font: subFont,
-                  color: NSColor.secondaryLabelColor)
-
-        // ---- link --------------------------------------------------------
-        var link: [String] = []
-        if !row.badge.isEmpty { link.append(row.badge) }
-        if row.linkTrusted, row.linkBits > 0 {
-            link.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
-        }
-        if !row.appleName.isEmpty { link.append("Apple: " + row.appleName) }
-        if !link.isEmpty {
-            Text.draw(Text.clip(link.joined(separator: "  ·  "), font: subFont, maxWidth: width),
-                      at: NSPoint(x: left, y: card.maxY - 76), font: subFont,
-                      color: NSColor.tertiaryLabelColor)
+        for block in blocks(for: row) {
+            let h = Text.wrappedHeight(block.text, font: block.font, width: width)
+            Text.drawWrapped(block.text, in: NSRect(x: left, y: y, width: width, height: h),
+                             font: block.font, color: block.color)
+            y += h + 5
         }
 
-        // ---- history -----------------------------------------------------
-        let chart = NSRect(x: left, y: card.minY + 96, width: width, height: 74)
-        Chart.draw(down: row.downHist, up: row.upHist, in: chart, lineWidth: 1.8)
-        let tick = NSFont.systemFont(ofSize: 10)
-        NSColor.tertiaryLabelColor.withAlphaComponent(0.4).setFill()
-        NSRect(x: chart.minX, y: chart.maxY, width: chart.width, height: 1).fill()
+        // ---- history, labelled with its own scale ---------------------------
+        y += 10
         let scale = Chart.peak(down: row.downHist, up: row.upHist)
-        Text.draw(Fmt.rate(scale, unit: unit) + " full scale",
-                  at: NSPoint(x: 0, y: chart.maxY + 3), font: tick,
-                  color: NSColor.secondaryLabelColor, alignRight: right)
         let span = Double(Monitor.historyLength) * sampleInterval
         Text.draw(span >= 120 ? String(format: "last %.0f min", span / 60)
                               : String(format: "last %.0f s", span),
-                  at: NSPoint(x: chart.minX, y: chart.maxY + 3), font: tick,
-                  color: NSColor.tertiaryLabelColor)
+                  at: NSPoint(x: left, y: y), font: tickFont, color: NSColor.tertiaryLabelColor)
+        Text.draw(Fmt.rate(scale, unit: unit) + " full scale",
+                  at: NSPoint(x: 0, y: y), font: tickFont,
+                  color: NSColor.secondaryLabelColor, alignRight: left + width)
+        y += 14
+        NSColor.tertiaryLabelColor.withAlphaComponent(0.4).setFill()
+        NSRect(x: left, y: y, width: width, height: 1).fill()
 
-        // ---- live rates --------------------------------------------------
-        let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .medium)
-        let tagFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
-        let rateY = card.minY + 62
-        Text.draw(row.inLong, at: NSPoint(x: left, y: rateY + 20), font: tagFont, color: Palette.down)
-        Text.draw(Fmt.rate(row.down, unit: unit),
-                  at: NSPoint(x: left, y: rateY), font: rateFont, color: Palette.down)
+        let chart = NSRect(x: left, y: y, width: width, height: MagnifierView.chartHeight)
+        NSGraphicsContext.saveGraphicsState()
+        let flip = NSAffineTransform()
+        flip.translateX(by: 0, yBy: chart.maxY + chart.minY)
+        flip.scaleX(by: 1, yBy: -1)
+        flip.concat()
+        Chart.draw(down: row.downHist, up: row.upHist, in: chart, lineWidth: 1.8)
+        NSGraphicsContext.restoreGraphicsState()
+        y += MagnifierView.chartHeight + 12
+
+        // ---- live rates -----------------------------------------------------
         let mid = left + width / 2
-        Text.draw(row.outLong, at: NSPoint(x: mid, y: rateY + 20), font: tagFont, color: Palette.up)
-        Text.draw(Fmt.rate(row.up, unit: unit),
-                  at: NSPoint(x: mid, y: rateY), font: rateFont, color: Palette.up)
+        Text.draw(row.inLong, at: NSPoint(x: left, y: y), font: tagFont, color: Palette.down)
+        Text.draw(row.outLong, at: NSPoint(x: mid, y: y), font: tagFont, color: Palette.up)
+        Text.draw(Fmt.rate(row.down, unit: unit), at: NSPoint(x: left, y: y + 13),
+                  font: rateFont, color: Palette.down)
+        Text.draw(Fmt.rate(row.up, unit: unit), at: NSPoint(x: mid, y: y + 13),
+                  font: rateFont, color: Palette.up)
+        y += 46
 
-        // ---- totals, peak, utilisation ------------------------------------
-        var facts = ["total " + Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
-                     + " · " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased()]
-        if row.peak > 0 { facts.append("peak " + Fmt.rate(row.peak, unit: unit)) }
-        if row.linkTrusted,
-           let used = Reference.utilization(bytesPerSec: row.down + row.up, linkBits: row.linkBits) {
-            facts.append(String(format: "%.0f%% of link", used * 100))
-        }
-        Text.draw(Text.clip(facts.joined(separator: "  ·  "), font: subFont, maxWidth: width),
-                  at: NSPoint(x: left, y: card.minY + 40), font: subFont,
-                  color: NSColor.secondaryLabelColor)
-
-        // ---- who is doing it, and any advice -------------------------------
-        var footer: [String] = row.actors.map {
-            $0.display + " " + Fmt.rate($0.bytesPerSec, unit: unit)
-        }
-        if !row.hint.isEmpty { footer.append(row.hint) }
-        if !footer.isEmpty {
-            Text.drawWrapped(footer.joined(separator: "  ·  "),
-                             in: NSRect(x: left, y: card.minY + 10, width: width, height: 28),
-                             font: NSFont.systemFont(ofSize: 11),
-                             color: NSColor.tertiaryLabelColor)
+        for block in footerBlocks(for: row) {
+            let h = Text.wrappedHeight(block.text, font: block.font, width: width)
+            Text.drawWrapped(block.text, in: NSRect(x: left, y: y, width: width, height: h),
+                             font: block.font, color: block.color)
+            y += h + 4
         }
     }
 }

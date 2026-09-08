@@ -238,7 +238,8 @@ final class RootView: NSView, NSSplitViewDelegate {
         magnifier.unit = usbList.unit
         magnifier.sampleInterval = sampleInterval
         let local = convert(windowPoint, from: nil)
-        let size = MagnifierView.size
+        // Sized to its content, so long device names and hints are never cut off.
+        let size = NSSize(width: MagnifierView.width, height: magnifier.fittingHeight)
         // Keep it beside the pointer but always fully on screen.
         var x = local.x + 24
         if x + size.width > bounds.maxX - 8 { x = local.x - size.width - 24 }
@@ -262,6 +263,14 @@ final class RootView: NSView, NSSplitViewDelegate {
               let updated = rows.first(where: { $0.id == id }) else { return }
         magnifier.row = updated
         magnifier.unit = usbList.unit
+        // Content can change height as processes and hints come and go.
+        var frame = magnifier.frame
+        let wanted = magnifier.fittingHeight
+        if abs(frame.height - wanted) > 1 {
+            frame.origin.y += frame.height - wanted
+            frame.size.height = wanted
+            magnifier.frame = frame
+        }
         magnifier.needsDisplay = true
     }
 

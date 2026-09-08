@@ -107,8 +107,23 @@ enum Text {
         style.lineSpacing = 2
         NSAttributedString(string: string, attributes: [
             .font: font, .foregroundColor: color, .paragraphStyle: style
-        ]).draw(with: rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-                context: nil)
+        ]).draw(with: rect, options: [.usesLineFragmentOrigin], context: nil)
+    }
+
+    /// Height this string needs when wrapped to `width`. Used to size a panel to its
+    /// content rather than clipping the content to the panel.
+    static func wrappedHeight(_ string: String, font: NSFont, width: CGFloat) -> CGFloat {
+        guard !string.isEmpty, width > 4 else { return 0 }
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        style.lineSpacing = 2
+        let attributed = NSAttributedString(string: string, attributes: [
+            .font: font, .paragraphStyle: style
+        ])
+        let bounds = attributed.boundingRect(
+            with: NSSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin])
+        return ceil(bounds.height)
     }
 
     static func width(_ string: String, font: NSFont) -> CGFloat {

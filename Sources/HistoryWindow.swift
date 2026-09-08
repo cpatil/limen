@@ -6,10 +6,25 @@ enum HistoryItem {
     case group(Analysis.Group)
     case session(TransferSession)
 
-    var height: CGFloat {
+    /// Tall enough for whatever advice it carries. Fixed heights truncated the
+    /// longer recommendations, which are exactly the ones worth reading.
+    func height(width: CGFloat) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: 11.5)
+        let textWidth = max(80, width - 60)
         switch self {
-        case .group(let g): return Analysis.pattern(for: g).isEmpty ? 74 : 92
-        case .session: return 66
+        case .group(let g):
+            var h: CGFloat = 34
+            let advice = Analysis.recommendation(for: g)
+            if !advice.isEmpty {
+                h += Text.wrappedHeight("→ " + advice, font: font, width: textWidth) + 6
+            }
+            let pattern = Analysis.pattern(for: g)
+            if !pattern.isEmpty {
+                h += Text.wrappedHeight("→ " + pattern, font: font, width: textWidth) + 6
+            }
+            return max(60, h + 8)
+        case .session:
+            return 66
         }
     }
 }
@@ -23,7 +38,8 @@ final class HistoryView: NSView {
             items = Analysis.groups(from: sessions).flatMap { group -> [HistoryItem] in
                 [.group(group)] + group.sessions.map { HistoryItem.session($0) }
             }
-            let height = max(items.reduce(0) { $0 + $1.height },
+            let width = enclosingScrollView?.contentView.bounds.width ?? frame.width
+            let height = max(items.reduce(0) { $0 + $1.height(width: width) },
                              enclosingScrollView?.contentView.bounds.height ?? 0)
             setFrameSize(NSSize(width: frame.width, height: height))
             needsDisplay = true
@@ -55,14 +71,14 @@ final class HistoryView: NSView {
 
         var y: CGFloat = 0
         for item in items {
-            let rect = NSRect(x: 0, y: y, width: bounds.width, height: item.height)
+            let rect = NSRect(x: 0, y: y, width: bounds.width, height: item.height(width: bounds.width))
             if rect.intersects(dirtyRect) {
                 switch item {
                 case .group(let group): draw(group: group, in: rect)
                 case .session(let session): draw(session: session, in: rect)
                 }
             }
-            y += item.height
+            y += item.height(width: bounds.width)
         }
     }
 
@@ -93,17 +109,16 @@ final class HistoryView: NSView {
 
         // The recommendation belongs to the hardware, so it is said once per group
         // rather than repeated against every copy.
-        let advice = Analysis.recommendation(for: group)
-        if !advice.isEmpty {
-            Text.drawWrapped("→ " + advice,
-                             in: NSRect(x: 44, y: rect.minY + 28, width: rect.width - 60, height: 30),
-                             font: adviceFont, color: NSColor.systemBlue)
-        }
-        let pattern = Analysis.pattern(for: group)
-        if !pattern.isEmpty {
-            Text.drawWrapped("→ " + pattern,
-                             in: NSRect(x: 44, y: rect.minY + 56, width: rect.width - 60, height: 30),
-                             font: adviceFont, color: NSColor.systemOrange)
+        let textWidth = max(80, rect.width - 60)
+        var y = rect.minY + 30
+        for (text, colour) in [(Analysis.recommendation(for: group), NSColor.systemBlue),
+                               (Analysis.pattern(for: group), NSColor.systemOrange)]
+                where !text.isEmpty {
+            let line = "→ " + text
+            let h = Text.wrappedHeight(line, font: adviceFont, width: textWidth)
+            Text.drawWrapped(line, in: NSRect(x: 44, y: y, width: textWidth, height: h),
+                             font: adviceFont, color: colour)
+            y += h + 6
         }
     }
 
