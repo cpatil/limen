@@ -70,4 +70,5 @@ Command Line Tools — no Xcode, no package manager, one shell script.
 It makes no network connections. The speed catalogue ships in the binary and updates
 only when you pick the menu item.
 
-MIT. Source: https://github.com/cpatil/limen
+MIT. Source and a universal build (Intel + Apple Silicon):
+https://github.com/cpatil/limen

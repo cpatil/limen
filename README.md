@@ -8,16 +8,34 @@ will tell you why a card import is slow. This does both.
 
 ![Limen](docs/limen.png)
 
-## Build
+## Download
+
+[**Limen-universal.zip**](https://github.com/cpatil/limen/releases/latest/download/Limen-universal.zip)
+— one build for both architectures, Intel and Apple Silicon.
+
+It is signed ad-hoc, not notarised, so Gatekeeper will refuse it until you clear the
+download flag:
+
+```bash
+unzip Limen-universal.zip
+xattr -dr com.apple.quarantine Limen.app
+open Limen.app
+```
+
+Verified running from the same binary on macOS 11.7.11 / Intel and on current Apple
+Silicon. The Intel slice targets 10.14; the arm64 slice targets 11.0, which is as low
+as Apple Silicon goes.
+
+## Build it yourself
 
 ```bash
 ./build.sh          # -> build/Limen.app
 open build/Limen.app
 ```
 
-AppKit, no SwiftUI, no Xcode, no package manager. Universal `x86_64 + arm64` with a
-10.14 deployment target, so it runs on a 2015 12" MacBook as well as current hardware.
-`./deploy.sh <ssh-host>` builds and installs it on another Mac over SSH.
+AppKit, no SwiftUI, no Xcode, no package manager — `swiftc` and the Command Line Tools,
+one shell script. `./deploy.sh <ssh-host>` builds and installs it on another Mac over
+SSH.
 
 ## Where the numbers come from
 
