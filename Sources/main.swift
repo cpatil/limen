@@ -63,6 +63,55 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
     }
     sizeItem.submenu = sizeMenu
     viewMenu.addItem(sizeItem)
+
+    // How much each row says. Everything remains available on hover either way.
+    let detailItem = NSMenuItem(title: "Row Detail", action: nil, keyEquivalent: "")
+    let detailMenu = NSMenu(title: "Row Detail")
+    let chosenDetail = RowDetail.current.rawValue
+    for (tag, title) in [(0, "Calm"), (1, "Detailed")] {
+        let item = NSMenuItem(title: title,
+                              action: #selector(AppDelegate.setRowDetail(_:)),
+                              keyEquivalent: "")
+        item.tag = tag
+        item.target = target
+        item.state = tag == chosenDetail ? .on : .off
+        detailMenu.addItem(item)
+    }
+    detailItem.submenu = detailMenu
+    viewMenu.addItem(detailItem)
+
+    let hoverItem = NSMenuItem(title: "Magnify on Hover",
+                               action: #selector(AppDelegate.toggleHover(_:)),
+                               keyEquivalent: "")
+    hoverItem.target = target
+    hoverItem.state = RootView.hoverEnabled ? .on : .off
+    viewMenu.addItem(hoverItem)
+
+    viewMenu.addItem(NSMenuItem.separator())
+
+    // Where the two sections sit. The divider between them is draggable already;
+    // this is the arrangement it divides.
+    let arrangeItem = NSMenuItem(title: "Arrange Sections", action: nil, keyEquivalent: "")
+    let arrangeMenu = NSMenu(title: "Arrange Sections")
+    let stacked = UserDefaults.standard.bool(forKey: RootView.stackedKey)
+    for (tag, title) in [(0, "Side by Side"), (1, "Stacked")] {
+        let item = NSMenuItem(title: title,
+                              action: #selector(AppDelegate.setPanesStacked(_:)),
+                              keyEquivalent: "")
+        item.tag = tag
+        item.target = target
+        item.state = (tag == 1) == stacked ? .on : .off
+        arrangeMenu.addItem(item)
+    }
+    arrangeMenu.addItem(NSMenuItem.separator())
+    let swapItem = NSMenuItem(title: "Swap Storage and Network",
+                              action: #selector(AppDelegate.swapPanes(_:)),
+                              keyEquivalent: "")
+    swapItem.target = target
+    arrangeMenu.addItem(swapItem)
+    arrangeItem.submenu = arrangeMenu
+    viewMenu.addItem(arrangeItem)
+
     viewMenuItem.submenu = viewMenu
     mainMenu.addItem(viewMenuItem)
 

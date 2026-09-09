@@ -24,6 +24,9 @@ final class MagnifierView: NSView {
     private let bodyFont = NSFont.systemFont(ofSize: 12.5)
     private let smallFont = NSFont.systemFont(ofSize: 12)
     private let badgeFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    /// A touch larger and heavier than the link badge: on a storage row the card is
+    /// the subject, and the link is context.
+    private let cardBadgeFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
     private let tickFont = NSFont.systemFont(ofSize: 10)
     private let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .medium)
     private let tagFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
@@ -42,7 +45,9 @@ final class MagnifierView: NSView {
         var identity: [String] = []
         if !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
         if !row.deviceID.isEmpty { identity.append(row.deviceID) }
-        if !row.volumes.isEmpty { identity.append(row.volumes.joined(separator: ", ")) }
+        if !row.volumes.isEmpty, row.mediumClass.isEmpty {
+            identity.append(row.volumes.joined(separator: ", "))
+        }
         if identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
         if !identity.isEmpty {
             out.append((identity.joined(separator: "  ·  "), bodyFont, NSColor.labelColor))
@@ -74,10 +79,17 @@ final class MagnifierView: NSView {
         return out
     }
 
-    /// How much of the link is in use, when that can be judged.
-    private func usage(_ row: Row) -> Double? {
-        guard row.linkTrusted else { return nil }
-        return Reference.utilization(bytesPerSec: row.down + row.up, linkBits: row.linkBits)
+    /// What the bar measures: the link where that can be judged, the device's own
+    /// best where it cannot. Same rule as the rows, so the card never disagrees with
+    /// what is behind it.
+    private func usage(_ row: Row) -> (fraction: Double, label: String, ofLink: Bool)? {
+        Reference.gauge(current: row.down + row.up, peak: row.peak,
+                        linkBits: row.linkBits, linkTrusted: row.linkTrusted)
+    }
+
+    /// Type, capacity and name of the card in this reader, if there is one.
+    private func cardText(_ row: Row) -> String {
+        Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
     }
 
     private func hasLinkRow(_ row: Row) -> Bool {
@@ -89,6 +101,7 @@ final class MagnifierView: NSView {
         guard let row = row else { return 120 }
         let pad = MagnifierView.pad
         var height = pad + 26                                    // icon + title
+        if !cardText(row).isEmpty { height += 28 }               // the card badge
         for block in blocks(for: row) {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
         }
@@ -127,6 +140,17 @@ final class MagnifierView: NSView {
         Text.draw(row.title, at: NSPoint(x: left + 28, y: y + 1),
                   font: titleFont, color: NSColor.labelColor)
         y += 24
+
+        // The card gets a badge of its own, directly under the device it is sitting in
+        // and above everything else - it is what the row is actually about.
+        let cardLabel = cardText(row)
+        if !cardLabel.isEmpty {
+            _ = Text.drawBadge(cardLabel, at: NSPoint(x: left, y: y + 2),
+                               font: cardBadgeFont,
+                               fill: Palette.cardBadge,
+                               textColor: NSColor.labelColor)
+            y += 28
+        }
 
         for block in blocks(for: row) {
             let h = Text.wrappedHeight(block.text, font: block.font, width: width)
@@ -192,28 +216,39 @@ final class MagnifierView: NSView {
 
         // A bar as well as a number: the share of a link is a proportion, and a
         // proportion is read faster as a length than as text.
-        if let used = usage(row) {
-            let barWidth = width - 92
+        if let gauge = usage(row) {
+            let used = gauge.fraction
+            let barWidth = width - 132
             let bar = NSRect(x: left, y: y + 5, width: barWidth, height: 7)
             Palette.hairline.setFill()
             NSBezierPath(roundedRect: bar, xRadius: 3.5, yRadius: 3.5).fill()
             let fraction = CGFloat(min(1, max(0, used)))
-            let fill = used >= 0.85 ? NSColor.systemOrange
+            // Orange says "the link is the limit". Against a device's own best that is
+            // no limit at all - a full bar only means it is doing what it usually does -
+            // so the peak-relative bar stays neutral however full it looks.
+            let fill: NSColor
+            if gauge.ofLink {
+                fill = used >= 0.85 ? NSColor.systemOrange
                      : (used >= 0.40 ? Palette.down : Palette.up)
+            } else {
+                fill = NSColor.secondaryLabelColor
+            }
             fill.setFill()
             NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY,
                                              width: max(3, barWidth * fraction), height: bar.height),
                          xRadius: 3.5, yRadius: 3.5).fill()
-            if let peakUsed = Reference.utilization(bytesPerSec: row.peak, linkBits: row.linkBits),
+            if gauge.ofLink,
+               let peakUsed = Reference.utilization(bytesPerSec: row.peak, linkBits: row.linkBits),
                peakUsed > used + 0.03 {
                 let x = bar.minX + barWidth * CGFloat(min(1, peakUsed))
                 NSColor.labelColor.withAlphaComponent(0.6).setFill()
                 NSRect(x: min(bar.maxX - 2, x - 1), y: bar.minY - 3, width: 2, height: 13).fill()
             }
-            Text.draw(String(format: "%.0f%% of link", used * 100),
+            Text.draw(gauge.label,
                       at: NSPoint(x: bar.maxX + 10, y: y),
                       font: smallFont,
-                      color: used >= 0.85 ? NSColor.systemOrange : NSColor.secondaryLabelColor)
+                      color: gauge.ofLink && used >= 0.85 ? NSColor.systemOrange
+                                                          : NSColor.secondaryLabelColor)
             y += 28
         }
 

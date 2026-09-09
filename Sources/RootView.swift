@@ -1,53 +1,47 @@
 import Cocoa
 
-/// The panel above the list: network and USB reported side by side.
+/// One section's totals, drawn directly beneath that section's heading band and
+/// directly above its list.
 ///
-/// Deliberately not one combined figure. Copying from a card to an SMB share is
-/// both USB and network traffic at once, and the useful thing is seeing the two
-/// move together - a single total would hide exactly the relationship you want.
-final class SummaryView: NSView {
-    var netDown: Double = 0
-    var netUp: Double = 0
-    var netDownHist: [Double] = []
-    var netUpHist: [Double] = []
-    var usbDown: Double = 0
-    var usbUp: Double = 0
-    var usbDownHist: [Double] = []
-    var usbUpHist: [Double] = []
+/// It lives inside the column rather than in a strip of its own, so it is always
+/// exactly as wide as the list it summarises - dragging the divider or swapping the
+/// sections cannot pull the two out of line, because there is nothing to keep in line.
+///
+/// Deliberately one panel per section rather than one combined figure. Copying from a
+/// card to an SMB share is both storage and network traffic at once, and the useful
+/// thing is seeing the two move together - a single total would hide exactly the
+/// relationship you want.
+final class SectionSummary: NSView {
+    var down: Double = 0
+    var up: Double = 0
+    var downHist: [Double] = []
+    var upHist: [Double] = []
     var unit: RateUnit = .bytes
+
+    private let families: [SpeedRef.Family]
+    private let inLabel: String
+    private let outLabel: String
+
+    static let height: CGFloat = 104
+
+    init(families: [SpeedRef.Family], inLabel: String, outLabel: String) {
+        self.families = families
+        self.inLabel = inLabel
+        self.outLabel = outLabel
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
 
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
-        let gap: CGFloat = 18
-        let width = (bounds.width - 32 - gap) / 2
-        // USB first, matching the columns beneath.
-        drawPanel(title: "USB", tint: Palette.down, families: [.storage],
-                  inLabel: "READ", outLabel: "WRITE",
-                  down: usbDown, up: usbUp, downHist: usbDownHist, upHist: usbUpHist,
-                  in: NSRect(x: 16, y: bounds.minY, width: width, height: bounds.height))
-        drawPanel(title: "NETWORK", tint: Palette.up, families: [.network],
-                  inLabel: "IN", outLabel: "OUT",
-                  down: netDown, up: netUp, downHist: netDownHist, upHist: netUpHist,
-                  in: NSRect(x: 16 + width + gap, y: bounds.minY, width: width, height: bounds.height))
-
-        // A hairline between the two so they read as separate measurements.
-        Palette.hairline.setFill()
-        NSRect(x: 16 + width + gap / 2, y: bounds.minY + 14,
-               width: 1, height: bounds.height - 28).fill()
-    }
-
-    private func drawPanel(title: String, tint: NSColor, families: [SpeedRef.Family],
-                           inLabel: String, outLabel: String,
-                           down: Double, up: Double,
-                           downHist: [Double], upHist: [Double], in rect: NSRect) {
-        let labelFont = NSFont.systemFont(ofSize: 9.5, weight: .bold)
+        let rect = NSRect(x: bounds.minX + 16, y: bounds.minY,
+                          width: max(40, bounds.width - 32), height: bounds.height)
         let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 22, weight: .medium)
         let tagFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
         let smallFont = NSFont.systemFont(ofSize: 10.5)
-        let top = rect.maxY - 16
-
-        Text.draw(title, at: NSPoint(x: rect.minX, y: top - 11), font: labelFont, color: tint)
+        let top = rect.maxY - 4
 
         // Stacked, with the chart beside them rather than underneath: side by side put
         // the graph behind the numbers as soon as anything moved.
@@ -76,6 +70,9 @@ final class SummaryView: NSView {
         if chartRect.width > 40 {
             Chart.draw(down: downHist, up: upHist, in: chartRect, lineWidth: 1.5)
         }
+
+        Palette.hairline.setFill()
+        NSRect(x: 0, y: bounds.minY, width: bounds.width, height: 1).fill()
     }
 }
 
@@ -83,7 +80,7 @@ final class RootView: NSView, NSSplitViewDelegate {
     let usbList = TrafficListView()
     let netList = TrafficListView()
     let historyList = HistoryView()
-    private lazy var usbColumn = ColumnView(title: "USB", tint: Palette.down, content: usbList)
+    private lazy var usbColumn = ColumnView(title: "STORAGE", tint: Palette.down, content: usbList)
     private lazy var netColumn = ColumnView(title: "NETWORK", tint: Palette.up, content: netList)
     private lazy var historyColumn = ColumnView(title: "TRANSFER SESSIONS",
                                                 tint: NSColor.secondaryLabelColor,
@@ -98,18 +95,25 @@ final class RootView: NSView, NSSplitViewDelegate {
     /// Which row the card is showing, so it can be refreshed on every sample rather
     /// than only when the pointer moves.
     private var magnifiedRowID: String?
+    /// (row ids in their new order, whether this is the storage list).
+    var onReorder: (([String], Bool) -> Void)?
 
-    let sortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    /// One sort control per section, shown in that section's heading rather than the
+    /// toolbar - so it is obvious which list it orders, and each is remembered
+    /// separately.
+    let storageSort = NSPopUpButton(frame: .zero, pullsDown: false)
+    let networkSort = NSPopUpButton(frame: .zero, pullsDown: false)
     let unitControl = NSSegmentedControl(labels: ["B/s", "bit/s"],
                                          trackingMode: .selectOne,
                                          target: nil,
                                          action: nil)
     let intervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let inactiveToggle = NSButton(checkboxWithTitle: "Show all", target: nil, action: nil)
-    let summary = SummaryView()
+    /// One per section, each living inside its own column beneath that column's band.
+    let storageSummary = SectionSummary(families: [.storage], inLabel: "READ", outLabel: "WRITE")
+    let networkSummary = SectionSummary(families: [.network], inLabel: "IN", outLabel: "OUT")
 
     private let headerHeight: CGFloat = 46
-    private let summaryHeight: CGFloat = 116
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -125,7 +129,8 @@ final class RootView: NSView, NSSplitViewDelegate {
     /// across launches rather than resetting to bytes each time.
     private enum Pref {
         static let unit = "RateUnit"
-        static let sort = "SortOrder"
+        static let storageSort = "SortOrder.Storage"
+        static let networkSort = "SortOrder.Network"
         static let interval = "Interval"
         static let showAll = "ShowInactive"
     }
@@ -145,29 +150,40 @@ final class RootView: NSView, NSSplitViewDelegate {
             + "A shorter interval reacts faster and shows brief spikes; a longer one "
             + "averages over more time and reads more steadily."
 
-        sortPopup.addItems(withTitles: [Monitor.SortOrder.activeFirst.title,
+        for (popup, key, what) in [(storageSort, Pref.storageSort, "storage list"),
+                                   (networkSort, Pref.networkSort, "network list")] {
+            popup.addItems(withTitles: [Monitor.SortOrder.activeFirst.title,
                                         Monitor.SortOrder.name.title,
                                         Monitor.SortOrder.rate.title,
-                                        Monitor.SortOrder.total.title])
-        sortPopup.selectItem(at: UserDefaults.standard.integer(forKey: Pref.sort))
-        sortPopup.bezelStyle = .rounded
-        sortPopup.toolTip = "How both lists are ordered.\n\n"
-            + "Active first keeps whatever is moving data at the top, without "
-            + "reshuffling every second the way ordering by rate does."
+                                        Monitor.SortOrder.total.title,
+                                        Monitor.SortOrder.manual.title])
+            popup.selectItem(at: UserDefaults.standard.integer(forKey: key))
+            popup.bezelStyle = .rounded
+            popup.controlSize = .small
+            popup.font = NSFont.systemFont(ofSize: 10)
+            popup.toolTip = "How the \(what) is ordered. Kept separately for each "
+                + "section and remembered.\n\n"
+                + "Active first keeps whatever is moving data at the top, without "
+                + "reshuffling every second the way ordering by rate does.\n\n"
+                + "Dragging a row up or down switches this list to a custom order and "
+                + "remembers it."
+        }
+        usbColumn.accessory = storageSort
+        netColumn.accessory = networkSort
+        // Band, then that section's totals, then its rows.
+        usbColumn.headerHeight = SectionSummary.height
+        netColumn.headerHeight = SectionSummary.height
+        usbColumn.header = storageSummary
+        netColumn.header = networkSummary
         inactiveToggle.state = UserDefaults.standard.bool(forKey: Pref.showAll) ? .on : .off
         inactiveToggle.toolTip = "Include things that are idle or not real hardware.\n\n"
             + "Normally the lists show physical devices plus anything currently moving "
             + "data. Turning this on also reveals loopback, VPN tunnels, bridges and "
             + "other virtual interfaces, and USB hubs with nothing attached."
 
-        columnsSplit.isVertical = true
         columnsSplit.dividerStyle = .thin
         columnsSplit.delegate = self
-        // AppKit persists divider positions under these names, so the layout you
-        // choose survives relaunching.
-        columnsSplit.autosaveName = "LimenColumns"
-        columnsSplit.addArrangedSubview(usbColumn)
-        columnsSplit.addArrangedSubview(netColumn)
+        applyPaneLayout()
 
         outerSplit.isVertical = false
         outerSplit.dividerStyle = .thin
@@ -189,17 +205,46 @@ final class RootView: NSView, NSSplitViewDelegate {
                 self?.showMagnifier(row: row, zone: zone, details: details, at: windowPoint)
             }
         }
+        // Dragging a row is only meaningful if the arrangement then survives the next
+        // sample, so a drag selects custom order for that list and saves it.
+        usbList.onReorder = { [weak self] ids in self?.onReorder?(ids, true) }
+        netList.onReorder = { [weak self] ids in self?.onReorder?(ids, false) }
 
         addSubview(outerSplit)
-        addSubview(sortPopup)
         addSubview(unitControl)
         addSubview(intervalPopup)
         addSubview(inactiveToggle)
-        addSubview(summary)
         // Last, so it is drawn above everything. Added earlier it sat beneath the
         // summary, which then painted its text over the panel and made it look
         // translucent when it never was.
         addSubview(magnifier)
+    }
+
+    /// Whether the two sections sit beside each other or one above the other, and
+    /// which comes first. Both are choices about your own screen - a tall window wants
+    /// them stacked, and which section you read first is a habit, not a rule.
+    static let stackedKey = "PanesStacked"
+    static let swappedKey = "PanesSwapped"
+
+    var panesAreStacked: Bool { UserDefaults.standard.bool(forKey: RootView.stackedKey) }
+    var panesAreSwapped: Bool { UserDefaults.standard.bool(forKey: RootView.swappedKey) }
+
+    func applyPaneLayout() {
+        let stacked = panesAreStacked
+        let order: [ColumnView] = panesAreSwapped ? [netColumn, usbColumn] : [usbColumn, netColumn]
+
+        for view in columnsSplit.arrangedSubviews {
+            columnsSplit.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        columnsSplit.isVertical = !stacked
+        // A divider position saved while side by side is a width; reusing it as a
+        // height would drop the divider somewhere arbitrary. Each arrangement keeps
+        // its own remembered position.
+        columnsSplit.autosaveName = stacked ? "LimenColumnsStacked" : "LimenColumns"
+        for view in order { columnsSplit.addArrangedSubview(view) }
+        columnsSplit.adjustSubviews()
+        needsLayout = true
     }
 
     override var isFlipped: Bool { false }
@@ -207,25 +252,39 @@ final class RootView: NSView, NSSplitViewDelegate {
     override func draw(_ dirtyRect: NSRect) {
         Palette.hairline.setFill()
         NSRect(x: 0, y: bounds.maxY - headerHeight, width: bounds.width, height: 1).fill()
-        NSRect(x: 0, y: bounds.maxY - headerHeight - summaryHeight,
-               width: bounds.width, height: 1).fill()
     }
 
     // Keep either column from being dragged away entirely.
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMin: CGFloat,
                    ofSubviewAt dividerIndex: Int) -> CGFloat {
-        splitView === outerSplit ? 150 : 260
+        if splitView === outerSplit { return 150 }
+        return splitView.isVertical ? 260 : 110
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMax: CGFloat,
                    ofSubviewAt dividerIndex: Int) -> CGFloat {
-        splitView === outerSplit
-            ? max(150, splitView.bounds.height - 110)
-            : max(260, splitView.bounds.width - 260)
+        if splitView === outerSplit { return max(150, splitView.bounds.height - 110) }
+        return splitView.isVertical
+            ? max(260, splitView.bounds.width - 260)
+            : max(110, splitView.bounds.height - 110)
+    }
+
+    /// Whether hovering enlarges anything. On by default - it is the reason the small
+    /// type in the rows is readable - but it follows the pointer everywhere, and if you
+    /// are reading rather than inspecting that is a distraction. Off, the tooltips
+    /// remain, so a clipped name is still recoverable.
+    static let hoverKey = "HoverMagnifier"
+    static var hoverEnabled: Bool {
+        UserDefaults.standard.object(forKey: hoverKey) as? Bool ?? true
     }
 
     private func showMagnifier(row: Row?, zone: MagnifierView.Zone,
                                details: String, at windowPoint: NSPoint) {
+        guard RootView.hoverEnabled else {
+            magnifier.isHidden = true
+            magnifiedRowID = nil
+            return
+        }
         guard let row = row else {
             magnifier.isHidden = true
             magnifiedRowID = nil
@@ -253,6 +312,11 @@ final class RootView: NSView, NSSplitViewDelegate {
         }
         magnifier.isHidden = false
         magnifier.needsDisplay = true
+    }
+
+    func hideMagnifier() {
+        magnifier.isHidden = true
+        magnifiedRowID = nil
     }
 
     /// Feeds the open card fresh numbers each tick. Without this it froze at
@@ -289,13 +353,10 @@ final class RootView: NSView, NSSplitViewDelegate {
         cursor = place(unitControl, rightOf: cursor, width: unitSize.width, height: unitSize.height) - 10
         cursor = place(intervalPopup, rightOf: cursor, width: 78, height: 24) - 10
         let toggleSize = inactiveToggle.fittingSize
-        cursor = place(inactiveToggle, rightOf: cursor, width: toggleSize.width, height: toggleSize.height) - 12
-        _ = place(sortPopup, rightOf: cursor, width: 130, height: 24)
+        _ = place(inactiveToggle, rightOf: cursor, width: toggleSize.width, height: toggleSize.height)
 
-        summary.frame = NSRect(x: 0, y: top - headerHeight - summaryHeight,
-                               width: bounds.width, height: summaryHeight)
         outerSplit.frame = NSRect(x: 0, y: 0, width: bounds.width,
-                                  height: max(0, top - headerHeight - summaryHeight - 1))
+                                  height: max(0, top - headerHeight - 1))
     }
 }
 
@@ -325,8 +386,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         AppDelegate.applyAppearance()
 
-        root.sortPopup.target = self
-        root.sortPopup.action = #selector(sortChanged)
+        root.onReorder = { [weak self] ids, isStorage in
+            self?.rowsReordered(ids, isStorage: isStorage)
+        }
+        root.storageSort.target = self
+        root.storageSort.action = #selector(sortChanged)
+        root.networkSort.target = self
+        root.networkSort.action = #selector(sortChanged)
         root.unitControl.target = self
         root.unitControl.action = #selector(controlChanged)
         root.intervalPopup.target = self
@@ -336,7 +402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Adopt the persisted preferences rather than resetting them.
         monitor.showInactive = root.inactiveToggle.state == .on
-        monitor.sortOrder = Monitor.SortOrder(rawValue: root.sortPopup.indexOfSelectedItem) ?? .activeFirst
+        adoptSortOrders()
         intervalChanged()
 
         // Fill the catalogue from the copy inside the binary. No network: the app
@@ -450,15 +516,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// How much each row spells out. Nothing is lost either way - the hover card
+    /// always shows everything - so this is purely how dense you want the lists.
+    @objc func setRowDetail(_ sender: NSMenuItem) {
+        UserDefaults.standard.set(sender.tag, forKey: "RowDetail")
+        for item in sender.menu?.items ?? [] { item.state = item === sender ? .on : .off }
+        root.usbList.needsDisplay = true
+        root.netList.needsDisplay = true
+    }
+
+    @objc func toggleHover(_ sender: NSMenuItem) {
+        let now = !RootView.hoverEnabled
+        UserDefaults.standard.set(now, forKey: RootView.hoverKey)
+        sender.state = now ? .on : .off
+        root.hideMagnifier()
+    }
+
+    @objc func setPanesStacked(_ sender: NSMenuItem) {
+        UserDefaults.standard.set(sender.tag == 1, forKey: RootView.stackedKey)
+        for item in sender.menu?.items ?? [] { item.state = item === sender ? .on : .off }
+        root.applyPaneLayout()
+    }
+
+    @objc func swapPanes(_ sender: NSMenuItem) {
+        UserDefaults.standard.set(!root.panesAreSwapped, forKey: RootView.swappedKey)
+        root.applyPaneLayout()
+    }
+
     @objc func setMinimumLogged(_ sender: NSMenuItem) {
         UserDefaults.standard.set(sender.tag, forKey: "MinLoggedTransfer")
         for item in sender.menu?.items ?? [] { item.state = item === sender ? .on : .off }
     }
 
-    @objc private func sortChanged() {
-        UserDefaults.standard.set(root.sortPopup.indexOfSelectedItem, forKey: "SortOrder")
-        monitor.sortOrder = Monitor.SortOrder(rawValue: root.sortPopup.indexOfSelectedItem)
+    /// Each section's order is stored under its own key, so choosing "Name" for the
+    /// interfaces does not also reshuffle the drives.
+    /// A drag is a decision about arrangement, so it selects custom order for that
+    /// list and stores it. Without this the next sample would put everything back.
+    private func rowsReordered(_ ids: [String], isStorage: Bool) {
+        let popup = isStorage ? root.storageSort : root.networkSort
+        popup.selectItem(at: Monitor.SortOrder.manual.rawValue)
+        UserDefaults.standard.set(ids, forKey: isStorage ? "RowOrder.Storage"
+                                                         : "RowOrder.Network")
+        if isStorage { monitor.storageOrder = ids } else { monitor.networkOrder = ids }
+        sortChanged()
+    }
+
+    private func adoptSortOrders() {
+        monitor.storageOrder = UserDefaults.standard.stringArray(forKey: "RowOrder.Storage") ?? []
+        monitor.networkOrder = UserDefaults.standard.stringArray(forKey: "RowOrder.Network") ?? []
+        monitor.storageSort = Monitor.SortOrder(rawValue: root.storageSort.indexOfSelectedItem)
             ?? .activeFirst
+        monitor.networkSort = Monitor.SortOrder(rawValue: root.networkSort.indexOfSelectedItem)
+            ?? .activeFirst
+    }
+
+    @objc private func sortChanged() {
+        UserDefaults.standard.set(root.storageSort.indexOfSelectedItem, forKey: "SortOrder.Storage")
+        UserDefaults.standard.set(root.networkSort.indexOfSelectedItem, forKey: "SortOrder.Network")
+        adoptSortOrders()
         refresh()
     }
 
@@ -481,19 +596,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         root.usbList.unit = unit
         root.netList.unit = unit
-        root.summary.unit = unit
+        root.storageSummary.unit = unit
+        root.networkSummary.unit = unit
 
-        root.summary.netDown = monitor.totalDown
-        root.summary.netUp = monitor.totalUp
-        root.summary.netDownHist = monitor.totalDownHist
-        root.summary.netUpHist = monitor.totalUpHist
-        root.summary.usbDown = monitor.usbTotalDown
-        root.summary.usbUp = monitor.usbTotalUp
-        root.summary.usbDownHist = monitor.usbDownHist
-        root.summary.usbUpHist = monitor.usbUpHist
+        root.networkSummary.down = monitor.totalDown
+        root.networkSummary.up = monitor.totalUp
+        root.networkSummary.downHist = monitor.totalDownHist
+        root.networkSummary.upHist = monitor.totalUpHist
+        root.storageSummary.down = monitor.usbTotalDown
+        root.storageSummary.up = monitor.usbTotalUp
+        root.storageSummary.downHist = monitor.usbDownHist
+        root.storageSummary.upHist = monitor.usbUpHist
 
         root.usbList.rows = monitor.usbRows
-        root.usbList.emptyMessage = "No USB devices connected"
+        root.usbList.emptyMessage = "No storage devices"
         root.netList.rows = monitor.networkRows
         root.netList.emptyMessage = "No active interfaces"
 
@@ -505,7 +621,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // devices are the thing that actually arrives unannounced.
         growForContent(rowCount: monitor.usbRows.count)
         root.refreshMagnifier(from: monitor.usbRows + monitor.networkRows)
-        root.summary.needsDisplay = true
+        root.storageSummary.needsDisplay = true
+        root.networkSummary.needsDisplay = true
         root.needsLayout = true
     }
 }

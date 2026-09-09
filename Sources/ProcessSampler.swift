@@ -55,14 +55,24 @@ enum ProcessSampler {
     }
 
     private static func diskIO(_ pid: Int32) -> (read: UInt64, written: UInt64)? {
-        var info = rusage_info_v4()
-        let rc = withUnsafeMutablePointer(to: &info) { p -> Int32 in
-            p.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { rp in
-                proc_pid_rusage(pid, RUSAGE_INFO_V4, rp)
-            }
-        }
-        // Non-zero means the process is owned by another user (or has exited).
-        guard rc == 0 else { return nil }
+        // `proc_pid_rusage`'s third parameter is typed `rusage_info_t *`, but
+        // `rusage_info_t` is itself `void *` - so that type name is a historical wart,
+        // not a real level of indirection. The kernel writes the whole struct AT the
+        // address you hand it. Passing `&someLocal` (a pointer to an 8-byte pointer)
+        // makes it write 296 bytes across the stack: silent garbage, then
+        // __stack_chk_fail on return. Pass the buffer itself, rebound to the pointer
+        // type Swift imported. There is no size argument, so the buffer must be at
+        // least as large as the flavour; allocate room to spare.
+        let capacity = max(MemoryLayout<rusage_info_v4>.stride * 2, 4096)
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: capacity,
+                                                  alignment: MemoryLayout<rusage_info_v4>.alignment)
+        defer { raw.deallocate() }
+        raw.initializeMemory(as: UInt8.self, repeating: 0, count: capacity)
+
+        let slot = raw.bindMemory(to: rusage_info_t?.self,
+                                  capacity: capacity / MemoryLayout<rusage_info_t?>.stride)
+        guard proc_pid_rusage(pid, RUSAGE_INFO_V4, slot) == 0 else { return nil }
+        let info = raw.loadUnaligned(as: rusage_info_v4.self)
         return (info.ri_diskio_bytesread, info.ri_diskio_byteswritten)
     }
 
@@ -94,6 +104,46 @@ enum ProcessSampler {
         return map
     }
 
+    /// What a mounted volume does to itself while you read from it.
+    ///
+    /// A card you are only importing from should not be taking writes, and when it is,
+    /// these are the reasons: a journalled filesystem mounted without `noatime`
+    /// commits an access-time update for every file read, and Spotlight builds its
+    /// index onto the volume itself. Both are read from the mount table and the disk
+    /// rather than assumed, so the advice can name the actual cause.
+    struct VolumeTraits {
+        var fsType = ""
+        /// Journalled and updating access times: reading writes.
+        var journalWrites = false
+        var spotlight = false
+    }
+
+    static func volumeTraits() -> [String: VolumeTraits] {
+        var buf: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&buf, MNT_NOWAIT)
+        guard count > 0, let list = buf else { return [:] }
+
+        var map: [String: VolumeTraits] = [:]
+        for i in 0..<Int(count) {
+            var entry = list[i]
+            let on = withUnsafeBytes(of: &entry.f_mntonname) { raw -> String in
+                String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
+            }
+            guard on.hasPrefix("/Volumes") else { continue }
+            let fs = withUnsafeBytes(of: &entry.f_fstypename) { raw -> String in
+                String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
+            }
+            let journaled = (entry.f_flags & UInt32(MNT_JOURNALED)) != 0
+            let noatime = (entry.f_flags & UInt32(MNT_NOATIME)) != 0
+            var traits = VolumeTraits()
+            traits.fsType = fs
+            traits.journalWrites = journaled && !noatime
+            traits.spotlight = FileManager.default.fileExists(atPath: on + "/.Spotlight-V100")
+            map[on] = traits
+        }
+        return map
+    }
+
     /// True when this process holds an open file anywhere under `root`.
     ///
     /// This is the "who is actually touching this device" check: a descriptor on the
@@ -105,12 +155,21 @@ enum ProcessSampler {
         guard proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, size) > 0 else { return false }
 
         for fd in fds where fd.proc_fdtype == UInt32(PROX_FDTYPE_VNODE) {
-            var vi = vnode_fdinfowithpath()
-            let rc = proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, &vi,
-                                    Int32(MemoryLayout<vnode_fdinfowithpath>.size))
+            // Same reasoning: an oversized heap buffer rather than a struct on the
+            // stack sized by MemoryLayout.size.
+            let capacity = max(MemoryLayout<vnode_fdinfowithpath>.stride * 2, 4096)
+            let raw = UnsafeMutableRawPointer.allocate(
+                byteCount: capacity, alignment: MemoryLayout<vnode_fdinfowithpath>.alignment)
+            defer { raw.deallocate() }
+            raw.initializeMemory(as: UInt8.self, repeating: 0, count: capacity)
+
+            let rc = proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, raw,
+                                    Int32(MemoryLayout<vnode_fdinfowithpath>.stride))
             guard rc > 0 else { continue }
-            let path = withUnsafeBytes(of: &vi.pvip.vip_path) { raw -> String in
-                String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
+            let info = raw.loadUnaligned(as: vnode_fdinfowithpath.self)
+            var pathBytes = info.pvip.vip_path
+            let path = withUnsafeBytes(of: &pathBytes) { bytes -> String in
+                String(cString: bytes.baseAddress!.assumingMemoryBound(to: CChar.self))
             }
             if path.hasPrefix(root) { return true }
         }

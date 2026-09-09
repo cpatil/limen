@@ -22,6 +22,18 @@ enum Palette {
     static var emphasis: NSColor {
         NSColor.systemGreen.withAlphaComponent(0.13)
     }
+    /// Behind the card sitting in a reader. Its own colour, because a row can carry
+    /// two badges - what is being read, and the link it is read over - and they are
+    /// different kinds of fact that should never be mistaken for one another.
+    static var cardBadge: NSColor {
+        NSColor.systemGreen.withAlphaComponent(0.30)
+    }
+    /// Behind a section heading. The headings divide the window, so they carry a
+    /// band of their own rather than floating in the same field as the rows - which
+    /// is what made them easy to miss.
+    static var headerBand: NSColor {
+        NSColor.textColor.withAlphaComponent(0.07)
+    }
     /// Behind the row under the pointer. Tinted rather than grey so it reads as
     /// deliberate at a glance, and subtle enough not to fight the text.
     static var hover: NSColor {
@@ -96,9 +108,13 @@ enum Text {
                      at point: NSPoint,
                      font: NSFont,
                      color: NSColor,
-                     alignRight: CGFloat? = nil) {
+                     alignRight: CGFloat? = nil,
+                     tracking: CGFloat = 0) {
         guard !string.isEmpty else { return }
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        var attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        // Letter-spacing, for the short all-capitals headings: at that size it is the
+        // difference between a label and a smudge.
+        if tracking != 0 { attrs[.kern] = tracking }
         let attributed = NSAttributedString(string: string, attributes: attrs)
         var origin = point
         if let rightEdge = alignRight {
@@ -152,17 +168,19 @@ enum Text {
     /// It was drawn on a hairline fill in secondary text and was the faintest element
     /// on screen despite being the most useful.
     static func drawBadge(_ string: String, at point: NSPoint, font: NSFont,
-                          prominent: Bool = false) -> CGFloat {
+                          prominent: Bool = false,
+                          fill: NSColor? = nil, textColor: NSColor? = nil) -> CGFloat {
         guard !string.isEmpty else { return 0 }
         let padding: CGFloat = 6
         let textWidth = width(string, font: font)
         let rect = NSRect(x: point.x, y: point.y - 2,
                           width: textWidth + padding * 2, height: font.pointSize + 7)
         let path = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
-        (prominent ? Palette.badgeStrong : Palette.badge).setFill()
+        (fill ?? (prominent ? Palette.badgeStrong : Palette.badge)).setFill()
         path.fill()
         draw(string, at: NSPoint(x: point.x + padding, y: point.y + 1),
-             font: font, color: prominent ? NSColor.labelColor : NSColor.secondaryLabelColor)
+             font: font,
+             color: textColor ?? (prominent ? NSColor.labelColor : NSColor.secondaryLabelColor))
         return rect.width
     }
 }

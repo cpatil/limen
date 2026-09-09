@@ -25,6 +25,12 @@ struct TransferSession: Codable {
     var wireless: Bool?
     var processes: [String]
     var volumes: [String]
+    /// What the volume did to itself while being read, captured when the session ran -
+    /// the card may be long ejected by the time the log is read. Optional so logs
+    /// written before this existed still decode.
+    var fsType: String?
+    var journalWrites: Bool?
+    var spotlight: Bool?
 
     var duration: TimeInterval { max(1, ended.timeIntervalSince(started)) }
     var total: UInt64 { bytesRead + bytesWritten }
@@ -129,7 +135,10 @@ final class TransferLog {
                                             physical: row.isPhysical,
                                             wireless: row.wireless,
                                             processes: row.actors.map { $0.display },
-                                            volumes: row.volumes)
+                                            volumes: row.volumes,
+                                            fsType: row.fsType,
+                                            journalWrites: row.journalWrites,
+                                            spotlight: row.spotlight)
                 startTotals[key] = (row.totalDown, row.totalUp)
             }
             return

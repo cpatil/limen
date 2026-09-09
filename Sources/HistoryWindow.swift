@@ -3,7 +3,7 @@ import Cocoa
 /// The scrollable log of past transfers.
 /// One line in the log: either a group heading with its recommendation, or a session.
 enum HistoryItem {
-    case group(Analysis.Group)
+    case group(Analysis.Group, collapsed: Bool)
     case session(TransferSession)
 
     /// Tall enough for whatever advice it carries. Fixed heights truncated the
@@ -12,9 +12,14 @@ enum HistoryItem {
         let font = NSFont.systemFont(ofSize: 11.5)
         let textWidth = max(80, width - 60)
         switch self {
-        case .group(let g):
+        case .group(let g, let collapsed):
+            // Folded, a group is one line: its name and its totals. The advice folds
+            // away with the sessions, because the point of folding is to get a dozen
+            // devices onto one screen.
+            if collapsed { return 44 }
             var h: CGFloat = 34
-            for text in [Analysis.recommendation(for: g), Analysis.hostNote(for: g)] where !text.isEmpty {
+            for text in [Analysis.recommendation(for: g), Analysis.hostNote(for: g),
+                         Analysis.housekeeping(for: g)] where !text.isEmpty {
                 h += Text.wrappedHeight("→ " + text, font: font, width: textWidth) + 6
             }
             let pattern = Analysis.pattern(for: g)
@@ -35,20 +40,52 @@ final class HistoryView: NSView {
     static let sessionsPerGroup = 5
 
     var sessions: [TransferSession] = [] {
-        didSet {
-            // Cap the rows per group. One busy interface can accumulate dozens of
-            // short sessions, and without a limit it pushes every other device off
-            // the bottom - which is how a card reader's log became unreachable.
-            items = Analysis.groups(from: sessions).flatMap { group -> [HistoryItem] in
-                [.group(group)]
-                    + group.sessions.prefix(HistoryView.sessionsPerGroup).map { HistoryItem.session($0) }
-            }
-            let width = enclosingScrollView?.contentView.bounds.width ?? frame.width
-            let height = max(items.reduce(0) { $0 + $1.height(width: width) },
-                             enclosingScrollView?.contentView.bounds.height ?? 0)
-            setFrameSize(NSSize(width: frame.width, height: height))
-            needsDisplay = true
+        didSet { rebuild() }
+    }
+
+    /// Groups the user has folded away, by their stable key. Remembered, so a log you
+    /// have tidied stays tidy across launches.
+    private static let collapsedKey = "CollapsedGroups"
+    private var collapsed: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: HistoryView.collapsedKey) ?? [])
+
+    private func rebuild() {
+        // Cap the rows per group. One busy interface can accumulate dozens of
+        // short sessions, and without a limit it pushes every other device off
+        // the bottom - which is how a card reader's log became unreachable.
+        items = Analysis.groups(from: sessions).flatMap { group -> [HistoryItem] in
+            let folded = collapsed.contains(group.key)
+            return [.group(group, collapsed: folded)]
+                + (folded ? []
+                          : group.sessions.prefix(HistoryView.sessionsPerGroup).map { HistoryItem.session($0) })
         }
+        let width = enclosingScrollView?.contentView.bounds.width ?? frame.width
+        let height = max(items.reduce(0) { $0 + $1.height(width: width) },
+                         enclosingScrollView?.contentView.bounds.height ?? 0)
+        setFrameSize(NSSize(width: frame.width, height: height))
+        needsDisplay = true
+    }
+
+    /// Clicking a group heading folds it. The whole heading is the target rather than
+    /// just the triangle - it is a big obvious thing to hit, which matters more here
+    /// than fidelity to a disclosure control.
+    override func mouseDown(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        guard case .group(let group, _)? = item(at: local) else { return }
+        if collapsed.contains(group.key) {
+            collapsed.remove(group.key)
+        } else {
+            collapsed.insert(group.key)
+        }
+        UserDefaults.standard.set(Array(collapsed), forKey: HistoryView.collapsedKey)
+        rebuild()
+    }
+
+    /// Folds or unfolds every group at once, for when the log has grown long.
+    func setAllCollapsed(_ folded: Bool) {
+        collapsed = folded ? Set(Analysis.groups(from: sessions).map { $0.key }) : []
+        UserDefaults.standard.set(Array(collapsed), forKey: HistoryView.collapsedKey)
+        rebuild()
     }
     private(set) var items: [HistoryItem] = []
     var unit: RateUnit = .bytes
@@ -56,6 +93,11 @@ final class HistoryView: NSView {
     var onLogChanged: (() -> Void)?
 
     override var isFlipped: Bool { true }
+
+    /// Act on the first click even when Limen is not the active app. This is a window
+    /// you glance at while working in something else; spending a click just to focus
+    /// it before you can fold a group or drag a row is a click too many.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// The item under a point, accounting for the variable row heights.
     private func item(at point: NSPoint) -> HistoryItem? {
@@ -71,7 +113,7 @@ final class HistoryView: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let local = convert(event.locationInWindow, from: nil)
         let menu = NSMenu()
-        if case .group(let group)? = item(at: local) {
+        if case .group(let group, _)? = item(at: local) {
             let title = group.volumes.isEmpty ? group.device
                                               : group.device + " · " + group.volumes.joined(separator: ", ")
             let item = NSMenuItem(title: "Forget “\(title)”",
@@ -81,6 +123,16 @@ final class HistoryView: NSView {
             menu.addItem(item)
             menu.addItem(NSMenuItem.separator())
         }
+        let fold = NSMenuItem(title: "Fold All Devices",
+                              action: #selector(foldAll(_:)), keyEquivalent: "")
+        fold.target = self
+        menu.addItem(fold)
+        let unfold = NSMenuItem(title: "Unfold All Devices",
+                                action: #selector(unfoldAll(_:)), keyEquivalent: "")
+        unfold.target = self
+        menu.addItem(unfold)
+        menu.addItem(NSMenuItem.separator())
+
         let all = NSMenuItem(title: "Clear Entire Log", action: #selector(clearAll(_:)), keyEquivalent: "")
         all.target = self
         menu.addItem(all)
@@ -92,6 +144,9 @@ final class HistoryView: NSView {
         TransferLog.shared.clear(device: group.device, volumes: group.volumes)
         onLogChanged?()
     }
+
+    @objc private func foldAll(_ sender: NSMenuItem) { setAllCollapsed(true) }
+    @objc private func unfoldAll(_ sender: NSMenuItem) { setAllCollapsed(false) }
 
     @objc private func clearAll(_ sender: NSMenuItem) {
         TransferLog.shared.clear()
@@ -122,7 +177,8 @@ final class HistoryView: NSView {
             let rect = NSRect(x: 0, y: y, width: bounds.width, height: item.height(width: bounds.width))
             if rect.intersects(dirtyRect) {
                 switch item {
-                case .group(let group): draw(group: group, in: rect)
+                case .group(let group, let folded):
+                    draw(group: group, in: rect, collapsed: folded)
                 case .session(let session): draw(session: session, in: rect)
                 }
             }
@@ -130,7 +186,7 @@ final class HistoryView: NSView {
         }
     }
 
-    private func draw(group: Analysis.Group, in rect: NSRect) {
+    private func draw(group: Analysis.Group, in rect: NSRect, collapsed: Bool) {
         NSColor.textColor.withAlphaComponent(0.05).setFill()
         rect.fill()
         Palette.hairline.setFill()
@@ -140,7 +196,25 @@ final class HistoryView: NSView {
         let metaFont = NSFont.systemFont(ofSize: 11)
         let adviceFont = NSFont.systemFont(ofSize: 11.5)
 
-        Icons.draw(group.section == "USB" ? (group.removable ? .memoryCard : .hardDisk) : .ethernet,
+        // A disclosure triangle in the left margin, pointing down when open. It sits
+        // before the icon rather than displacing it, so folding changes nothing else
+        // about where the heading's parts are.
+        let mid = rect.minY + 19
+        let tri = NSBezierPath()
+        if collapsed {
+            tri.move(to: NSPoint(x: 5, y: mid - 4.5))
+            tri.line(to: NSPoint(x: 11, y: mid))
+            tri.line(to: NSPoint(x: 5, y: mid + 4.5))
+        } else {
+            tri.move(to: NSPoint(x: 4, y: mid - 2.5))
+            tri.line(to: NSPoint(x: 13, y: mid - 2.5))
+            tri.line(to: NSPoint(x: 8.5, y: mid + 3))
+        }
+        tri.close()
+        NSColor.secondaryLabelColor.setFill()
+        tri.fill()
+
+        Icons.draw(group.section == "Network" ? .ethernet : (group.removable ? .memoryCard : .hardDisk),
                    in: NSRect(x: 16, y: rect.minY + 10, width: 18, height: 18),
                    color: NSColor.secondaryLabelColor)
 
@@ -160,10 +234,13 @@ final class HistoryView: NSView {
 
         // The recommendation belongs to the hardware, so it is said once per group
         // rather than repeated against every copy.
+        guard !collapsed else { return }
+
         let textWidth = max(80, rect.width - 60)
         var y = rect.minY + 30
         for (text, colour) in [(Analysis.recommendation(for: group), NSColor.systemBlue),
                                (Analysis.hostNote(for: group), NSColor.systemTeal),
+                               (Analysis.housekeeping(for: group), NSColor.systemYellow),
                                (Analysis.pattern(for: group), NSColor.systemOrange)]
                 where !text.isEmpty {
             let line = "→ " + text
@@ -216,7 +293,7 @@ final class HistoryView: NSView {
             + "  " + outTag + " " + Fmt.bytes(Double(s.bytesWritten))
         if s.linkTrusted == true,
            let used = Reference.utilization(bytesPerSec: s.peakRate, linkBits: s.linkBits) {
-            tail += String(format: "   ·   peak %.0f%% of link", used * 100)
+            tail += String(format: "   ·   peak %.0f%% link utilization", used * 100)
         }
         Text.draw(tail, at: NSPoint(x: 0, y: rect.minY + 46), font: metaFont,
                   color: NSColor.tertiaryLabelColor, alignRight: right)

@@ -1,5 +1,22 @@
 import Cocoa
 
+/// How much each row spells out.
+///
+/// Every one of these details was asked for, so none of them are gone - but all of
+/// them at once, on every row, is a wall of grey text. Calm keeps what identifies the
+/// device and what it is doing, and leaves the rest to the hover card, which already
+/// shows the lot and is easier to read than a 10pt line.
+enum RowDetail: Int {
+    case calm = 0
+    case detailed = 1
+
+    static var current: RowDetail {
+        RowDetail(rawValue: UserDefaults.standard.integer(forKey: "RowDetail")) ?? .calm
+    }
+
+    var showsEverything: Bool { self == .detailed }
+}
+
 /// Draws the whole list itself rather than using NSTableView cells. With fixed-height rows and
 /// no interaction beyond scrolling, one draw pass is far cheaper than a tree of subviews —
 /// which matters on the low-power hardware this targets.
@@ -8,6 +25,16 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
     /// Reports what the pointer is over, so the window can magnify it.
     var onHover: ((Row?, MagnifierView.Zone, String, NSPoint) -> Void)?
+    /// Emitted when rows have been dragged into a new arrangement, with the row ids in
+    /// their new order. The window persists it and switches this list to custom order.
+    var onReorder: (([String]) -> Void)?
+
+    /// Index of the row being dragged, while a drag is in progress.
+    private var draggingIndex: Int?
+    private var dragStartedAt: NSPoint = .zero
+    /// A press only becomes a drag once it has moved far enough to mean it, so a
+    /// click or a right-click never quietly rearranges the list.
+    private var dragArmed = false
 
     private var tooltips: [NSView.ToolTipTag: String] = [:]
     private var tracking: NSTrackingArea?
@@ -27,11 +54,18 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     var emptyMessage = "No data"
 
     override var isFlipped: Bool { true }
+
+    /// Act on the first click even when Limen is not the active app. This is a window
+    /// you glance at while working in something else; spending a click just to focus
+    /// it before you can fold a group or drag a row is a click too many.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var isOpaque: Bool { false }
 
     private let titleFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
     private let subtitleFont = NSFont.systemFont(ofSize: 11)
     private let badgeFont = NSFont.systemFont(ofSize: 10)
+    /// Semibold: the card is the subject of a storage row, so it should read first.
+    private let cardFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
     private let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
     private let totalFont = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular)
 
@@ -80,6 +114,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        guard draggingIndex == nil else { return }
         let local = convert(event.locationInWindow, from: nil)
         let index = Int(local.y / TrafficListView.rowHeight)
         let newHover = (index >= 0 && index < rows.count) ? index : nil
@@ -102,6 +137,43 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         onHover?(nil, .rate, "", .zero)
     }
 
+    // ---- dragging rows into an order ------------------------------------
+
+    override func mouseDown(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        let index = Int(local.y / TrafficListView.rowHeight)
+        guard index >= 0, index < rows.count else { return }
+        draggingIndex = index
+        dragStartedAt = local
+        dragArmed = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let from = draggingIndex else { return }
+        let local = convert(event.locationInWindow, from: nil)
+        if !dragArmed {
+            guard abs(local.y - dragStartedAt.y) > 6 else { return }
+            dragArmed = true
+            // The hover card would otherwise sit over the rows being rearranged.
+            onHover?(nil, .rate, "", .zero)
+        }
+        let to = min(max(0, Int(local.y / TrafficListView.rowHeight)), rows.count - 1)
+        guard to != from else { return }
+        // Rearranged as the pointer crosses each boundary, rather than only on drop -
+        // you can see where the row is going while you are still deciding.
+        let moved = rows.remove(at: from)
+        rows.insert(moved, at: to)
+        draggingIndex = to
+        hoveredIndex = to
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { draggingIndex = nil; dragArmed = false }
+        guard dragArmed else { return }
+        onReorder?(rows.map { $0.id })
+    }
+
     // ---- tooltips -------------------------------------------------------
 
     /// Rows clip their text to fit, so the full value is offered on hover instead of
@@ -115,6 +187,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if !row.deviceID.isEmpty { parts.append(row.deviceID) }
         if !row.volumes.isEmpty { parts.append(row.volumes.joined(separator: ", ")) }
         if parts.count == 1, !row.subtitle.isEmpty { parts.append(row.subtitle) }
+        let card = Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
+        if !card.isEmpty { parts.append(card) }
         if !row.badge.isEmpty { parts.append(row.badge) }
         if row.linkTrusted, row.linkBits > 0 {
             parts.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
@@ -130,12 +204,60 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         let index = Int(local.y / TrafficListView.rowHeight)
         guard index >= 0, index < rows.count else { return nil }
 
+        let row = rows[index]
         let menu = NSMenu()
         let item = NSMenuItem(title: "Copy", action: #selector(copyText(_:)), keyEquivalent: "")
         item.target = self
-        item.representedObject = identity(for: rows[index])
+        item.representedObject = identity(for: row)
         menu.addItem(item)
+
+        // Offered on the row itself, because this is a fact about this volume: macOS
+        // is writing an index onto a card you are only reading from. A LaunchAgent
+        // cannot do this - touching a removable volume needs consent macOS only grants
+        // to an app the user runs - so it belongs here, where the prompt makes sense.
+        if row.removable, !row.mountRoots.isEmpty {
+            let already = row.mountRoots.allSatisfy {
+                FileManager.default.fileExists(atPath: $0 + "/.metadata_never_index")
+            }
+            let name = row.volumes.first ?? "this card"
+            let stop = NSMenuItem(title: already ? "Spotlight Indexing Already Off for “\(name)”"
+                                                 : "Stop Spotlight Indexing “\(name)”",
+                                  action: #selector(stopIndexing(_:)), keyEquivalent: "")
+            stop.target = self
+            stop.representedObject = row.mountRoots as NSArray
+            stop.isEnabled = !already
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(stop)
+        }
         return menu
+    }
+
+    /// Writes `.metadata_never_index` at the volume root - the durable way to stop
+    /// Spotlight indexing a card. It needs no password, lives on the volume so it
+    /// travels to any Mac, and is undone by deleting the file.
+    @objc private func stopIndexing(_ sender: NSMenuItem) {
+        guard let roots = sender.representedObject as? [String] else { return }
+        var failed: [String] = []
+        for root in roots where !FileManager.default.fileExists(atPath: root + "/.metadata_never_index") {
+            let path = root + "/.metadata_never_index"
+            if !FileManager.default.createFile(atPath: path, contents: Data()) {
+                failed.append((root as NSString).lastPathComponent)
+            }
+        }
+        let alert = NSAlert()
+        if failed.isEmpty {
+            alert.messageText = "Spotlight indexing stopped"
+            alert.informativeText = "A .metadata_never_index file now sits at the volume root, "
+                + "so no Mac will index it. Delete that file to undo it.\n\n"
+                + "Indexing already in progress finishes; it will not start again."
+        } else {
+            alert.messageText = "Could not write to \(failed.joined(separator: ", "))"
+            alert.informativeText = "macOS withholds access to removable volumes until it is "
+                + "granted. Allow Limen under System Settings ▸ Privacy & Security ▸ "
+                + "Files and Folders ▸ Removable Volumes, then try again."
+        }
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     @objc private func copyText(_ sender: NSMenuItem) {
@@ -196,6 +318,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             Palette.hover.setFill()
             NSBezierPath(roundedRect: rect.insetBy(dx: 6, dy: 2), xRadius: 7, yRadius: 7).fill()
         }
+        if dragArmed, index == draggingIndex {
+            // Outlined while it is being carried, so it is obvious which row moves.
+            let path = NSBezierPath(roundedRect: rect.insetBy(dx: 6, dy: 2),
+                                    xRadius: 7, yRadius: 7)
+            NSColor.controlAccentColor.withAlphaComponent(0.9).setStroke()
+            path.lineWidth = 2
+            path.stroke()
+        }
 
         Palette.hairline.setFill()
         NSRect(x: 12, y: rect.maxY - 1, width: rect.width - 24, height: 1).fill()
@@ -209,6 +339,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         let textLimit = chartLeft - 12 - 16
         let combined = row.down + row.up
         let dimmed = row.active ? 1.0 : 0.55
+        let verbose = RowDetail.current.showsEverything
 
         // ---- left column: what this is -----------------------------------
         let iconBox = NSRect(x: 16, y: rect.minY + 18, width: 18, height: 18)
@@ -233,7 +364,20 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if row.linkTrusted, row.linkBits > 0 {
             let primary = Fmt.speed(bitsPerSec: row.linkBits, unit: unit)
             badgeText = badgeText.isEmpty ? primary : badgeText + " · " + primary
-            alternate = "= " + Fmt.alternateSpeed(bitsPerSec: row.linkBits, unit: unit)
+            // The same speed restated in the other unit: useful once, noise on every
+            // row forever. Hovering still shows both.
+            if verbose { alternate = "= " + Fmt.alternateSpeed(bitsPerSec: row.linkBits, unit: unit) }
+        }
+        // The card leads. When you look at a reader the question is what is in it, not
+        // what it is plugged into - so its type, capacity and name come first, in their
+        // own colour and at full strength.
+        let card = Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
+        if !card.isEmpty {
+            cursorX += Text.drawBadge(Text.clip(card, font: cardFont, maxWidth: textLimit - 24),
+                                      at: NSPoint(x: cursorX, y: secondLineY),
+                                      font: cardFont,
+                                      fill: Palette.cardBadge,
+                                      textColor: NSColor.labelColor) + 6
         }
         if !badgeText.isEmpty {
             let badge = Text.clip(badgeText, font: badgeFont, maxWidth: textLimit - 24)
@@ -245,10 +389,16 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                       font: badgeFont, color: NSColor.tertiaryLabelColor)
             cursorX += Text.width(alternate, font: badgeFont) + 8
         }
-        Text.draw(Text.clip(row.subtitle, font: subtitleFont, maxWidth: max(0, textLimit - cursorX)),
-                  at: NSPoint(x: cursorX, y: secondLineY + 1),
-                  font: subtitleFont,
-                  color: NSColor.secondaryLabelColor)
+        // Once the badges have taken the line, a vendor clipped to "G..." says nothing
+        // and looks broken. Drop it rather than stub it - the hover card and the
+        // tooltip both carry it in full.
+        let subtitleRoom = textLimit - cursorX
+        if subtitleRoom >= 60 {
+            Text.draw(Text.clip(row.subtitle, font: subtitleFont, maxWidth: subtitleRoom),
+                      at: NSPoint(x: cursorX, y: secondLineY + 1),
+                      font: subtitleFont,
+                      color: NSColor.secondaryLabelColor)
+        }
 
         // Third line: either why we cannot measure this, or what the rate is
         // comparable to. The comparison is the point of the feature - "6.2 MB/s"
@@ -256,7 +406,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         var context = row.note
         if context.isEmpty && combined > 0 {
             context = Reference.comparison(bytesPerSec: combined,
-                                           families: row.compareFamilies.isEmpty ? nil : row.compareFamilies)
+                                           families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
+                                           roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
+                                           internalMedium: row.internalMedium)
         }
         Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit - textLeft),
                   at: NSPoint(x: textLeft, y: rect.minY + 56),
@@ -275,23 +427,30 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             NSGraphicsContext.restoreGraphicsState()
         }
 
-        // Only meaningful when the link rate is believable and the row has actually
-        // carried traffic; an idle port showing "0% of link" is just noise.
-        let credible = row.linkTrusted
-            && Reference.linkRateIsCredible(observedBytesPerSec: max(combined, row.peak),
-                                            linkBits: row.linkBits)
-        let showUtilisation = credible && (combined > 0 || row.peak > 0)
-        if showUtilisation,
-           let used = Reference.utilization(bytesPerSec: combined, linkBits: row.linkBits) {
+        // Every row that has ever moved data gets a bar. Where the link ceiling is
+        // believable the bar measures against it; where it is not - Wi-Fi, whose
+        // reported rate is fiction, and the internal drive, which has no cable - it
+        // measures against the fastest that device has actually gone.
+        let gauge = Reference.gauge(current: combined, peak: row.peak,
+                                    linkBits: row.linkBits, linkTrusted: row.linkTrusted)
+        if let gauge = gauge {
             let bar = NSRect(x: chartLeft, y: rect.minY + 56, width: chartWidth, height: 5)
             Palette.hairline.setFill()
             NSBezierPath(roundedRect: bar, xRadius: 2.5, yRadius: 2.5).fill()
 
-            let fraction = CGFloat(min(1.0, max(0.0, used)))
+            let fraction = CGFloat(min(1.0, max(0.0, gauge.fraction)))
             // Once a transfer is near the ceiling the link is the limit, not the
             // device at either end. Colour says which regime you are in.
-            let fill = used >= 0.85 ? NSColor.systemOrange
-                     : (used >= 0.40 ? Palette.down : Palette.up)
+            // Orange says "the link is the limit". Against a device's own best that is
+            // no limit at all - a full bar only means it is doing what it usually does -
+            // so the peak-relative bar stays neutral however full it looks.
+            let fill: NSColor
+            if gauge.ofLink {
+                fill = gauge.fraction >= 0.85 ? NSColor.systemOrange
+                     : (gauge.fraction >= 0.40 ? Palette.down : Palette.up)
+            } else {
+                fill = NSColor.secondaryLabelColor
+            }
             fill.setFill()
             NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY,
                                              width: max(2, bar.width * fraction),
@@ -299,9 +458,11 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                          xRadius: 2.5, yRadius: 2.5).fill()
 
             // A tick at the session peak, so a link that briefly maxed out still
-            // shows it after the transfer settles down.
-            if let peakUsed = Reference.utilization(bytesPerSec: row.peak, linkBits: row.linkBits),
-               peakUsed > used + 0.03 {
+            // shows it after the transfer settles down. Only meaningful against a
+            // fixed ceiling - against the peak itself the tick is always at the end.
+            if gauge.ofLink,
+               let peakUsed = Reference.utilization(bytesPerSec: row.peak, linkBits: row.linkBits),
+               peakUsed > gauge.fraction + 0.03 {
                 let x = bar.minX + bar.width * CGFloat(min(1.0, peakUsed))
                 NSColor.labelColor.withAlphaComponent(0.6).setFill()
                 NSRect(x: min(bar.maxX - 2, max(bar.minX, x - 1)), y: bar.minY - 2,
@@ -328,12 +489,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                   at: NSPoint(x: 0, y: rect.minY + 53),
                   font: totalFont, color: NSColor.tertiaryLabelColor, alignRight: rightEdge)
 
-        if showUtilisation,
-           let used = Reference.utilization(bytesPerSec: combined, linkBits: row.linkBits) {
-            Text.draw(String(format: "%.0f%% of link", used * 100),
+        // Against a real link, name the figure. Against the device's own best, the
+        // useful number is that best itself - the bar already shows how near it is.
+        if let gauge = gauge, gauge.ofLink {
+            Text.draw(gauge.label,
                       at: NSPoint(x: 0, y: rect.minY + 65),
                       font: totalFont,
-                      color: used >= 0.85 ? NSColor.systemOrange : NSColor.tertiaryLabelColor,
+                      color: gauge.fraction >= 0.85 ? NSColor.systemOrange
+                                                    : NSColor.tertiaryLabelColor,
                       alignRight: rightEdge)
         } else if row.peak > 0 {
             Text.draw("peak " + Fmt.rate(row.peak, unit: unit),
@@ -344,11 +507,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // Fourth line: the processes the kernel says are responsible, then any
         // suggestion. Kept small and grey so it informs without shouting.
         var footer = ""
-        if !row.actors.isEmpty {
+        // Calm rows keep the recommendation - it is the reason to read the row at all -
+        // and drop the running commentary of processes and Apple's marketing name,
+        // both of which the hover card shows in full.
+        if verbose, !row.actors.isEmpty {
             footer = row.actors.map { "\($0.display) \(Fmt.rate($0.bytesPerSec, unit: unit))" }
                 .joined(separator: "   ")
         }
-        if !row.appleName.isEmpty {
+        if verbose, !row.appleName.isEmpty {
             let apple = "Apple: " + row.appleName
             footer += footer.isEmpty ? apple : "   ·   " + apple
         }

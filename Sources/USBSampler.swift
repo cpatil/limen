@@ -24,6 +24,9 @@ struct USBDeviceInfo {
     /// fixed disk in an enclosure. Read from IOMedia rather than guessed from the
     /// product name, so advice about cards only ever reaches actual cards.
     var removableMedia = false
+    /// Capacity of the removable medium in bytes, from the whole-disk IOMedia. The SD
+    /// specification divides cards by capacity, so this is what names the family.
+    var mediumBytes: UInt64 = 0
 
     /// Negotiated link speed as advertised by the port, in bits/sec.
     var linkSpeedBits: UInt64 {
@@ -175,6 +178,12 @@ enum USBSampler {
         if IOObjectConformsTo(entry, "IOMedia") != 0,
            let removable = property(entry, "Removable") as? Bool, removable {
             info.removableMedia = true
+            // The whole disk, not a partition: a card's family follows the size of the
+            // medium, and a partition can be any fraction of it.
+            if (property(entry, "Whole") as? Bool) == true,
+               let size = (property(entry, "Size") as? NSNumber)?.uint64Value {
+                info.mediumBytes = max(info.mediumBytes, size)
+            }
         }
 
         if let bsd = property(entry, "BSD Name") as? String {

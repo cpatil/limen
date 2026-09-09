@@ -20,7 +20,9 @@ enum Analysis {
     }
 
     static func verdict(for s: TransferSession) -> Verdict {
-        let ceiling = (s.linkTrusted == true) ? Reference.ceiling(forLinkBits: s.linkBits) : nil
+        let ceiling = (s.linkTrusted == true)
+            ? Reference.ceiling(forLinkBits: s.linkBits,
+                                family: s.section == "Network" ? .network : .usb) : nil
         let used = ceiling.map { s.peakRate / $0.bytes } ?? 0
 
         if let ceiling = ceiling, used >= 0.85 {
@@ -31,8 +33,15 @@ enum Analysis {
 
         // Near a known medium's ceiling: the card or disk was the limit, not the port.
         // Only meaningful for real hardware - a tunnel has no medium of its own.
-        let families: [SpeedRef.Family] = s.section == "USB" ? [.storage] : [.network]
-        if s.physical != false, let near = Reference.nearest(bytesPerSec: s.peakRate, families: families) {
+        let families: [SpeedRef.Family] = s.section == "Network" ? [.network] : [.storage]
+        // Same rule as the rows: a card is judged against cards, a drive against
+        // drives. Without this a copy to the internal SSD was reported as having
+        // "peaked at about SD card (UHS-I SDR50)'s limit", which it never touched.
+        let roles: [String]? = s.section == "Network" ? nil
+                                                     : (s.removable == true ? ["card"] : ["disk"])
+        if s.physical != false,
+           let near = Reference.nearest(bytesPerSec: s.peakRate, families: families, roles: roles,
+                                        internalMedium: s.section == "Internal") {
             let ratio = (s.peakRate * 8) / near.payload
             if ratio > 0.85, ratio < 1.15 {
                 return Verdict(summary: "peaked at about \(near.name)'s limit — the medium set the pace",
@@ -170,6 +179,45 @@ enum Analysis {
     /// Only worth saying when the gap is large and the device is not already the
     /// limit: a card reader at its card's ceiling gains nothing from a better cable,
     /// however fast the port beside it is.
+    /// Bytes written to a removable volume you were importing *from*.
+    ///
+    /// A card you are only reading should take no writes at all, and when it does the
+    /// causes are macOS's: Spotlight builds its index onto the volume, and a journalled
+    /// filesystem mounted without `noatime` commits an access-time update for every
+    /// file read. On a UHS-I card writes are far slower than reads and the two contend,
+    /// so this is not merely wasted card wear - it is why the import crawls. Measured
+    /// on one real session: 579 MB written against 474 MB read, at 6.3 MB/s on a card
+    /// that had already demonstrated 85.8 MB/s.
+    ///
+    /// Only raised when a genuine import happened, so copying *to* a card - which is
+    /// write-dominated by design - never trips it.
+    static func housekeeping(for group: Group) -> String {
+        guard group.removable else { return "" }
+        let read = group.sessions.reduce(UInt64(0)) { $0 + $1.bytesRead }
+        let written = group.sessions.reduce(UInt64(0)) { $0 + $1.bytesWritten }
+        guard read >= 50_000_000, written >= 10_000_000,
+              Double(written) >= Double(read) * 0.05 else { return "" }
+
+        var causes: [String] = []
+        if group.sessions.contains(where: { $0.spotlight == true }) {
+            causes.append("Spotlight indexing the volume")
+        }
+        if let s = group.sessions.first(where: { $0.journalWrites == true }) {
+            let fs = (s.fsType ?? "").isEmpty ? "journalled" : s.fsType!.uppercased()
+            causes.append("the \(fs) journal recording an access time for every file read")
+        }
+        let why = causes.isEmpty ? "macOS housekeeping - Spotlight, the filesystem journal, .DS_Store"
+                                 : causes.joined(separator: ", and ")
+
+        var note = "\(Fmt.bytes(Double(written))) written to this card while reading "
+            + "\(Fmt.bytes(Double(read))) from it"
+        if written > read { note += " - more written than read" }
+        note += ". \(why). Writes contend with reads on a card, so this slows the import "
+            + "as well as wearing the card: a .metadata_never_index file at the volume "
+            + "root stops the indexing for good."
+        return note
+    }
+
     static func hostNote(for group: Group) -> String {
         guard group.section == "USB",
               let host = HostPorts.best,
@@ -192,9 +240,9 @@ enum Analysis {
     static func recommendation(for group: Group) -> String {
         let peak = group.bestPeak
         guard peak > 0 else { return "" }
-        let family: SpeedRef.Family = group.section == "USB" ? .storage : .network
+        let family: SpeedRef.Family = group.section == "Network" ? .network : .storage
 
-        if group.section != "USB" {
+        if group.section == "Network" {
             // Tunnels and bridges are software: their speed follows the link beneath.
             if !group.physical {
                 return "A software interface — its speed follows the physical link "
@@ -221,7 +269,7 @@ enum Analysis {
         }
 
         // 2. Otherwise the medium is. Place it on the ladder for its kind.
-        let role = group.section == "USB" ? (group.removable ? "card" : "disk") : "bus"
+        let role = group.section == "Network" ? "bus" : (group.removable ? "card" : "disk")
         let ladder = Reference.ladder(role: role, family: family)
         guard !ladder.isEmpty else { return "The device, not the link, is setting the pace." }
 

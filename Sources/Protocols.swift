@@ -35,6 +35,11 @@ struct SpeedCatalogue: Codable {
         /// The sensible thing to buy today for this kind of medium. Anything slower is
         /// legacy, and stepping one rung from legacy is poor advice.
         var mainstream: Bool?
+        // Where this medium physically lives: "external" for things that only ever
+        // hang off a cable. Absent means it can be either, so it is a fair yardstick
+        // for a drive inside the machine as well as one on the desk. Without this an
+        // internal SSD was being measured against a USB flash drive.
+        var mount: String?
     }
 }
 
@@ -140,7 +145,7 @@ enum Catalogue {
     /// of its headline number before any protocol framing.
     static let builtInJSON = """
     {
-      "version": 4,
+      "version": 5,
       "updated": "2026-09-08",
       "entries": [
         {
@@ -420,7 +425,8 @@ enum Catalogue {
           "payload": 240000000.0,
           "family": "storage",
           "role": "disk",
-          "upgrade": "portable hard disk"
+          "upgrade": "portable hard disk",
+          "mount": "external"
         },
         {
           "name": "portable hard disk",
@@ -428,7 +434,8 @@ enum Catalogue {
           "payload": 880000000.0,
           "family": "storage",
           "role": "disk",
-          "upgrade": "desktop hard disk"
+          "upgrade": "desktop hard disk",
+          "mount": "external"
         },
         {
           "name": "desktop hard disk",

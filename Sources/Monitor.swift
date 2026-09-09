@@ -40,6 +40,17 @@ struct Row {
     /// The medium can be taken out - a card rather than a fixed disk. Drives which
     /// advice applies.
     var removable: Bool = false
+    /// Which SD family the card in this reader belongs to, with its capacity, when the
+    /// device is one that reads cards. Empty otherwise.
+    var mediumClass: String = ""
+
+    /// Type, capacity and name in one label - "SDXC 256 GB · sd-14". Composed in one
+    /// place so the row, the hover card and the tooltip cannot drift apart.
+    static func cardLabel(class mediumClass: String, volumes: [String]) -> String {
+        guard !mediumClass.isEmpty else { return "" }
+        guard !volumes.isEmpty else { return mediumClass }
+        return mediumClass + "  ·  " + volumes.joined(separator: ", ")
+    }
     /// Wireless, as reported by SystemConfiguration rather than guessed from a name.
     var wireless: Bool = false
     /// Whether the reported link rate can be presented as a capacity at all.
@@ -48,6 +59,15 @@ struct Row {
     /// interface to USB 1.1, or a USB 3.0 card reader to USB 2.0, is arithmetically
     /// nearest and completely meaningless.
     var compareFamilies: [SpeedRef.Family] = []
+    /// Which kind of medium this is measured against - "card" for something in a
+    /// reader, "disk" for a drive. Empty means the whole family is fair game.
+    var compareRoles: [String] = []
+    /// A drive inside the machine, so cable-only media are not fair comparisons.
+    var internalMedium: Bool = false
+    /// The filesystem on the mounted volume, and what it does to itself when read.
+    var fsType: String = ""
+    var journalWrites: Bool = false
+    var spotlight: Bool = false
     /// Every place this device is mounted. A single enclosure often carries
     /// several partitions, and the traffic may be on any of them.
     var mountRoots: [String] = []
@@ -56,7 +76,7 @@ struct Row {
 extension Row {
     /// Storage is read and written; a network carries traffic in and out. Using one
     /// vocabulary for both would be wrong for one of them.
-    var isStorageLike: Bool { section == "USB" }
+    var isStorageLike: Bool { section != "Network" }
     var inShort: String { isStorageLike ? "R" : "IN" }
     var outShort: String { isStorageLike ? "W" : "OUT" }
     var inLong: String { isStorageLike ? "READ" : "IN" }
@@ -80,7 +100,14 @@ final class Monitor {
         didSet { restartTimer() }
     }
     var showInactive = false
-    var sortOrder: SortOrder = .activeFirst
+    /// Ordering is per section, not global. What you want from a handful of network
+    /// interfaces (a stable list you can find Wi-Fi in) is rarely what you want from a
+    /// stack of cards and drives (whichever is busiest), so each keeps its own choice.
+    var storageSort: SortOrder = .activeFirst
+    var networkSort: SortOrder = .activeFirst
+    /// Row ids in the arrangement the user dragged them into, per section.
+    var storageOrder: [String] = []
+    var networkOrder: [String] = []
 
     /// How the list is ordered. Rate-ranked ordering is available but not the
     /// default: it reshuffles the list every second, which is unreadable while
@@ -90,6 +117,9 @@ final class Monitor {
         case name = 1
         case rate = 2
         case total = 3
+        /// An arrangement the user dragged into place. Chosen automatically the moment
+        /// a row is dragged, since that is unambiguously what dragging one means.
+        case manual = 4
 
         var title: String {
             switch self {
@@ -97,6 +127,7 @@ final class Monitor {
             case .name: return "Name"
             case .rate: return "Current rate"
             case .total: return "Total moved"
+            case .manual: return "Custom order"
             }
         }
     }
@@ -104,7 +135,7 @@ final class Monitor {
     /// Ordering is applied here so both sections agree, and so "active first" stays
     /// stable: it groups by whether a row is carrying traffic, then sorts by name
     /// within each group, rather than by a rate that changes every tick.
-    static func ordered(_ rows: [Row], by order: SortOrder) -> [Row] {
+    static func ordered(_ rows: [Row], by order: SortOrder, manual: [String] = []) -> [Row] {
         func byName(_ a: Row, _ b: Row) -> Bool {
             a.title.localizedStandardCompare(b.title) == .orderedAscending
         }
@@ -126,6 +157,16 @@ final class Monitor {
             return rows.sorted { a, b in
                 let l = a.totalDown + a.totalUp, r = b.totalDown + b.totalUp
                 return l != r ? l > r : byName(a, b)
+            }
+        case .manual:
+            // Rows that were placed keep their places. Anything not in the saved
+            // arrangement - a card just inserted - goes to the end rather than
+            // displacing what the user deliberately arranged.
+            var rank: [String: Int] = [:]
+            for (index, id) in manual.enumerated() { rank[id] = index }
+            return rows.sorted { a, b in
+                let l = rank[a.id] ?? Int.max, r = rank[b.id] ?? Int.max
+                return l != r ? l < r : byName(a, b)
             }
         }
     }
@@ -164,6 +205,7 @@ final class Monitor {
     private var prevProcs: [Int32: ProcSample] = [:]
     private var procs: [Int32: ProcSample] = [:]
     private var mounts: [String: String] = [:]
+    private var traits: [String: ProcessSampler.VolumeTraits] = [:]
     private var mountRefresh = 0
     private var histDown: [String: [Double]] = [:]
     private var histUp: [String: [Double]] = [:]
@@ -219,7 +261,12 @@ final class Monitor {
         let net = NetSampler.sample()
         // Mount points move rarely; processes change constantly.
         mountRefresh += 1
-        if mounts.isEmpty || mountRefresh % 10 == 0 { mounts = ProcessSampler.mountPoints() }
+        if mounts.isEmpty || mountRefresh % 10 == 0 {
+            mounts = ProcessSampler.mountPoints()
+            // What each volume does to itself while being read. Refreshed with the
+            // mount table rather than every tick - it only changes on mount.
+            traits = ProcessSampler.volumeTraits()
+        }
         prevProcs = procs
         procs = ProcessSampler.sample()
         updateNetwork(net, elapsed: elapsed)
@@ -360,7 +407,7 @@ final class Monitor {
             rows.append(row)
         }
 
-        rows = Monitor.ordered(rows, by: sortOrder)
+        rows = Monitor.ordered(rows, by: networkSort, manual: networkOrder)
 
         // Default view: hardware interfaces (so Wi-Fi stays visible when idle) plus anything
         // currently moving data (so an active VPN tunnel still appears). "Show all" reveals
@@ -374,7 +421,9 @@ final class Monitor {
     }
 
     private func updateUSB(_ net: [String: NetCounters], previousNet: [String: NetCounters], elapsed: Double) {
-        let devices = USBSampler.sample()
+        // Internal drives alongside the plugged-in ones: a card import is a read from
+        // one and a write to the other, and showing only half of it explains nothing.
+        let devices = USBSampler.sample() + InternalStorage.sample()
         var rows: [Row] = []
         var sumDown: Double = 0
         var sumUp: Double = 0
@@ -431,8 +480,10 @@ final class Monitor {
                 // both are visible without the badge overflowing a half-width pane.
                 // Name only. The speed is appended by the view, which knows whether
                 // bytes or bits is selected.
+                // Internal drives have no negotiated link to report, and labelling one
+                // "Unknown speed" invited a comparison against USB 1.1.
                 badge: Reference.standard(forLinkBits: device.linkSpeedBits)?.name
-                    ?? device.speedLabel
+                    ?? (device.linkSpeedBits > 0 ? device.speedLabel : "")
             )
             row.down = down
             row.up = up
@@ -444,17 +495,27 @@ final class Monitor {
             row.isPhysical = true
             row.linkBits = device.linkSpeedBits
             row.peak = notePeak("usb:" + device.id, down + up)
-            row.section = "USB"
+            row.section = device.id.hasPrefix("internal:") ? "Internal" : "USB"
             row.vendor = device.vendor
             row.deviceID = deviceID
             row.removable = device.removableMedia
+            row.mediumClass = Reference.mediumClass(bytes: device.mediumBytes,
+                                                    deviceName: device.name,
+                                                    removable: device.removableMedia)
             row.icon = IconKind.forUSB(hasDisks: !device.disks.isEmpty,
                                        removableMedia: device.removableMedia,
                                        hasInterfaces: !device.interfaces.isEmpty)
             // Storage devices are best understood against other storage; a USB
             // network adapter against other networks.
-            row.compareFamilies = !device.disks.isEmpty ? [.storage]
+            row.compareFamilies = device.hasStorageCounters ? [.storage]
                                 : (!device.interfaces.isEmpty ? [.network] : [.usb])
+            // A card in a reader belongs against cards; a drive - portable or internal -
+            // against drives. Judged by whether the medium is removable, which the
+            // storage stack reports, rather than by the product name.
+            if device.hasStorageCounters {
+                row.compareRoles = device.removableMedia ? ["card"] : ["disk"]
+                row.internalMedium = device.id.hasPrefix("internal:")
+            }
             if let std = Reference.standard(forLinkBits: device.linkSpeedBits),
                let apple = std.appleName, apple != std.name {
                 row.appleName = apple
@@ -470,6 +531,11 @@ final class Monitor {
                 .filter { $0.hasPrefix("/Volumes") }
             // Volume names as shown in Finder, not full paths.
             row.volumes = row.mountRoots.map { ($0 as NSString).lastPathComponent }
+            if let first = row.mountRoots.first, let t = traits[first] {
+                row.fsType = t.fsType
+                row.journalWrites = t.journalWrites
+                row.spotlight = t.spotlight
+            }
             if combinedActive(down, up), !row.mountRoots.isEmpty {
                 row.actors = actors(under: row.mountRoots, elapsed: elapsed)
             }
@@ -478,7 +544,7 @@ final class Monitor {
             rows.append(row)
         }
 
-        rows = Monitor.ordered(rows, by: sortOrder)
+        rows = Monitor.ordered(rows, by: storageSort, manual: storageOrder)
 
         usbRows = rows
         usbTotalDown = sumDown

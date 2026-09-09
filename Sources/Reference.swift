@@ -29,6 +29,8 @@ struct SpeedRef {
     let upgrade: String?
     let upgradeNote: String?
     let mainstream: Bool?
+    /// "external" when this medium only exists on the end of a cable.
+    let mount: String?
 
     var payloadBytes: Double { payload / 8 }
 
@@ -50,7 +52,7 @@ enum Reference {
                  line: e.line, payload: e.payload,
                  family: SpeedRef.Family(rawValue: e.family) ?? .usb,
                  role: e.role, upgrade: e.upgrade, upgradeNote: e.upgradeNote,
-                 mainstream: e.mainstream)
+                 mainstream: e.mainstream, mount: e.mount)
     }
 
     static func entry(named name: String) -> SpeedRef? {
@@ -81,18 +83,40 @@ enum Reference {
 
     /// The reference closest to a measured rate, compared in log space so "half of"
     /// and "twice" count as equally near.
-    static func nearest(bytesPerSec: Double, families: [SpeedRef.Family]? = nil) -> SpeedRef? {
+    /// The nearest reference speed, optionally narrowed to a family and a role.
+    ///
+    /// Role matters as much as family. "Storage" covers both a card in a reader and a
+    /// drive on a cable, and they are not each other's yardstick: telling someone their
+    /// portable disk is running at "52% of an SD card" compares it to a medium it will
+    /// never be. A card is measured against cards, a disk against disks.
+    static func nearest(bytesPerSec: Double, families: [SpeedRef.Family]? = nil,
+                        roles: [String]? = nil, internalMedium: Bool = false) -> SpeedRef? {
         guard bytesPerSec > 1024 else { return nil }
         let bits = bytesPerSec * 8
-        let pool = families.map { fams in all.filter { fams.contains($0.family) } } ?? all
+        var pool = families.map { fams in all.filter { fams.contains($0.family) } } ?? all
+        if let roles = roles, !roles.isEmpty {
+            let narrowed = pool.filter { roles.contains($0.role ?? "") }
+            // Never narrow to nothing: a catalogue that lacks the role still has to
+            // produce some comparison rather than falling silent.
+            if !narrowed.isEmpty { pool = narrowed }
+        }
+        if internalMedium {
+            // A drive inside the machine is not a USB stick or a bus-powered portable,
+            // however similar the numbers happen to look.
+            let inside = pool.filter { $0.mount != "external" }
+            if !inside.isEmpty { pool = inside }
+        }
         return pool.min { a, b in
             abs(log(bits / a.payload)) < abs(log(bits / b.payload))
         }
     }
 
     /// "≈ Gigabit Ethernet" when it is close, "2.1× USB 2.0" when it is not.
-    static func comparison(bytesPerSec: Double, families: [SpeedRef.Family]? = nil) -> String {
-        guard let ref = nearest(bytesPerSec: bytesPerSec, families: families) else { return "" }
+    static func comparison(bytesPerSec: Double, families: [SpeedRef.Family]? = nil,
+                           roles: [String]? = nil, internalMedium: Bool = false) -> String {
+        guard let ref = nearest(bytesPerSec: bytesPerSec, families: families,
+                                roles: roles, internalMedium: internalMedium)
+        else { return "" }
         let ratio = (bytesPerSec * 8) / ref.payload
         if ratio > 0.85 && ratio < 1.18 {
             return "≈ " + ref.name
@@ -135,6 +159,57 @@ enum Reference {
     static func utilization(bytesPerSec: Double, linkBits: UInt64) -> Double? {
         guard let cap = ceiling(forLinkBits: linkBits), cap.bytes > 0 else { return nil }
         return bytesPerSec / cap.bytes
+    }
+
+    /// Which SD family a card belongs to, named from the capacity of the medium.
+    ///
+    /// The reader presents the card as generic USB mass storage, so the card's own CID
+    /// and CSD registers - which would state this outright - are out of reach. But the
+    /// SD specification draws the family boundaries strictly by capacity, so the size
+    /// of the medium settles it: over 32 GiB is SDXC and nothing else.
+    ///
+    /// Speed class is a different question and deliberately not answered here. Nothing
+    /// about UHS-I, UHS-II, U3 or V30 crosses a USB mass-storage bridge, so the only
+    /// honest source for it is what the card actually sustains - which is what the
+    /// advice below infers from measurement.
+    static func mediumClass(bytes: UInt64, deviceName: String, removable: Bool) -> String {
+        // Only for media that is genuinely removable and sits in something that reads
+        // cards. A 64 GB USB stick is also removable-ish, and calling it "SDXC" would
+        // be a confident falsehood.
+        guard removable, bytes > 0 else { return "" }
+        let name = deviceName.lowercased()
+        guard name.contains("card") || name.contains("reader") || name.contains("sd") else {
+            return ""
+        }
+        let giB = 1024.0 * 1024.0 * 1024.0
+        let size = Double(bytes)
+        let family: String
+        switch size {
+        case ..<(2 * giB):    family = "SDSC"
+        case ..<(32 * giB):   family = "SDHC"
+        case ..<(2048 * giB): family = "SDXC"
+        default:              family = "SDUC"
+        }
+        return family + " " + Fmt.bytes(size)
+    }
+
+    /// What a row's usage bar should show, and what to call it.
+    ///
+    /// A link ceiling when there is a believable one. Otherwise the fastest this
+    /// device has actually been seen to go - which is why Wi-Fi and the internal drive
+    /// get a bar at all: Wi-Fi reports a negotiated rate it never achieves, and an
+    /// internal drive has no cable to negotiate over, so measuring against their own
+    /// best says something true where a made-up specification would not.
+    static func gauge(current: Double, peak: Double, linkBits: UInt64,
+                      linkTrusted: Bool) -> (fraction: Double, label: String, ofLink: Bool)? {
+        if linkTrusted,
+           linkRateIsCredible(observedBytesPerSec: max(current, peak), linkBits: linkBits),
+           let used = utilization(bytesPerSec: current, linkBits: linkBits) {
+            return (used, String(format: "%.0f%% link utilization", used * 100), true)
+        }
+        guard peak > 0 else { return nil }
+        let fraction = min(1.0, current / peak)
+        return (fraction, String(format: "%.0f%% of its peak", fraction * 100), false)
     }
 
     /// A quiet, evidence-based note about a removable device: what is limiting it and
