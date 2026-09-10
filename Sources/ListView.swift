@@ -241,8 +241,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if !row.mediumClass.isEmpty { parts.append(row.mediumClass) }
         if !row.volumes.isEmpty { parts.append(row.volumes.joined(separator: ", ")) }
         if row.indexingWorthReporting {
-            parts.append(row.indexingDisabled ? "Spotlight indexing off"
-                                              : "Spotlight is indexing this volume")
+            parts.append(row.indexingDisabled
+                ? "Spotlight told to skip this volume"
+                : "nothing is stopping Spotlight indexing this volume")
         }
         if !row.badge.isEmpty { parts.append(row.badge) }
         return parts.joined(separator: ", ")
@@ -369,14 +370,16 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                 FileManager.default.fileExists(atPath: $0 + "/.metadata_never_index")
             }
             let name = row.volumes.first ?? "this card"
-            let stop = NSMenuItem(title: already ? "Spotlight Indexing Already Off for “\(name)”"
+            // Both directions, from the same menu. Writing a marker onto someone's
+            // card and giving them no way to take it off would leave them editing a
+            // hidden file by hand to undo a menu click.
+            let item = NSMenuItem(title: already ? "Let Spotlight Index “\(name)” Again"
                                                  : "Stop Spotlight Indexing “\(name)”",
-                                  action: #selector(stopIndexing(_:)), keyEquivalent: "")
-            stop.target = self
-            stop.representedObject = row.mountRoots as NSArray
-            stop.isEnabled = !already
+                                  action: #selector(toggleIndexing(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = row.mountRoots as NSArray
             menu.addItem(NSMenuItem.separator())
-            menu.addItem(stop)
+            menu.addItem(item)
         }
         return menu
     }
@@ -384,27 +387,48 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     /// Writes `.metadata_never_index` at the volume root - the durable way to stop
     /// Spotlight indexing a card. It needs no password, lives on the volume so it
     /// travels to any Mac, and is undone by deleting the file.
-    @objc private func stopIndexing(_ sender: NSMenuItem) {
+    /// Adds or removes `.metadata_never_index` at the volume root - the durable way to
+    /// stop Spotlight indexing a card, and to allow it again. It needs no password,
+    /// lives on the volume so it travels to any Mac, and either direction is one click.
+    @objc private func toggleIndexing(_ sender: NSMenuItem) {
         guard let roots = sender.representedObject as? [String] else { return }
+        let marker = "/.metadata_never_index"
+        let fm = FileManager.default
+        let turningOff = !roots.allSatisfy { fm.fileExists(atPath: $0 + marker) }
+
         var failed: [String] = []
-        for root in roots where !FileManager.default.fileExists(atPath: root + "/.metadata_never_index") {
-            let path = root + "/.metadata_never_index"
-            if !FileManager.default.createFile(atPath: path, contents: Data()) {
+        for root in roots {
+            let path = root + marker
+            let exists = fm.fileExists(atPath: path)
+            do {
+                if turningOff && !exists {
+                    guard fm.createFile(atPath: path, contents: Data()) else {
+                        throw CocoaError(.fileWriteNoPermission)
+                    }
+                } else if !turningOff && exists {
+                    try fm.removeItem(atPath: path)
+                }
+            } catch {
                 failed.append((root as NSString).lastPathComponent)
             }
         }
+
         onVolumeChanged?()
         let alert = NSAlert()
         if failed.isEmpty {
-            alert.messageText = "Spotlight indexing stopped"
-            alert.informativeText = "A .metadata_never_index file now sits at the volume root, "
-                + "so no Mac will index it. Delete that file to undo it.\n\n"
-                + "Indexing already in progress finishes; it will not start again."
+            alert.messageText = turningOff ? "Spotlight indexing stopped"
+                                           : "Spotlight may index this volume again"
+            alert.informativeText = turningOff
+                ? "A .metadata_never_index file now sits at the volume root, so no Mac "
+                    + "will index it. Choosing this again removes that file.\n\n"
+                    + "Indexing already under way finishes; it will not start again."
+                : "The .metadata_never_index file has been removed. Whether macOS "
+                    + "actually indexes the volume now is its decision, not Limen's."
         } else {
-            alert.messageText = "Could not write to \(failed.joined(separator: ", "))"
-            alert.informativeText = "macOS withholds access to removable volumes until it is "
-                + "granted. Allow Limen under System Settings ▸ Privacy & Security ▸ "
-                + "Files and Folders ▸ Removable Volumes, then try again."
+            alert.messageText = "Could not change \(failed.joined(separator: ", "))"
+            alert.informativeText = "macOS withholds access to removable volumes until "
+                + "it is granted. Allow Limen under System Settings ▸ Privacy & "
+                + "Security ▸ Files and Folders ▸ Removable Volumes, then try again."
         }
         alert.addButton(withTitle: "OK")
         alert.runModal()
@@ -650,7 +674,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // pushed the vendor and the link off the end of it.
         var spotlightNote = ""
         if row.indexingWorthReporting {
-            spotlightNote = row.indexingDisabled ? "Spotlight off" : "Spotlight indexing"
+            // The marker's presence is a fact. Its absence only means nothing is
+            // stopping Spotlight - whether it is actually indexing right now is
+            // macOS's business and is not checked here.
+            spotlightNote = row.indexingDisabled ? "Spotlight off" : "Spotlight not blocked"
         }
         let noteWidth = spotlightNote.isEmpty ? 0
                                               : Text.width(spotlightNote, font: subtitleFont) + 14

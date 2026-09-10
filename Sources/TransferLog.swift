@@ -66,6 +66,9 @@ final class TransferLog {
     private var lastActive: [String: Date] = [:]
 
     private var fileURL: URL {
+        if let override = overrideDirectory {
+            return override.appendingPathComponent("history.json")
+        }
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Limen", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -74,13 +77,21 @@ final class TransferLog {
 
     /// An isolated log for the checks in Tests/, so they never read or write the
     /// real history file.
+    /// Writes to a directory of its own, so the checks exercise the real saving and
+    /// restoring rather than a path that skips them - an undo that is never actually
+    /// run is not an undo.
     static func makeForTesting(minimumSize: UInt64) -> TransferLog {
-        let log = TransferLog(persist: false)
+        let log = TransferLog(persist: true)
+        log.overrideDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("limen-test-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: log.overrideDirectory!,
+                                                 withIntermediateDirectories: true)
         log.testMinimumSize = minimumSize
         return log
     }
 
     private var testMinimumSize: UInt64?
+    private var overrideDirectory: URL?
     private let persist: Bool
 
     private var effectiveMinimumSize: UInt64 { testMinimumSize ?? TransferLog.minimumSize }
@@ -222,13 +233,53 @@ final class TransferLog {
             .sorted { $0.started > $1.started }
     }
 
+    /// Where the last clear went. Clearing is otherwise unrecoverable, and a log that
+    /// took weeks to accumulate is worth more than the keystroke that emptied it.
+    private var recycleURL: URL {
+        fileURL.deletingLastPathComponent().appendingPathComponent("cleared.json")
+    }
+
+    /// True when the last clear can still be put back.
+    var canRestoreCleared: Bool {
+        guard persist, let data = try? Data(contentsOf: recycleURL),
+              let parsed = try? JSONDecoder().decode([TransferSession].self, from: data)
+        else { return false }
+        return !parsed.isEmpty
+    }
+
+    private func setAside(_ removed: [TransferSession]) {
+        guard persist, !removed.isEmpty,
+              let data = try? JSONEncoder().encode(removed) else { return }
+        try? data.write(to: recycleURL, options: .atomic)
+    }
+
+    /// Puts back whatever the last clear removed, keeping anything recorded since.
+    @discardableResult
+    func restoreCleared() -> Int {
+        guard let data = try? Data(contentsOf: recycleURL),
+              let parsed = try? JSONDecoder().decode([TransferSession].self, from: data),
+              !parsed.isEmpty else { return 0 }
+        let known = Set(sessions.map { $0.id })
+        let returning = parsed.filter { !known.contains($0.id) }
+        sessions.append(contentsOf: returning)
+        sessions.sort { $0.started > $1.started }
+        if sessions.count > TransferLog.maxEntries {
+            sessions.removeLast(sessions.count - TransferLog.maxEntries)
+        }
+        try? FileManager.default.removeItem(at: recycleURL)
+        save()
+        return returning.count
+    }
+
     func clear() {
+        setAside(sessions)
         sessions.removeAll()
         save()
     }
 
     /// Forgets one device's history without touching anything else.
     func clear(device: String, volumes: [String]) {
+        setAside(sessions.filter { $0.device == device && $0.volumes == volumes })
         sessions.removeAll { $0.device == device && $0.volumes == volumes }
         save()
     }

@@ -191,6 +191,16 @@ final class HistoryView: NSView {
         let all = NSMenuItem(title: "Clear Entire Log", action: #selector(clearAll(_:)), keyEquivalent: "")
         all.target = self
         menu.addItem(all)
+
+        // Anything this menu removes can be put back. Emptying a log that took weeks
+        // to build should not depend on the user having been careful.
+        if TransferLog.shared.canRestoreCleared {
+            let undo = NSMenuItem(title: "Undo Last Clear",
+                                  action: #selector(undoClear(_:)), keyEquivalent: "")
+            undo.target = self
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(undo)
+        }
         return menu
     }
 
@@ -202,6 +212,18 @@ final class HistoryView: NSView {
 
     @objc private func foldAll(_ sender: NSMenuItem) { setAllCollapsed(true) }
     @objc private func unfoldAll(_ sender: NSMenuItem) { setAllCollapsed(false) }
+
+    @objc private func undoClear(_ sender: NSMenuItem) {
+        let restored = TransferLog.shared.restoreCleared()
+        onLogChanged?()
+        if restored == 0 {
+            let alert = NSAlert()
+            alert.messageText = "Nothing left to put back"
+            alert.informativeText = "Those sessions are already in the log."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
 
     @objc private func clearAll(_ sender: NSMenuItem) {
         TransferLog.shared.clear()

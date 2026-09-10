@@ -54,9 +54,11 @@ final class MagnifierView: NSView {
         }
 
         if row.indexingWorthReporting, !row.indexingDisabled {
-            out.append(("Spotlight is indexing this volume. On something you only read "
-                        + "from, that is wear and contention for nothing - right-click "
-                        + "the row to stop it.", smallFont, NSColor.systemRed))
+            out.append(("No .metadata_never_index marker here, so nothing is stopping "
+                        + "Spotlight indexing this volume. Whether it is doing so now is "
+                        + "not checked. On something you only read from, indexing is "
+                        + "wear and contention for nothing - right-click the row to "
+                        + "stop it, and again to allow it.", smallFont, NSColor.systemRed))
         }
         if !row.appleName.isEmpty {
             // Its own line. Squeezed onto the link row beside the badge and the speed

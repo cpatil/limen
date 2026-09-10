@@ -96,6 +96,21 @@ enum Catalogue {
         return builtIn
     }
 
+    /// True when a downloaded catalogue is in use rather than the one in the binary.
+    static var usingDownloaded: Bool {
+        guard let data = try? Data(contentsOf: cacheURL),
+              let parsed = try? JSONDecoder().decode(SpeedCatalogue.self, from: data)
+        else { return false }
+        return parsed.version > builtIn.version
+    }
+
+    /// Throws away a downloaded catalogue and goes back to the one that shipped.
+    /// An update is a change to how every comparison reads, so it needs a way back.
+    static func revertToBuiltIn() {
+        try? FileManager.default.removeItem(at: cacheURL)
+        seedIfMissing()
+    }
+
     static var lastChecked: Date? {
         UserDefaults.standard.object(forKey: lastCheckKey) as? Date
     }

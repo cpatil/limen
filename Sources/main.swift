@@ -20,6 +20,17 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
                                 keyEquivalent: "")
     updateItem.target = target
     appMenu.addItem(updateItem)
+    let revertItem = NSMenuItem(title: "Use the Built-in Speed Catalogue",
+                                action: #selector(AppDelegate.revertCatalogue(_:)),
+                                keyEquivalent: "")
+    revertItem.target = target
+    appMenu.addItem(revertItem)
+    appMenu.addItem(NSMenuItem.separator())
+    let resetItem = NSMenuItem(title: "Reset Settings…",
+                               action: #selector(AppDelegate.resetSettings(_:)),
+                               keyEquivalent: "")
+    resetItem.target = target
+    appMenu.addItem(resetItem)
     appMenu.addItem(NSMenuItem.separator())
     appMenu.addItem(withTitle: "Hide \(appName)",
                     action: #selector(NSApplication.hide(_:)),

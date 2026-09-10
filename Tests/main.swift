@@ -434,5 +434,40 @@ do {
     }
 }
 
+
+// ---- everything the app does can be undone -----------------------------------
+// A log that took weeks to accumulate should not depend on the user having been
+// careful with a context menu.
+do {
+    let log = TransferLog.makeForTesting(minimumSize: 1)
+    let t0 = Date()
+    for tick in 0..<3 {
+        let at = t0.addingTimeInterval(Double(tick) * 3)
+        log.record(row: row("d\(tick)", section: "USB", totalDown: 0, totalUp: 0,
+                            down: 0, up: 0), now: at)
+        log.record(row: row("d\(tick)", section: "USB", totalDown: 5_000_000, totalUp: 0,
+                            down: 5_000_000, up: 0), now: at.addingTimeInterval(1))
+    }
+    log.flush()
+    let before = log.sessions.count
+    check("undo: some sessions to lose", before > 0, "\(before)")
+
+    log.clear()
+    check("undo: clearing empties the log", log.sessions.isEmpty)
+    check("undo: and the clear is recoverable", log.canRestoreCleared)
+
+    let restored = log.restoreCleared()
+    check("undo: everything comes back", log.sessions.count == before,
+          "\(log.sessions.count) of \(before)")
+    check("undo: and it reports how many", restored == before, "\(restored)")
+    check("undo: the undo is spent once used", !log.canRestoreCleared)
+
+    // Restoring must not duplicate anything recorded since the clear.
+    log.clear()
+    _ = log.restoreCleared()
+    let ids = Set(log.sessions.map { $0.id })
+    check("undo: nothing is duplicated", ids.count == log.sessions.count)
+}
+
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

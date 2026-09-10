@@ -468,6 +468,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var setupWindow: SetupWindowController?
 
+    /// Puts the speed catalogue back to the copy inside the app.
+    @objc func revertCatalogue(_ sender: Any?) {
+        let alert = NSAlert()
+        if !Catalogue.usingDownloaded {
+            alert.messageText = "Already using the built-in catalogue"
+            alert.informativeText = "No downloaded copy is in use."
+        } else {
+            alert.messageText = "Go back to the built-in speed catalogue?"
+            alert.informativeText = "The downloaded copy will be discarded. You can "
+                + "fetch it again from this menu whenever you like."
+            alert.addButton(withTitle: "Revert")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            Catalogue.revertToBuiltIn()
+            let done = NSAlert()
+            done.messageText = "Back to the built-in catalogue"
+            done.informativeText = "Restart Limen to use it."
+            done.addButton(withTitle: "OK")
+            done.runModal()
+            return
+        }
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    /// Everything Limen remembers about how you like it, back to how it arrived.
+    /// Deliberately does not touch the transfer log or any card - those are your data,
+    /// and each has its own undo.
+    @objc func resetSettings(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Put Limen's settings back to their defaults?"
+        alert.informativeText = "Window size, section order, sorting, units, appearance, "
+            + "row detail and the Cards switches all return to how they arrived.\n\n"
+            + "Your transfer log is not touched, and no card is changed."
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        // Turning the card jobs off through CardWatch, so the watcher it installed is
+        // removed rather than left behind pointing at preferences that no longer exist.
+        for job in CardWatch.Job.allCases { try? CardWatch.set(job, on: false) }
+        if let domain = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+            UserDefaults.standard.synchronize()
+        }
+        Setup.relaunch()
+    }
+
     @objc func toggleCardJob(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let job = CardWatch.Job(rawValue: raw) else { return }

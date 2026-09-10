@@ -159,6 +159,33 @@ to check again.
 Limen needs no permission for anything it measures. The single optional one is
 removable volumes, and only for writing the marker that stops Spotlight indexing a card.
 
+## Anything it does can be undone
+
+A guiding principle rather than a feature list. Every change Limen makes outside itself
+has a way back, offered where the change was made:
+
+| What it does | How to undo it |
+|---|---|
+| Writes `.metadata_never_index` to a card | The same right-click item, which reads *Let Spotlight Index … Again* |
+| Installs the card watcher | Removed when both Cards switches are off |
+| Clears the transfer log | **Undo Last Clear** in the log's right-click menu |
+| Downloads a newer speed catalogue | **Use the Built-in Speed Catalogue** |
+| Remembers layout, sorting, units | **Reset Settings…** — leaves your log and your cards alone |
+
+Where something is genuinely irreversible it asks first, rather than succeeding quietly.
+
+## What is measured and what is inferred
+
+Byte counters are measured. Almost everything else on screen is a reading of them, and
+the interface tries to keep the difference visible.
+
+A marker file on a card is a fact, so `Spotlight off` is stated plainly. Its absence
+only means nothing is stopping Spotlight, so that reads `Spotlight not blocked` — Limen
+does not check whether indexing is actually running. A rate near a known ceiling is
+`consistent with` that ceiling, not proof of it; the reader, the destination, the
+filesystem and the workload are alternatives it cannot rule out. A check that could not
+run says so instead of showing a tick it has not earned.
+
 ## Notes
 
 No network access at all. The speed catalogue ships inside the binary and only updates
