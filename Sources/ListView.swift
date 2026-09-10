@@ -32,6 +32,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     /// Index of the row being dragged, while a drag is in progress.
     private var draggingIndex: Int?
     private var dragStartedAt: NSPoint = .zero
+    /// Where within the row the pointer took hold, and where the row is now.
+    private var dragGrabOffset: CGFloat = 0
+    private var dragFloatY: CGFloat = 0
     /// A press only becomes a drag once it has moved far enough to mean it, so a
     /// click or a right-click never quietly rearranges the list.
     private var dragArmed = false
@@ -41,13 +44,59 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     /// Row under the pointer, highlighted so it is easy to keep your place.
     private var hoveredIndex: Int?
 
-    var rows: [Row] = [] {
+    private(set) var rows: [Row] = [] {
         didSet {
             invalidateHeight()
-            rebuildTooltips()
-            refreshAccessibilityRows()
+            // Tooltip and accessibility rebuilds walk every row. Doing that on each
+            // frame of a drag is most of why dragging felt heavy, and neither is worth
+            // anything until the row lands.
+            if !dragArmed {
+                rebuildTooltips()
+                refreshAccessibilityRows()
+            }
             needsDisplay = true
         }
+    }
+
+    /// Takes a fresh sample from the monitor.
+    ///
+    /// Mid-drag this keeps the arrangement on screen and refreshes only the numbers
+    /// inside it. Assigning the sampler's order straight in used to undo the drag in
+    /// progress - and if a sample landed in the moment between the last mouse-move and
+    /// letting go, the ids written down on drop were the sampler's, not yours, so the
+    /// row sprang back. That is the "it didn't stick" bug.
+    func update(_ incoming: [Row]) {
+        rows = TrafficListView.nextRows(current: rows, incoming: incoming,
+                                        reordering: dragArmed)
+    }
+
+    /// What the list should show given a fresh sample. Pure, so the choice itself is
+    /// covered rather than only the merge it delegates to.
+    static func nextRows(current: [Row], incoming: [Row], reordering: Bool) -> [Row] {
+        reordering ? merged(holding: current, incoming: incoming) : incoming
+    }
+
+    /// Fresh values in the order already on screen.
+    ///
+    /// Anything that vanished mid-drag drops out; anything new waits until the drag is
+    /// over rather than materialising under the pointer.
+    static func merged(holding current: [Row], incoming: [Row]) -> [Row] {
+        var byID: [String: Row] = [:]
+        for row in incoming { byID[row.id] = row }
+        return current.compactMap { byID[$0.id] }
+    }
+
+    /// Which slot a row being carried at `floatY` should drop into.
+    ///
+    /// Measured from the middle of the floating row rather than the pointer. With the
+    /// pointer the row is already beneath the cursor when the test runs, so a single
+    /// pixel of movement can flip it back and forth across a boundary - which is what
+    /// made dragging feel jumpy.
+    static func insertionIndex(floatY: CGFloat, rowCount: Int,
+                               rowHeight: CGFloat = TrafficListView.rowHeight) -> Int {
+        guard rowCount > 0 else { return 0 }
+        let centre = floatY + rowHeight / 2
+        return min(max(0, Int(centre / rowHeight)), rowCount - 1)
     }
     var unit: RateUnit = .bytes {
         didSet { needsDisplay = true }
@@ -214,6 +263,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         guard index >= 0, index < rows.count else { return }
         draggingIndex = index
         dragStartedAt = local
+        // Where inside the row it was grabbed, so it does not snap its top to the
+        // pointer the moment it lifts.
+        dragGrabOffset = local.y - CGFloat(index) * TrafficListView.rowHeight
+        dragFloatY = CGFloat(index) * TrafficListView.rowHeight
         dragArmed = false
     }
 
@@ -221,25 +274,42 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         guard let from = draggingIndex else { return }
         let local = convert(event.locationInWindow, from: nil)
         if !dragArmed {
-            guard abs(local.y - dragStartedAt.y) > 6 else { return }
+            guard abs(local.y - dragStartedAt.y) > 4 else { return }
             dragArmed = true
             NSCursor.closedHand.push()
             // The hover card would otherwise sit over the rows being rearranged.
             onHover?(nil, .rate, "", .zero)
         }
-        let to = min(max(0, Int(local.y / TrafficListView.rowHeight)), rows.count - 1)
-        guard to != from else { return }
-        // Rearranged as the pointer crosses each boundary, rather than only on drop -
-        // you can see where the row is going while you are still deciding.
-        let moved = rows.remove(at: from)
-        rows.insert(moved, at: to)
-        draggingIndex = to
-        hoveredIndex = to
+
+        // The row tracks the pointer continuously; the list reflows around it. Moving
+        // the row only in whole-row steps was what made this feel jumpy.
+        let height = TrafficListView.rowHeight
+        let limit = max(0, CGFloat(rows.count - 1) * height)
+        dragFloatY = min(max(0, local.y - dragGrabOffset), limit)
+
+        // Insertion follows the middle of the floating row, not the pointer. Using the
+        // pointer means the row is already under the cursor when the test runs, so it
+        // can swap back and forth across a boundary on a single pixel of movement.
+        let to = TrafficListView.insertionIndex(floatY: dragFloatY, rowCount: rows.count,
+                                                rowHeight: height)
+        if to != from {
+            let moved = rows.remove(at: from)
+            rows.insert(moved, at: to)
+            draggingIndex = to
+        }
+        hoveredIndex = draggingIndex
+        autoscroll(with: event)
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { draggingIndex = nil; dragArmed = false }
+        defer {
+            draggingIndex = nil
+            dragArmed = false
+            rebuildTooltips()
+            refreshAccessibilityRows()
+            needsDisplay = true
+        }
         guard dragArmed else { return }
         NSCursor.pop()
         onReorder?(rows.map { $0.id })
@@ -374,9 +444,36 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                               y: CGFloat(index) * TrafficListView.rowHeight,
                               width: bounds.width,
                               height: TrafficListView.rowHeight)
-            if rect.intersects(dirtyRect) {
-                draw(row: row, in: rect, index: index)
+            guard rect.intersects(dirtyRect) else { continue }
+            if dragArmed, index == draggingIndex {
+                // The gap the row will drop into, so the destination is visible while
+                // the row itself is somewhere else under the pointer.
+                NSColor.labelColor.withAlphaComponent(0.06).setFill()
+                NSBezierPath(roundedRect: rect.insetBy(dx: 6, dy: 3),
+                             xRadius: 7, yRadius: 7).fill()
+                continue
             }
+            draw(row: row, in: rect, index: index)
+        }
+
+        // Last, so it rides above the rest.
+        if dragArmed, let index = draggingIndex, index < rows.count {
+            let floating = NSRect(x: 0, y: dragFloatY,
+                                  width: bounds.width, height: TrafficListView.rowHeight)
+            NSGraphicsContext.saveGraphicsState()
+            let plate = NSBezierPath(roundedRect: floating.insetBy(dx: 5, dy: 2),
+                                     xRadius: 8, yRadius: 8)
+            NSShadow.lifted.set()
+            // Opaque: a translucent row picks up whatever it happens to pass over,
+            // which reads as a rendering fault rather than as a lifted row.
+            (NSColor.controlBackgroundColor.usingColorSpace(.sRGB)
+                ?? NSColor.controlBackgroundColor).setFill()
+            plate.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.controlAccentColor.withAlphaComponent(0.85).setStroke()
+            plate.lineWidth = 1.5
+            plate.stroke()
+            draw(row: rows[index], in: floating, index: index)
         }
     }
 
@@ -425,14 +522,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             Palette.hover.setFill()
             NSBezierPath(roundedRect: rect.insetBy(dx: 6, dy: 2), xRadius: 7, yRadius: 7).fill()
         }
-        if dragArmed, index == draggingIndex {
-            // Outlined while it is being carried, so it is obvious which row moves.
-            let path = NSBezierPath(roundedRect: rect.insetBy(dx: 6, dy: 2),
-                                    xRadius: 7, yRadius: 7)
-            NSColor.controlAccentColor.withAlphaComponent(0.9).setStroke()
-            path.lineWidth = 2
-            path.stroke()
-        }
+
 
         Palette.hairline.setFill()
         NSRect(x: 12, y: rect.maxY - 1, width: rect.width - 24, height: 1).fill()

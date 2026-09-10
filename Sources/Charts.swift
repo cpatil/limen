@@ -140,6 +140,17 @@ enum Chart {
     }
 }
 
+extension NSShadow {
+    /// The shadow under a row that has been picked up.
+    static var lifted: NSShadow {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        shadow.shadowBlurRadius = 10
+        shadow.shadowOffset = NSSize(width: 0, height: -2)
+        return shadow
+    }
+}
+
 enum Text {
     static func draw(_ string: String,
                      at point: NSPoint,

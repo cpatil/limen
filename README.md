@@ -98,8 +98,9 @@ toolbar (or ⌘R) asks for it to be reconsidered. Devices that appear afterwards
 appended rather than barging into the middle. Sorting by rate or by total still tracks
 the live figures, since choosing those is choosing that behaviour.
 
-Rows have a drag handle in the left margin. Dragging one switches that section to a
-custom order and remembers it; the whole row is draggable, the grip is there to say so.
+Rows have a drag handle in the left margin. The row lifts and follows the pointer, the
+list reflows around it, and letting go switches that section to a custom order and
+remembers it. The whole row is draggable; the grip is there to say so.
 
 Comparisons stay inside the right kind of medium — a card against cards, a drive
 against drives, an internal drive against media that can live inside a machine.
@@ -133,6 +134,17 @@ Sessions are kept in `~/Library/Application Support/Limen/history.json` — up t
 entries, unencrypted, holding device and volume names, process names, timestamps, byte
 counts and rates. Nothing leaves the machine, but it is worth knowing the file exists
 before sharing diagnostics. Right-click the log to clear a device or the lot.
+
+## First run
+
+A setup window appears the first time, and is available afterwards from Help ▸ Setup
+and Tour. It is not a slideshow: each step checks the thing it describes and reports
+what it found — where the app is installed, whether the copy is still quarantined, and
+whether removable-volume access is actually working — with a button to fix it and one
+to check again.
+
+Limen needs no permission for anything it measures. The single optional one is
+removable volumes, and only for writing the marker that stops Spotlight indexing a card.
 
 ## Notes
 

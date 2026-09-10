@@ -122,6 +122,15 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
     viewMenuItem.submenu = viewMenu
     mainMenu.addItem(viewMenuItem)
 
+    let helpMenuItem = NSMenuItem()
+    let helpMenu = NSMenu(title: "Help")
+    let setupItem = NSMenuItem(title: "Setup and Tour…",
+                               action: #selector(AppDelegate.showSetup(_:)),
+                               keyEquivalent: "")
+    setupItem.target = target
+    helpMenu.addItem(setupItem)
+    helpMenuItem.submenu = helpMenu
+
     let windowMenuItem = NSMenuItem()
     let windowMenu = NSMenu(title: "Window")
     windowMenu.addItem(withTitle: "Minimize",
@@ -132,6 +141,7 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
                        keyEquivalent: "w")
     windowMenuItem.submenu = windowMenu
     mainMenu.addItem(windowMenuItem)
+    mainMenu.addItem(helpMenuItem)
 
     return mainMenu
 }

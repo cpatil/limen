@@ -268,5 +268,62 @@ do {
           Monitor.ordered([slow, fast], by: .rate).map { $0.id } == ["fast", "slow"])
 }
 
+
+// ---- dragging a row ----------------------------------------------------------
+// The bug this covers: the sampler assigned its own order into the list every
+// second, so a drag in progress was undone, and a sample landing between the last
+// mouse-move and letting go meant the ids written down on drop were the sampler's.
+do {
+    func n(_ id: String, down: Double = 0) -> Row {
+        var row = Row(id: id, title: id, subtitle: "", badge: "")
+        row.down = down
+        return row
+    }
+    let onScreen = [n("utun5"), n("en0"), n("en1")]          // as dragged
+    let fromSampler = [n("en0", down: 99), n("en1"), n("utun5")]   // sampler's order
+
+    let merged = TrafficListView.merged(holding: onScreen, incoming: fromSampler)
+    check("drag: a sample does not reorder the list mid-drag",
+          merged.map { $0.id } == ["utun5", "en0", "en1"],
+          merged.map { $0.id }.joined(separator: ","))
+    check("drag: but the numbers still update",
+          merged.first(where: { $0.id == "en0" })?.down == 99)
+
+    check("drag: while reordering, the sampler's order is refused",
+          TrafficListView.nextRows(current: onScreen, incoming: fromSampler,
+                                   reordering: true).map { $0.id }
+              == ["utun5", "en0", "en1"])
+    check("drag: when not reordering, the sampler's order is taken",
+          TrafficListView.nextRows(current: onScreen, incoming: fromSampler,
+                                   reordering: false).map { $0.id }
+              == ["en0", "en1", "utun5"])
+
+    let ejected = TrafficListView.merged(holding: onScreen, incoming: [n("en0"), n("en1")])
+    check("drag: something unplugged mid-drag drops out",
+          ejected.map { $0.id } == ["en0", "en1"])
+
+    let appeared = TrafficListView.merged(holding: onScreen,
+                                          incoming: fromSampler + [n("brand-new")])
+    check("drag: nothing new appears under the pointer mid-drag",
+          appeared.map { $0.id } == ["utun5", "en0", "en1"])
+}
+do {
+    // Insertion is measured from the middle of the carried row, so crossing a
+    // boundary is decisive rather than oscillating.
+    let h = TrafficListView.rowHeight
+    check("drag: resting in place stays put",
+          TrafficListView.insertionIndex(floatY: 0, rowCount: 3, rowHeight: h) == 0)
+    check("drag: just under half a row down does not move",
+          TrafficListView.insertionIndex(floatY: h * 0.49, rowCount: 3, rowHeight: h) == 0)
+    check("drag: just past half a row down takes the next slot",
+          TrafficListView.insertionIndex(floatY: h * 0.51, rowCount: 3, rowHeight: h) == 1)
+    check("drag: cannot be dropped past the end",
+          TrafficListView.insertionIndex(floatY: h * 99, rowCount: 3, rowHeight: h) == 2)
+    check("drag: cannot be dropped above the start",
+          TrafficListView.insertionIndex(floatY: -500, rowCount: 3, rowHeight: h) == 0)
+    check("drag: an empty list is harmless",
+          TrafficListView.insertionIndex(floatY: 40, rowCount: 0, rowHeight: h) == 0)
+}
+
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

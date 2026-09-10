@@ -447,6 +447,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh()
 
         NSApp.activate(ignoringOtherApps: true)
+
+        // First run only. Reachable afterwards from the Help menu.
+        if !Setup.hasBeenSeen {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.showSetup(nil)
+            }
+        }
+    }
+
+    private var setupWindow: SetupWindowController?
+
+    @objc func showSetup(_ sender: Any?) {
+        if setupWindow == nil { setupWindow = SetupWindowController() }
+        setupWindow?.showWindow(nil)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -647,9 +661,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root.storageSummary.downHist = monitor.usbDownHist
         root.storageSummary.upHist = monitor.usbUpHist
 
-        root.usbList.rows = monitor.usbRows
+        root.usbList.update(monitor.usbRows)
         root.usbList.emptyMessage = "No storage devices"
-        root.netList.rows = monitor.networkRows
+        root.netList.update(monitor.networkRows)
         root.netList.emptyMessage = "No active interfaces"
 
         root.historyList.unit = unit
