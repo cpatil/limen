@@ -365,7 +365,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             Text.draw(emptyMessage,
                       at: NSPoint(x: (bounds.width - size.width) / 2, y: 40),
                       font: font,
-                      color: NSColor.tertiaryLabelColor)
+                      color: Palette.faint)
             return
         }
 
@@ -381,21 +381,23 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     }
 
     /// Width of the margin reserved for the drag handle.
-    static let gripWidth: CGFloat = 14
+    static let gripWidth: CGFloat = 20
 
     private func drawGrip(in rect: NSRect, emphasised: Bool) {
-        let dot: CGFloat = 2.4
-        let columns: CGFloat = 2, rowsOfDots: CGFloat = 3
-        let spacing: CGFloat = 4
-        let blockWidth = (columns - 1) * spacing + dot
-        let blockHeight = (rowsOfDots - 1) * spacing + dot
+        let dot: CGFloat = 4.0
+        let columns = 2, dotRows = 3
+        let spacing: CGFloat = 5.6
+        let blockWidth = CGFloat(columns - 1) * spacing + dot
+        let blockHeight = CGFloat(dotRows - 1) * spacing + dot
         let originX = (TrafficListView.gripWidth - blockWidth) / 2
         let originY = rect.midY - blockHeight / 2
 
-        (emphasised ? NSColor.secondaryLabelColor
-                    : NSColor.tertiaryLabelColor.withAlphaComponent(0.55)).setFill()
-        for column in 0..<Int(columns) {
-            for row in 0..<Int(rowsOfDots) {
+        // Explicit alphas against labelColor rather than the tertiary/secondary pair.
+        // Those are tuned for text sitting next to other text; a 3pt dot in the margin
+        // needs more contrast than a word does to be noticed at all.
+        NSColor.labelColor.withAlphaComponent(emphasised ? 0.80 : 0.45).setFill()
+        for column in 0..<columns {
+            for row in 0..<dotRows {
                 let box = NSRect(x: originX + CGFloat(column) * spacing,
                                  y: originY + CGFloat(row) * spacing,
                                  width: dot, height: dot)
@@ -453,11 +455,11 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         drawGrip(in: rect, emphasised: index == hoveredIndex || index == draggingIndex)
 
         // ---- left column: what this is -----------------------------------
-        let iconBox = NSRect(x: 16, y: rect.minY + 18, width: 18, height: 18)
+        let iconBox = NSRect(x: 24, y: rect.minY + 18, width: 18, height: 18)
         Icons.draw(row.icon, in: iconBox,
                    color: NSColor.secondaryLabelColor.withAlphaComponent(row.active ? 0.9 : 0.45))
 
-        let textLeft: CGFloat = 42
+        let textLeft: CGFloat = 50
         let title = Text.clip(row.title, font: titleFont, maxWidth: textLimit - textLeft)
         Text.draw(title,
                   at: NSPoint(x: textLeft, y: rect.minY + 16),
@@ -497,7 +499,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         }
         if !alternate.isEmpty, cursorX + Text.width(alternate, font: badgeFont) < textLimit {
             Text.draw(alternate, at: NSPoint(x: cursorX, y: secondLineY + 1),
-                      font: badgeFont, color: NSColor.tertiaryLabelColor)
+                      font: badgeFont, color: Palette.faint)
             cursorX += Text.width(alternate, font: badgeFont) + 8
         }
         // Once the badges have taken the line, a vendor clipped to "G..." says nothing
@@ -531,7 +533,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit - textLeft),
                   at: NSPoint(x: textLeft, y: rect.minY + 56),
                   font: subtitleFont,
-                  color: NSColor.tertiaryLabelColor)
+                  color: Palette.faint)
 
         // ---- middle column: history, then link utilisation ---------------
         let chartRect = NSRect(x: chartLeft, y: rect.minY + 20, width: chartWidth, height: 30)
@@ -607,7 +609,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                   font: rateFont, color: Palette.up, alignRight: rightEdge)
         Text.draw(Fmt.bytes(Double(row.totalDown)) + " / " + Fmt.bytes(Double(row.totalUp)),
                   at: NSPoint(x: 0, y: rect.minY + 53),
-                  font: totalFont, color: NSColor.tertiaryLabelColor, alignRight: rightEdge)
+                  font: totalFont, color: Palette.faint, alignRight: rightEdge)
 
         // Against a real link, name the figure. Against the device's own best, the
         // useful number is that best itself - the bar already shows how near it is.
@@ -616,12 +618,12 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                       at: NSPoint(x: 0, y: rect.minY + 65),
                       font: totalFont,
                       color: gauge.fraction >= 0.85 ? NSColor.systemOrange
-                                                    : NSColor.tertiaryLabelColor,
+                                                    : Palette.faint,
                       alignRight: rightEdge)
         } else if row.peak > 0 {
             Text.draw("peak " + Fmt.rate(row.peak, unit: unit),
                       at: NSPoint(x: 0, y: rect.minY + 65),
-                      font: totalFont, color: NSColor.tertiaryLabelColor, alignRight: rightEdge)
+                      font: totalFont, color: Palette.faint, alignRight: rightEdge)
         }
 
         // Fourth line: the processes the kernel says are responsible, then any
@@ -646,7 +648,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             Text.draw(Text.clip(footer, font: totalFont, maxWidth: max(0, chartRight - textLeft - 8)),
                       at: NSPoint(x: textLeft, y: rect.minY + 68),
                       font: totalFont,
-                      color: NSColor.tertiaryLabelColor)
+                      color: Palette.faint)
         }
     }
 }

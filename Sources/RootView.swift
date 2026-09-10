@@ -61,7 +61,7 @@ final class SectionSummary: NSView {
             if !oneGB.isEmpty { bits.append("1 GB in " + oneGB) }
             Text.draw(Text.clip(bits.joined(separator: "   ·   "), font: smallFont, maxWidth: rect.width - 8),
                       at: NSPoint(x: rect.minX, y: rect.minY + 8),
-                      font: smallFont, color: NSColor.tertiaryLabelColor)
+                      font: smallFont, color: Palette.faint)
         }
 
         let chartLeft = rect.minX + 214
@@ -110,8 +110,12 @@ final class RootView: NSView, NSSplitViewDelegate {
     let intervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let inactiveToggle = NSButton(checkboxWithTitle: "Show all", target: nil, action: nil)
     /// Re-applies the section orders. "Active first" is held rather than recomputed
-    /// every second, so this is how you ask for it to be worked out again.
-    let resortButton = NSButton(title: "Re-sort", target: nil, action: nil)
+    /// every second, so this is how you ask for it to be worked out again. There is
+    /// one per section, sitting beside that section's sort control - a single button
+    /// in the toolbar was six hundred points away from the thing it acts on, and went
+    /// unnoticed.
+    let storageResort = NSButton(title: "⟳", target: nil, action: nil)
+    let networkResort = NSButton(title: "⟳", target: nil, action: nil)
     /// One per section, each living inside its own column beneath that column's band.
     let storageSummary = SectionSummary(families: [.storage], inLabel: "READ", outLabel: "WRITE")
     let networkSummary = SectionSummary(families: [.network], inLabel: "IN", outLabel: "OUT")
@@ -171,8 +175,17 @@ final class RootView: NSView, NSSplitViewDelegate {
                 + "Dragging a row up or down switches this list to a custom order and "
                 + "remembers it."
         }
-        usbColumn.accessory = storageSort
-        netColumn.accessory = networkSort
+        for (button, what) in [(storageResort, "storage"), (networkResort, "network")] {
+            button.bezelStyle = .rounded
+            button.controlSize = .small
+            button.font = NSFont.systemFont(ofSize: 13)
+            button.toolTip = "Work out the \(what) order again.\n\n"
+                + "\"Active first\" is decided when Limen starts and then held, so rows "
+                + "do not swap places while you are reading them. This asks for it to "
+                + "be reconsidered - after plugging something in, say."
+        }
+        usbColumn.accessory = Self.orderControls(storageResort, storageSort)
+        netColumn.accessory = Self.orderControls(networkResort, networkSort)
         // Band, then that section's totals, then its rows.
         usbColumn.headerHeight = SectionSummary.height
         netColumn.headerHeight = SectionSummary.height
@@ -215,16 +228,8 @@ final class RootView: NSView, NSSplitViewDelegate {
 
         addSubview(outerSplit)
         addSubview(unitControl)
-        resortButton.bezelStyle = .rounded
-        resortButton.controlSize = .small
-        resortButton.font = NSFont.systemFont(ofSize: 11)
-        resortButton.toolTip = "Work out the section order again.\n\n"
-            + "\"Active first\" is decided when Limen starts and then held, so rows do "
-            + "not swap places while you are reading them. This is how you ask for it "
-            + "to be reconsidered - after plugging something in, say."
         addSubview(intervalPopup)
         addSubview(inactiveToggle)
-        addSubview(resortButton)
         // Last, so it is drawn above everything. Added earlier it sat beneath the
         // summary, which then painted its text over the panel and made it look
         // translucent when it never was.
@@ -256,6 +261,15 @@ final class RootView: NSView, NSSplitViewDelegate {
         for view in order { columnsSplit.addArrangedSubview(view) }
         columnsSplit.adjustSubviews()
         needsLayout = true
+    }
+
+    /// The refresh button and the sort popup as one unit, so a heading can hold both.
+    private static func orderControls(_ button: NSButton, _ popup: NSPopUpButton) -> NSView {
+        let stack = NSStackView(views: [button, popup])
+        stack.orientation = .horizontal
+        stack.spacing = 6
+        stack.alignment = .centerY
+        return stack
     }
 
     override var isFlipped: Bool { false }
@@ -364,9 +378,8 @@ final class RootView: NSView, NSSplitViewDelegate {
         cursor = place(unitControl, rightOf: cursor, width: unitSize.width, height: unitSize.height) - 10
         cursor = place(intervalPopup, rightOf: cursor, width: 78, height: 24) - 10
         let toggleSize = inactiveToggle.fittingSize
-        cursor = place(inactiveToggle, rightOf: cursor,
-                       width: toggleSize.width, height: toggleSize.height) - 12
-        _ = place(resortButton, rightOf: cursor, width: 68, height: 22)
+        _ = place(inactiveToggle, rightOf: cursor,
+                  width: toggleSize.width, height: toggleSize.height)
 
         outerSplit.frame = NSRect(x: 0, y: 0, width: bounds.width,
                                   height: max(0, top - headerHeight - 1))
@@ -412,8 +425,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root.intervalPopup.action = #selector(intervalChanged)
         root.inactiveToggle.target = self
         root.inactiveToggle.action = #selector(inactiveChanged)
-        root.resortButton.target = self
-        root.resortButton.action = #selector(resortNow)
+        root.storageResort.target = self
+        root.storageResort.action = #selector(resortNow)
+        root.networkResort.target = self
+        root.networkResort.action = #selector(resortNow)
 
         // Adopt the persisted preferences rather than resetting them.
         monitor.showInactive = root.inactiveToggle.state == .on

@@ -72,7 +72,7 @@ final class ColumnView: NSView {
         // Tinted in the section's own colour rather than neutral grey: it separates the
         // sections far harder than type alone, and tells them apart at a glance even
         // when they are stacked and the words are out of the corner of your eye.
-        tint.withAlphaComponent(0.18).setFill()
+        Palette.headingBand(tint).setFill()
         band.fill()
 
         tint.withAlphaComponent(0.9).setFill()
@@ -82,7 +82,7 @@ final class ColumnView: NSView {
         Text.draw(title,
                   at: NSPoint(x: 16, y: band.minY + (labelHeight - 13) / 2),
                   font: NSFont.systemFont(ofSize: 11, weight: .heavy),
-                  color: tint,
+                  color: Palette.headingText(tint),
                   tracking: 1.2)
     }
 
@@ -90,7 +90,7 @@ final class ColumnView: NSView {
         super.layout()
         if let accessory = accessory {
             let size = accessory.fittingSize
-            let width = min(max(112, size.width), max(80, bounds.width - 110))
+            let width = min(max(150, size.width), max(90, bounds.width - 90))
             accessory.frame = NSRect(x: bounds.maxX - width - 12,
                                      y: bounds.maxY - labelHeight + (labelHeight - 20) / 2 - 1,
                                      width: width, height: 20)

@@ -223,7 +223,7 @@ final class HistoryView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard !items.isEmpty else {
             Text.draw("No transfers recorded yet.", at: NSPoint(x: 20, y: 24),
-                      font: NSFont.systemFont(ofSize: 13), color: NSColor.tertiaryLabelColor)
+                      font: NSFont.systemFont(ofSize: 13), color: Palette.faint)
             return
         }
 
@@ -332,7 +332,7 @@ final class HistoryView: NSView {
         if !s.processes.isEmpty {
             Text.draw(Text.clip(s.processes.joined(separator: ", "), font: metaFont, maxWidth: rect.width - 330),
                       at: NSPoint(x: 44, y: rect.minY + 45), font: metaFont,
-                      color: NSColor.tertiaryLabelColor)
+                      color: Palette.faint)
         }
 
         Text.draw(Fmt.bytes(Double(s.total)), at: NSPoint(x: 0, y: rect.minY + 9),
@@ -353,6 +353,6 @@ final class HistoryView: NSView {
             tail += String(format: "   ·   peak %.0f%% link utilization", used * 100)
         }
         Text.draw(tail, at: NSPoint(x: 0, y: rect.minY + 46), font: metaFont,
-                  color: NSColor.tertiaryLabelColor, alignRight: right)
+                  color: Palette.faint, alignRight: right)
     }
 }

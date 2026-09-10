@@ -74,7 +74,7 @@ final class MagnifierView: NSView {
             // process's disk I/O as a whole; the open-descriptor check says the
             // process is working on this volume, not that every byte went here.
             out.append(("processes with disk activity and an open file here:",
-                        smallFont, NSColor.tertiaryLabelColor))
+                        smallFont, Palette.faint))
         }
         for actor in row.actors {
             out.append((actor.display + "   " + Fmt.rate(actor.bytesPerSec, unit: unit),
@@ -183,7 +183,7 @@ final class MagnifierView: NSView {
                 x += Text.width(primary, font: bodyFont) + 8
                 let other = "= " + Fmt.alternateSpeed(bitsPerSec: row.linkBits, unit: unit)
                 Text.draw(other, at: NSPoint(x: x, y: y + 5), font: smallFont,
-                          color: NSColor.tertiaryLabelColor)
+                          color: Palette.faint)
             }
             y += 26
         }
@@ -194,12 +194,12 @@ final class MagnifierView: NSView {
         let span = Double(Monitor.historyLength) * sampleInterval
         Text.draw(span >= 120 ? String(format: "last %.0f min", span / 60)
                               : String(format: "last %.0f s", span),
-                  at: NSPoint(x: left, y: y), font: tickFont, color: NSColor.tertiaryLabelColor)
+                  at: NSPoint(x: left, y: y), font: tickFont, color: Palette.faint)
         Text.draw(Fmt.rate(scale, unit: unit) + " full scale",
                   at: NSPoint(x: 0, y: y), font: tickFont,
                   color: NSColor.secondaryLabelColor, alignRight: left + width)
         y += 14
-        NSColor.tertiaryLabelColor.withAlphaComponent(0.4).setFill()
+        Palette.faint.setFill()
         NSRect(x: left, y: y, width: width, height: 1).fill()
 
         let chart = NSRect(x: left, y: y, width: width, height: MagnifierView.chartHeight)

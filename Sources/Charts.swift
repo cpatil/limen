@@ -4,6 +4,43 @@ enum Palette {
     static let down = NSColor.systemGreen
     static let up = NSColor.systemBlue
 
+    /// Light and dark are not mirror images. A tint at 18% over black still reads as a
+    /// colour, but over white it becomes a pastel wash, and the saturated text drawn on
+    /// it loses most of its contrast. Anything tuned by eye in one appearance has to be
+    /// checked in the other, which is what these exist for.
+    static var isLight: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+    }
+
+    /// A section colour as heading text. Darkened on light backgrounds, where the
+    /// stock system green and blue sit at roughly 2:1 against a pale band.
+    static func headingText(_ tint: NSColor) -> NSColor {
+        guard isLight else { return tint }
+        // Darkening only helps a colour. The session log's heading is grey, and
+        // darkening grey against a grey band just makes both muddy - it wants the
+        // ordinary text colour instead.
+        guard let rgb = tint.usingColorSpace(.sRGB), rgb.saturationComponent > 0.15 else {
+            return NSColor.labelColor
+        }
+        return tint.blended(withFraction: 0.45, of: .black) ?? tint
+    }
+
+    /// The band behind a section heading.
+    static func headingBand(_ tint: NSColor) -> NSColor {
+        guard let rgb = tint.usingColorSpace(.sRGB), rgb.saturationComponent > 0.15 else {
+            // A grey band has to be much lighter than a tinted one to weigh the same.
+            return NSColor.labelColor.withAlphaComponent(isLight ? 0.10 : 0.14)
+        }
+        return tint.withAlphaComponent(isLight ? 0.24 : 0.18)
+    }
+
+    /// The dimmest text the interface uses - comparisons, totals, footnotes. On a
+    /// light ground tertiaryLabelColor is about 26% black, which is legible for a
+    /// disabled menu item and not for a line you are meant to read.
+    static var faint: NSColor {
+        NSColor.labelColor.withAlphaComponent(isLight ? 0.55 : 0.42)
+    }
+
     static var rowAlt: NSColor {
         NSColor.textColor.withAlphaComponent(0.03)
     }
