@@ -45,6 +45,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         didSet {
             invalidateHeight()
             rebuildTooltips()
+            refreshAccessibilityRows()
             needsDisplay = true
         }
     }
@@ -135,6 +136,74 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             needsDisplay = true
         }
         onHover?(nil, .rate, "", .zero)
+    }
+
+    // ---- accessibility ---------------------------------------------------
+
+    /// The rows are drawn, not built from subviews, so they do not exist as far as
+    /// VoiceOver is concerned unless they are published explicitly. Apple's guidance
+    /// for one view that draws many logical objects is to vend accessibility elements
+    /// for them; without this the app is a window containing four controls and no data.
+    override func isAccessibilityElement() -> Bool { false }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .table }
+
+    override func accessibilityLabel() -> String? { emptyMessage }
+
+    /// Built with the convenience initialiser, which sets the frame in the parent's
+    /// space for us. Vended as both children and rows: a table role is asked for its
+    /// rows, and without them the list appears empty to VoiceOver.
+    private func accessibilityRowElements() -> [NSAccessibilityElement] {
+        guard let window = window else { return [] }
+        return rows.enumerated().compactMap { index, row -> NSAccessibilityElement? in
+            let frame = NSRect(x: 0, y: CGFloat(index) * TrafficListView.rowHeight,
+                               width: max(1, bounds.width), height: TrafficListView.rowHeight)
+            let element = NSAccessibilityElement.element(
+                withRole: .row,
+                frame: window.convertToScreen(convert(frame, to: nil)),
+                label: accessibilityName(for: row),
+                parent: self) as? NSAccessibilityElement
+            element?.setAccessibilityValue(accessibilitySummary(for: row))
+            return element
+        }
+    }
+
+    /// Cached. Rebuilding these on every query hands the accessibility system a fresh
+    /// object each time it asks a follow-up question, and the answers come back empty.
+    private var axRows: [NSAccessibilityElement] = []
+
+    private func refreshAccessibilityRows() {
+        axRows = accessibilityRowElements()
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        if axRows.count != rows.count { refreshAccessibilityRows() }
+        return axRows
+    }
+
+    override func accessibilityRows() -> [Any]? { accessibilityChildren() }
+
+    private func accessibilityName(for row: Row) -> String {
+        var parts = [row.title]
+        if !row.mediumClass.isEmpty { parts.append(row.mediumClass) }
+        if !row.volumes.isEmpty { parts.append(row.volumes.joined(separator: ", ")) }
+        if !row.badge.isEmpty { parts.append(row.badge) }
+        return parts.joined(separator: ", ")
+    }
+
+    /// Spoken as a sentence rather than a row of numbers, and it names the direction
+    /// so "read" and "in" are not both just "the first figure".
+    private func accessibilitySummary(for row: Row) -> String {
+        var parts = ["\(row.inLong) \(Fmt.rate(row.down, unit: unit))",
+                     "\(row.outLong) \(Fmt.rate(row.up, unit: unit))"]
+        if let gauge = Reference.gauge(down: row.down, up: row.up,
+                                       peakDirectional: row.peakDirectional, peak: row.peak,
+                                       linkBits: row.linkBits, linkTrusted: row.linkTrusted) {
+            parts.append(gauge.label)
+        }
+        if !row.hint.isEmpty { parts.append(row.hint) }
+        if !row.note.isEmpty { parts.append(row.note) }
+        return parts.joined(separator: ", ")
     }
 
     // ---- dragging rows into an order ------------------------------------
@@ -405,10 +474,17 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // means little on its own, "half of USB 2.0" means something.
         var context = row.note
         if context.isEmpty && combined > 0 {
-            context = Reference.comparison(bytesPerSec: combined,
-                                           families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
-                                           roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
-                                           internalMedium: row.internalMedium)
+            if row.wireless && !row.linkTrusted {
+                // Throughput cannot identify a Wi-Fi generation, and the reported link
+                // rate is not usable either, so this says what was seen rather than
+                // naming a standard it cannot establish.
+                context = row.peak > 0 ? "best this session " + Fmt.rate(row.peak, unit: unit) : ""
+            } else {
+                context = Reference.comparison(bytesPerSec: combined,
+                                               families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
+                                               roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
+                                               internalMedium: row.internalMedium)
+            }
         }
         Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit - textLeft),
                   at: NSPoint(x: textLeft, y: rect.minY + 56),
@@ -431,7 +507,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // believable the bar measures against it; where it is not - Wi-Fi, whose
         // reported rate is fiction, and the internal drive, which has no cable - it
         // measures against the fastest that device has actually gone.
-        let gauge = Reference.gauge(current: combined, peak: row.peak,
+        let gauge = Reference.gauge(down: row.down, up: row.up,
+                                    peakDirectional: row.peakDirectional, peak: row.peak,
                                     linkBits: row.linkBits, linkTrusted: row.linkTrusted)
         if let gauge = gauge {
             let bar = NSRect(x: chartLeft, y: rect.minY + 56, width: chartWidth, height: 5)
@@ -461,7 +538,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             // shows it after the transfer settles down. Only meaningful against a
             // fixed ceiling - against the peak itself the tick is always at the end.
             if gauge.ofLink,
-               let peakUsed = Reference.utilization(bytesPerSec: row.peak, linkBits: row.linkBits),
+               let peakUsed = Reference.utilization(down: row.peakDirectional, up: 0,
+                                                    linkBits: row.linkBits),
                peakUsed > gauge.fraction + 0.03 {
                 let x = bar.minX + bar.width * CGFloat(min(1.0, peakUsed))
                 NSColor.labelColor.withAlphaComponent(0.6).setFill()

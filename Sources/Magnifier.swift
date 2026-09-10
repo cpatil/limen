@@ -69,6 +69,13 @@ final class MagnifierView: NSView {
         if row.peak > 0 { facts.append("peak " + Fmt.rate(row.peak, unit: unit)) }
         out.append((facts.joined(separator: "  ·  "), bodyFont, NSColor.secondaryLabelColor))
 
+        if !row.actors.isEmpty {
+            // Not "the processes causing this traffic". proc_pid_rusage reports a
+            // process's disk I/O as a whole; the open-descriptor check says the
+            // process is working on this volume, not that every byte went here.
+            out.append(("processes with disk activity and an open file here:",
+                        smallFont, NSColor.tertiaryLabelColor))
+        }
         for actor in row.actors {
             out.append((actor.display + "   " + Fmt.rate(actor.bytesPerSec, unit: unit),
                         smallFont, NSColor.labelColor))
@@ -83,7 +90,8 @@ final class MagnifierView: NSView {
     /// best where it cannot. Same rule as the rows, so the card never disagrees with
     /// what is behind it.
     private func usage(_ row: Row) -> (fraction: Double, label: String, ofLink: Bool)? {
-        Reference.gauge(current: row.down + row.up, peak: row.peak,
+        Reference.gauge(down: row.down, up: row.up,
+                        peakDirectional: row.peakDirectional, peak: row.peak,
                         linkBits: row.linkBits, linkTrusted: row.linkTrusted)
     }
 
@@ -238,7 +246,8 @@ final class MagnifierView: NSView {
                                              width: max(3, barWidth * fraction), height: bar.height),
                          xRadius: 3.5, yRadius: 3.5).fill()
             if gauge.ofLink,
-               let peakUsed = Reference.utilization(bytesPerSec: row.peak, linkBits: row.linkBits),
+               let peakUsed = Reference.utilization(down: row.peakDirectional, up: 0,
+                                                    linkBits: row.linkBits),
                peakUsed > used + 0.03 {
                 let x = bar.minX + barWidth * CGFloat(min(1, peakUsed))
                 NSColor.labelColor.withAlphaComponent(0.6).setFill()

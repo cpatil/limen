@@ -30,12 +30,16 @@ struct Actor {
 /// (`proc_pid_rusage`, the same source as Activity Monitor's Disk tab) and confirms
 /// the connection to a specific volume through the process's open file descriptors.
 ///
-/// Two limits are worth knowing. Processes owned by other users are unreadable
-/// without root - roughly 20 of 230 on a typical machine, mostly system daemons -
-/// so their traffic is invisible here rather than misattributed. And `ri_diskio_*`
-/// counts a process's disk I/O as a whole, not per device; the open-file check
-/// establishes that the process is working on this volume, not that every one of
-/// its bytes went there. During a copy both endpoints legitimately show activity.
+/// This is an association signal, not per-volume accounting, and the difference
+/// matters. `ri_diskio_*` counts a process's disk I/O as a whole; the open-file check
+/// establishes only that the process holds a descriptor on this volume. A process
+/// reading heavily from one disk while merely holding a file open on another will
+/// have its whole rate shown against both. During a copy both endpoints legitimately
+/// show activity.
+///
+/// Processes owned by other users are unreadable without root - roughly 20 of 230 on
+/// a typical machine, mostly system daemons - so their traffic is missing. Missing is
+/// not the same as safe: what remains can still be attributed to the wrong volume.
 enum ProcessSampler {
 
     static func sample() -> [Int32: ProcSample] {
@@ -144,6 +148,16 @@ enum ProcessSampler {
         return map
     }
 
+    /// Whether `path` lies inside `root`, respecting path boundaries.
+    ///
+    /// A plain prefix test counted "/Volumes/card-old/f" as being under
+    /// "/Volumes/card", which quietly attributed one card's traffic to another.
+    static func isUnder(path: String, root: String) -> Bool {
+        guard !root.isEmpty else { return false }
+        let base = root.hasSuffix("/") ? String(root.dropLast()) : root
+        return path == base || path.hasPrefix(base + "/")
+    }
+
     /// True when this process holds an open file anywhere under `root`.
     ///
     /// This is the "who is actually touching this device" check: a descriptor on the
@@ -171,7 +185,7 @@ enum ProcessSampler {
             let path = withUnsafeBytes(of: &pathBytes) { bytes -> String in
                 String(cString: bytes.baseAddress!.assumingMemoryBound(to: CChar.self))
             }
-            if path.hasPrefix(root) { return true }
+            if isUnder(path: path, root: root) { return true }
         }
         return false
     }

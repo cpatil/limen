@@ -22,16 +22,36 @@ enum HostPorts {
         return first != 0
     }
 
-    /// Thunderbolt implies USB4-class ports on every Mac that has shipped with it.
-    ///
-    /// IOKit exposes the controllers but not their generation - no link-speed or
-    /// version property is published on IOThunderboltSwitch or IOThunderboltPort - so
-    /// this reports the conservative floor rather than guessing at Thunderbolt 4 or 5.
+    /// Whether any Thunderbolt controller is present. Says nothing about which
+    /// generation: IOKit publishes no version or link-speed property on
+    /// IOThunderboltSwitch or IOThunderboltPort.
     static let hasThunderbolt: Bool = exists("IOThunderboltSwitch") || exists("IOThunderboltPort")
 
-    /// The best port standard this machine is known to offer, or nil when unknown.
+    /// True when this machine is Apple Silicon, which is the one case where the port
+    /// generation can be asserted without a model table: every Apple Silicon Mac has
+    /// shipped with Thunderbolt 3 / USB4 or better.
+    private static var isAppleSilicon: Bool {
+        var value: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        if sysctlbyname("hw.optional.arm64", &value, &size, nil, 0) == 0, value == 1 {
+            return true
+        }
+        #if arch(arm64)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// The best port standard this machine is *known* to offer, or nil when unknown.
+    ///
+    /// Presence of a Thunderbolt controller does not imply USB4. A 2015 15" MacBook
+    /// Pro has Thunderbolt 2 at 20 Gbit/s and separate USB 3 ports at 5 Gbit/s, and
+    /// telling its owner to buy a 40 Gbit/s cable would be advice their machine cannot
+    /// use. Intel Macs span Thunderbolt 1 through 4 with no way to tell them apart
+    /// from IOKit, so no claim is made there; Apple Silicon is uniform and safe.
     static var best: SpeedRef? {
-        guard hasThunderbolt else { return nil }
+        guard isAppleSilicon, hasThunderbolt else { return nil }
         return Reference.entry(named: "USB4 / Thunderbolt 3")
     }
 }

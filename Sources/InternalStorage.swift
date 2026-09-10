@@ -132,10 +132,17 @@ enum InternalStorage {
             let described = describe(driver)
             if described.virtual { continue }
 
-            var info = byName[described.name] ?? {
-                order.append(described.name)
+            // Identity is the registry entry, not the product name. Two drives of the
+            // same model would otherwise merge into one row with their counters summed
+            // and their BSD names pooled.
+            var entryID: UInt64 = 0
+            IORegistryEntryGetRegistryEntryID(driver, &entryID)
+            let key = entryID != 0 ? String(entryID) : described.name
+
+            var info = byName[key] ?? {
+                order.append(key)
                 var fresh = USBDeviceInfo()
-                fresh.id = "internal:" + described.name
+                fresh.id = "internal:" + key
                 fresh.name = described.name
                 fresh.vendor = described.solidState ? "internal SSD" : "internal drive"
                 // No negotiated link to report: the internal bus is not a cable the
@@ -149,7 +156,7 @@ enum InternalStorage {
             // BSD names let the same mount lookup and process attribution work for
             // internal drives as for external ones.
             collectBSDNames(under: driver, into: &info)
-            byName[described.name] = info
+            byName[key] = info
         }
         return order.compactMap { byName[$0] }
     }

@@ -44,7 +44,10 @@ enum Analysis {
                                         internalMedium: s.section == "Internal") {
             let ratio = (s.peakRate * 8) / near.payload
             if ratio > 0.85, ratio < 1.15 {
-                return Verdict(summary: "peaked at about \(near.name)'s limit — the medium set the pace",
+                // Consistency, not proof. A rate near a medium's ceiling is also
+                // consistent with a slower reader, the other endpoint, the workload,
+                // or thermal throttling; this cannot isolate those.
+                return Verdict(summary: "peak is consistent with \(near.name)'s ceiling",
                                maximised: true)
             }
         }
@@ -200,21 +203,28 @@ enum Analysis {
 
         var causes: [String] = []
         if group.sessions.contains(where: { $0.spotlight == true }) {
-            causes.append("Spotlight indexing the volume")
+            causes.append("a Spotlight index is present on the volume")
         }
         if let s = group.sessions.first(where: { $0.journalWrites == true }) {
-            let fs = (s.fsType ?? "").isEmpty ? "journalled" : s.fsType!.uppercased()
-            causes.append("the \(fs) journal recording an access time for every file read")
+            let fs = (s.fsType ?? "").isEmpty ? "The volume" : s.fsType!.uppercased()
+            causes.append("\(fs) is journalled and mounted without noatime, so reads "
+                          + "can trigger metadata writes")
         }
-        let why = causes.isEmpty ? "macOS housekeeping - Spotlight, the filesystem journal, .DS_Store"
-                                 : causes.joined(separator: ", and ")
 
+        // The byte counts are measured. What caused them is not: Limen sees that
+        // writes happened, not who issued them. macOS also batches access-time
+        // updates rather than writing one per read, so the candidates below are
+        // possibilities to check, not a diagnosis.
         var note = "\(Fmt.bytes(Double(written))) written to this card while reading "
             + "\(Fmt.bytes(Double(read))) from it"
         if written > read { note += " - more written than read" }
-        note += ". \(why). Writes contend with reads on a card, so this slows the import "
-            + "as well as wearing the card: a .metadata_never_index file at the volume "
-            + "root stops the indexing for good."
+        note += ". Writes contend with reads on a card, so this can slow an import as "
+            + "well as wear the card."
+        if !causes.isEmpty {
+            note += " Worth checking: " + causes.joined(separator: "; ") + "."
+        }
+        note += " A .metadata_never_index file at the volume root stops Spotlight "
+            + "indexing it."
         return note
     }
 

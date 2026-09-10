@@ -22,6 +22,9 @@ struct Row {
     /// Highest combined rate seen this session, so you can tell whether a link ever
     /// approached its ceiling rather than only what it is doing right now.
     var peak: Double = 0
+    /// Highest rate seen in a single direction. Utilisation is measured against this
+    /// rather than the combined figure, because links are full duplex.
+    var peakDirectional: Double = 0
     /// "Network" or "USB" - both are shown on one page now, grouped under headings.
     var section: String = ""
     /// Processes the kernel says are moving this data, most active first.
@@ -385,12 +388,13 @@ final class Monitor {
             }
             row.linkBits = counters.baudrate
             row.peak = notePeak("net:" + name, down + up)
+            row.peakDirectional = notePeak("netdir:" + name, max(down, up))
             // Trust it only if it has held steady and nothing has exceeded it.
             // Wi-Fi is excluded outright rather than waiting to catch it changing:
             // the number is a PHY rate by definition, not a link capacity.
             row.linkTrusted = !wireless.contains(name)
                 && !linkRateVaries.contains(name)
-                && Reference.linkRateIsCredible(observedBytesPerSec: max(down + up, row.peak),
+                && Reference.linkRateIsCredible(observedBytesPerSec: max(max(down, up), row.peakDirectional),
                                                 linkBits: counters.baudrate)
             // Only present a link rate that is actually a capacity. A constant one
             // (Thunderbolt, wired Ethernet) is real and stays; a fluctuating or
@@ -491,10 +495,13 @@ final class Monitor {
             row.totalUp = totalUpBytes
             row.downHist = hist.down
             row.upHist = hist.up
-            row.active = measurable
+            // "Active" means data is moving. It used to mean "has counters", which
+            // left every drive permanently lit and broke the default sort.
+            row.active = down > 0 || up > 0
             row.isPhysical = true
             row.linkBits = device.linkSpeedBits
             row.peak = notePeak("usb:" + device.id, down + up)
+            row.peakDirectional = notePeak("usbdir:" + device.id, max(down, up))
             row.section = device.id.hasPrefix("internal:") ? "Internal" : "USB"
             row.vendor = device.vendor
             row.deviceID = deviceID

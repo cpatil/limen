@@ -1,12 +1,14 @@
 #!/bin/bash
 # Builds Limen.app as a universal (x86_64 + arm64) bundle with no Xcode required.
-# Deployment target is macOS 10.14, which covers every release a 2015 12" MacBook can run.
+# Deployment target is macOS 10.14.4 - the release where Swift's ABI-stable runtime
+# arrived in the OS. The app links @rpath/libswiftCore.dylib and embeds no Swift
+# libraries, so 10.14.0-10.14.3 would fail at dynamic loading.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="Limen"
 BUNDLE_ID="local.limen"
-MIN_MACOS="10.14"
+MIN_MACOS="10.14.4"
 BUILD_DIR="build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 
@@ -47,6 +49,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Limen reads throughput counters for connected volumes, and can write a .metadata_never_index marker to a card when you ask it to stop Spotlight indexing that card.</string>
 </dict>
 </plist>
 PLIST

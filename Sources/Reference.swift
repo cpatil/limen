@@ -156,9 +156,14 @@ enum Reference {
     }
 
     /// How much of the link's realistic ceiling is in use, 0...1+.
-    static func utilization(bytesPerSec: Double, linkBits: UInt64) -> Double? {
+    ///
+    /// Takes the busier direction rather than the sum. Ethernet and USB 3 are full
+    /// duplex: a gigabit link carrying 600 Mbit/s each way is at 60% in each
+    /// direction, not 128% of one ceiling. Summing produced utilisation above 100%
+    /// on a perfectly healthy link, and made credible link rates look like nonsense.
+    static func utilization(down: Double, up: Double, linkBits: UInt64) -> Double? {
         guard let cap = ceiling(forLinkBits: linkBits), cap.bytes > 0 else { return nil }
-        return bytesPerSec / cap.bytes
+        return max(down, up) / cap.bytes
     }
 
     /// Which SD family a card belongs to, named from the capacity of the medium.
@@ -200,15 +205,17 @@ enum Reference {
     /// get a bar at all: Wi-Fi reports a negotiated rate it never achieves, and an
     /// internal drive has no cable to negotiate over, so measuring against their own
     /// best says something true where a made-up specification would not.
-    static func gauge(current: Double, peak: Double, linkBits: UInt64,
+    static func gauge(down: Double, up: Double, peakDirectional: Double, peak: Double,
+                      linkBits: UInt64,
                       linkTrusted: Bool) -> (fraction: Double, label: String, ofLink: Bool)? {
         if linkTrusted,
-           linkRateIsCredible(observedBytesPerSec: max(current, peak), linkBits: linkBits),
-           let used = utilization(bytesPerSec: current, linkBits: linkBits) {
+           linkRateIsCredible(observedBytesPerSec: max(max(down, up), peakDirectional),
+                              linkBits: linkBits),
+           let used = utilization(down: down, up: up, linkBits: linkBits) {
             return (used, String(format: "%.0f%% link utilization", used * 100), true)
         }
         guard peak > 0 else { return nil }
-        let fraction = min(1.0, current / peak)
+        let fraction = min(1.0, (down + up) / peak)
         return (fraction, String(format: "%.0f%% of its peak", fraction * 100), false)
     }
 

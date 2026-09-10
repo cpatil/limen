@@ -1,74 +1,78 @@
-# Show HN: Limen – see what your USB and network are actually doing on a Mac
+# Notes for the Show HN post
 
-I kept importing photos off SD cards and it kept feeling slower than it should.
-Activity Monitor won't show you the throughput of one USB device, and nothing in
-macOS will tell you what's capping it, so I wrote something that would.
+**Write the submission yourself.** HN's guidelines ask that posts not be generated or
+AI-edited text, and the point of a Show HN is that you can answer for every claim in
+the thread. This file is the verified material to write *from*, not copy to paste.
+Check https://news.ycombinator.com/showhn.html for the current Show HN restrictions
+before submitting.
 
-Limen is a small AppKit app. Live read/write rates for every storage device and
-network interface, and — the part I actually wanted — what's limiting each one.
+Suggested title — describes only what the app unquestionably does:
 
-## The first thing it told me was embarrassing
+    Show HN: Limen – per-device storage and network rates for macOS
 
-I was copying 65 GB off a card and getting 6.3 MB/s. The same card had sustained
-85.8 MB/s an hour earlier. Limen showed the card taking **579 MB of writes while I
-read 474 MB off it**.
+Let the diagnosis feature earn attention in the body, with its caveats.
 
-Spotlight had decided to index the card, and it builds the index onto the card. The
-volume was HFS+ with journaling on and no `noatime`, so every file I read also
-committed an access-time update. Writes on a UHS-I card are slow and they contend
-with reads. Once indexing was off the same card read at 71 MB/s.
+## Facts that hold up
 
-I'd never have found that by watching a progress bar. Both numbers were sitting
-right there in the kernel's counters; nothing surfaces them.
+Every number below was measured on my own hardware. Anything not on this list
+shouldn't go in the post.
 
-## What it can and can't see
+**The card import.** One 167-second window: read 474 MB, written 579 MB, average
+6.3 MB/s, peak 20.1 MB/s. More written to the card than read from it, while only
+importing. Across all six sessions with that card: 30.2 GB read, 6.13 GB written.
+Spotlight was indexing the volume; it was HFS+, journalled, mounted without `noatime`.
+After disabling indexing the same card's best recorded peak was 96.5 MB/s.
 
-Storage throughput comes from `IOBlockStorageDriver`'s `Statistics` dictionary,
-network from `sysctl(NET_RT_IFLIST2)` and the 64-bit `if_data64` (the easier
-`getifaddrs` path gives you 32-bit counters that wrap every 4 GB, which is useless
-on anything modern).
+Keep total, average and peak distinct — that's where the review found me contradicting
+myself, quoting 71 MB/s in one place and 96 MB/s in another for the same card.
 
-macOS keeps no general per-USB-device byte counters, so a keyboard or an audio
-interface gets its negotiated link speed and nothing else. Those rows say so instead
-of drawing a flat line that looks like an idle device. Processes owned by other users
-are unreadable without root, so their I/O is missing rather than misattributed. I'd
-rather the tool say "I can't see this" than quietly guess.
+**Wi-Fi.** Reported a 304 Mbit/s link while sustaining 30.2 MB/s, and logged a peak
+above its own stated rate. That's why `ifi_baudrate` is not used as a ceiling for
+wireless.
 
-## Rates are meaningless without a denominator
+**Build.** Universal x86_64 + arm64, `swiftc` and Command Line Tools only, no Xcode,
+no dependencies. Reproducible: a clean checkout gives a byte-identical executable.
+Tested on macOS 11.7.11 / Intel and macOS 26 / Apple Silicon.
 
-"111 MB/s" tells you nothing on its own. Every row compares itself to a catalogue of
-real media and buses, and only against its own kind — a card against cards, a drive
-against drives, an internal SSD against internal drives. Getting that wrong is how an
-early build cheerfully reported that my internal SSD was running at "52% of an SD
-card".
+**The bug worth telling.** `proc_pid_rusage`'s third parameter is typed
+`rusage_info_t *`, but `rusage_info_t` is itself `void *` — so that's not a level of
+indirection. The kernel writes the whole 296-byte struct at the address you pass.
+Passing `&someLocal` writes 296 bytes across your stack, returns 0, and hands back
+zeros; the crash arrives later in `__stack_chk_fail`. Good material, but it belongs
+below the main claims, not above them.
 
-A USB card reader never reports the card's UHS class; it presents as generic mass
-storage. But a transfer that plateaus at 86 MB/s on a link good for 625 MB/s has told
-you what the card is, so the advice is inferred from measurement rather than a
-specification nobody exposes. Capacity class is easier: the SD spec draws SDHC/SDXC
-strictly by size, so 256 GB is an SDXC and there's nothing to guess.
+## Say these before anyone asks
 
-Wi-Fi lies, incidentally. Mine reported a 304 Mbit/s link while doing 30.2, and I
-recorded a peak that exceeded its own claimed ceiling. So `ifi_baudrate` is distrusted
-for anything SystemConfiguration says is wireless, and those rows measure against
-their own observed best instead of a fictional link rate.
+Leading with the limits is what makes the rest credible.
 
-## One bug worth passing on
+- Byte counters are solid. Everything downstream — which component was the
+  bottleneck, which process moved which bytes, why a card took writes — is inference.
+- Process attribution is an association, not accounting. `proc_pid_rusage` is
+  process-wide; the open-descriptor check only proves the process holds a file on that
+  volume.
+- A plateau near a known ceiling is *consistent with* that medium. The reader, the
+  destination, the filesystem and the workload are alternatives it can't rule out.
+- The download is unsigned and unnotarised. Source build is the honest primary path.
+- The data rows aren't exposed to VoiceOver yet.
 
-`proc_pid_rusage`'s third parameter is typed `rusage_info_t *`. But `rusage_info_t`
-is itself `void *`, so that's not a level of indirection — the kernel writes the whole
-296-byte struct at the address you hand it. Pass `&someLocal` and it writes 296 bytes
-across your stack, returns 0, and hands you zeros. The crash arrives later, in
-`__stack_chk_fail`, on the way out of a function that looks innocent.
+## Don't write
 
-## Details
+"Nothing in macOS shows this" — `iostat -w 1 disk0` does per-disk throughput, and
+someone will say so in the first ten minutes. The real difference is names, volumes,
+direction split, history, and the hints.
 
-AppKit, no SwiftUI. Universal x86_64 + arm64 with a 10.14 deployment target, so it
-runs on a 2015 12" MacBook as well as current hardware. Builds with `swiftc` and the
-Command Line Tools — no Xcode, no package manager, one shell script.
+Also avoid "what's actually limiting each one", "has told you what the card is",
+"Wi-Fi lies", and "actually". They're punchy and they overclaim. The card-import story
+is strong enough flat.
 
-It makes no network connections. The speed catalogue ships in the binary and updates
-only when you pick the menu item.
+## Shape
 
-MIT. Source and a universal build (Intel + Apple Silicon):
-https://github.com/cpatil/limen
+1. Two sentences: what annoyed you, what it shows now.
+2. The card import, one consistent set of numbers.
+3. What's measured vs what's inferred.
+4. The limitations above.
+5. One paragraph of implementation: IOKit storage counters, routing-socket interface
+   counters, AppKit, no network access.
+6. Tested OS/hardware, and what feedback you want.
+
+Plain paragraphs — HN comments don't render Markdown headings or tables.

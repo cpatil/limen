@@ -63,6 +63,7 @@ final class HistoryView: NSView {
         let height = max(items.reduce(0) { $0 + $1.height(width: width) },
                          enclosingScrollView?.contentView.bounds.height ?? 0)
         setFrameSize(NSSize(width: frame.width, height: height))
+        axRows = accessibilityRowElements()
         needsDisplay = true
     }
 
@@ -98,6 +99,60 @@ final class HistoryView: NSView {
     /// you glance at while working in something else; spending a click just to focus
     /// it before you can fold a group or drag a row is a click too many.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func isAccessibilityElement() -> Bool { false }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .table }
+
+    /// Each group and each session as its own element, so the log can be read and the
+    /// advice heard rather than only seen.
+    private func accessibilityRowElements() -> [NSAccessibilityElement] {
+        guard let window = window else { return [] }
+        var out: [NSAccessibilityElement] = []
+        var y: CGFloat = 0
+        for item in items {
+            let height = item.height(width: bounds.width)
+            let frame = NSRect(x: 0, y: y, width: max(1, bounds.width), height: height)
+            var label = ""
+            var value = ""
+            switch item {
+            case .group(let g, let collapsed):
+                label = g.device
+                if !g.volumes.isEmpty { label += ", " + g.volumes.joined(separator: ", ") }
+                label += ", \(g.sessions.count) session\(g.sessions.count == 1 ? "" : "s")"
+                label += ", \(Fmt.bytes(Double(g.total))) total"
+                value = collapsed ? "collapsed" : "expanded"
+                for advice in [Analysis.recommendation(for: g), Analysis.hostNote(for: g),
+                               Analysis.housekeeping(for: g), Analysis.pattern(for: g)]
+                        where !advice.isEmpty {
+                    value += ". " + advice
+                }
+            case .session(let s):
+                label = HistoryView.clock.string(from: s.started) + ", "
+                    + (s.volumes.first ?? s.device) + ", " + Fmt.bytes(Double(s.total))
+                value = "average \(Fmt.rate(s.averageRate, unit: unit)), "
+                    + "peak \(Fmt.rate(s.peakRate, unit: unit)). "
+                    + Analysis.verdict(for: s).summary
+            }
+            if let element = NSAccessibilityElement.element(
+                withRole: .row, frame: window.convertToScreen(convert(frame, to: nil)),
+                label: label, parent: self) as? NSAccessibilityElement {
+                element.setAccessibilityValue(value)
+                out.append(element)
+            }
+            y += height
+        }
+        return out
+    }
+
+    private var axRows: [NSAccessibilityElement] = []
+
+    override func accessibilityChildren() -> [Any]? {
+        if axRows.count != items.count { axRows = accessibilityRowElements() }
+        return axRows
+    }
+
+    override func accessibilityRows() -> [Any]? { accessibilityChildren() }
 
     /// The item under a point, accounting for the variable row heights.
     private func item(at point: NSPoint) -> HistoryItem? {
@@ -153,7 +208,7 @@ final class HistoryView: NSView {
         onLogChanged?()
     }
 
-    private static let clock: DateFormatter = {
+    static let clock: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "d MMM  HH:mm"
         return f
@@ -292,7 +347,7 @@ final class HistoryView: NSView {
         var tail = inTag + " " + Fmt.bytes(Double(s.bytesRead))
             + "  " + outTag + " " + Fmt.bytes(Double(s.bytesWritten))
         if s.linkTrusted == true,
-           let used = Reference.utilization(bytesPerSec: s.peakRate, linkBits: s.linkBits) {
+           let used = Reference.utilization(down: s.peakRate, up: 0, linkBits: s.linkBits) {
             tail += String(format: "   ·   peak %.0f%% link utilization", used * 100)
         }
         Text.draw(tail, at: NSPoint(x: 0, y: rect.minY + 46), font: metaFont,

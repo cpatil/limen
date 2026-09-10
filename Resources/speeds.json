@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "updated": "2026-09-08",
   "entries": [
     {
@@ -37,7 +37,7 @@
       "role": "bus",
       "upgrade": "USB 3.2 Gen 2x2",
       "appleName": "USB 3.1 SuperSpeed+",
-      "alias": "USB 3.1 Gen 2 / Thunderbolt 1"
+      "alias": "USB 3.1 Gen 2"
     },
     {
       "name": "USB 3.2 Gen 2x2",
@@ -45,8 +45,7 @@
       "payload": 16000000000.0,
       "family": "usb",
       "role": "bus",
-      "upgrade": "USB4 / Thunderbolt 3",
-      "alias": "Thunderbolt 2"
+      "upgrade": "USB4 / Thunderbolt 3"
     },
     {
       "name": "USB4 / Thunderbolt 3",
@@ -56,7 +55,7 @@
       "role": "bus",
       "upgrade": "USB4 v2 / Thunderbolt 5",
       "appleName": "Thunderbolt 3",
-      "alias": "Thunderbolt 4 / USB4 40Gbps",
+      "alias": "USB4 40Gbps",
       "upgradeNote": "and both the cable and the device must support USB4 or Thunderbolt"
     },
     {
@@ -196,7 +195,6 @@
       "family": "storage",
       "role": "card",
       "upgrade": "SD card (UHS-II)",
-      "alias": "UHS-I U3",
       "upgradeNote": "which also needs a UHS-II reader",
       "mainstream": true
     },
