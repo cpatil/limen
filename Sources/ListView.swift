@@ -339,6 +339,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if parts.count == 1, !row.subtitle.isEmpty { parts.append(row.subtitle) }
         let card = Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
         if !card.isEmpty { parts.append(card) }
+        if row.capacityBytes > 0 {
+            parts.append(Fmt.bytes(Double(row.capacityBytes - row.usedBytes)) + " free of "
+                         + Fmt.bytes(Double(row.capacityBytes)))
+        }
         if !row.badge.isEmpty { parts.append(row.badge) }
         if row.linkTrusted, row.linkBits > 0 {
             parts.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
@@ -510,6 +514,32 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             plate.stroke()
             draw(row: rows[index], in: floating, index: index)
         }
+    }
+
+    /// Where the capacity level is drawn. Exposed so the checks can render a row and
+    /// read the pixels back, rather than trusting that a bar filled the way intended.
+    static func capacityGauge(in row: NSRect, chartLeft: CGFloat) -> NSRect {
+        let width: CGFloat = 5
+        return NSRect(x: chartLeft - width - 11, y: row.minY + 20, width: width, height: 44)
+    }
+
+    /// The filled part of the level, for a fullness of 0...1.
+    ///
+    /// The list view is flipped, so a larger y is further down the row: anchoring the
+    /// fill to the gauge's maxY is what makes it rise from the bottom. Getting this
+    /// backwards would draw a disk that empties as it fills, which no value check
+    /// would catch, so it is a function that can be asserted about.
+    static func capacityFill(in gauge: NSRect, fraction: Double) -> NSRect {
+        let clamped = min(max(0, fraction), 1)
+        let height = max(2, gauge.height * CGFloat(clamped))
+        return NSRect(x: gauge.minX, y: gauge.maxY - height, width: gauge.width, height: height)
+    }
+
+    /// Where the chart column starts, for a row of this width.
+    static func chartLeftEdge(rowWidth: CGFloat) -> CGFloat {
+        let rightEdge = rowWidth - 16
+        let chartWidth = min(130, max(54, rowWidth * 0.22))
+        return rightEdge - 92 - 16 - chartWidth
     }
 
     /// Width of the margin reserved for the drag handle.
@@ -728,6 +758,24 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                 NSRect(x: min(bar.maxX - 2, max(bar.minX, x - 1)), y: bar.minY - 2,
                        width: 2, height: bar.height + 4).fill()
             }
+        }
+
+        // How full the device is, as a level filled from the bottom rather than a
+        // second horizontal bar. Two horizontal bars in one column invite the eye to
+        // compare them, and they measure unrelated things: one is speed against a
+        // link, this is space against a disk.
+        if let full = row.fullness {
+            let gauge = TrafficListView.capacityGauge(in: rect, chartLeft: chartLeft)
+            let width = gauge.width
+            Palette.hairline.setFill()
+            NSBezierPath(roundedRect: gauge, xRadius: width / 2, yRadius: width / 2).fill()
+
+            // Amber near the top, because a disk about to run out is worth noticing
+            // before a copy fails rather than after.
+            (full >= 0.9 ? NSColor.systemOrange
+                         : NSColor.labelColor.withAlphaComponent(0.45)).setFill()
+            NSBezierPath(roundedRect: TrafficListView.capacityFill(in: gauge, fraction: full),
+                         xRadius: width / 2, yRadius: width / 2).fill()
         }
 
         // ---- right column: the numbers -----------------------------------

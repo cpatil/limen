@@ -108,6 +108,78 @@ enum ProcessSampler {
         return map
     }
 
+    /// How full a mounted volume is, and which container it belongs to.
+    ///
+    /// Everything here belongs to the container, not to the volume. `statfs` returns
+    /// byte-identical blocks, bfree and bavail for every volume in an APFS container:
+    /// four volumes on a 3.6 TB disk each report "3.6 TB, 1.14 TB free", so summing
+    /// them claims 14.4 TB of disk and summing their used claims four times the space.
+    ///
+    /// Per-volume usage is not available this way at all - Finder and `df` get it from
+    /// APFS directly. For a per-device bar that does not matter: the container's used
+    /// and free are what the device actually holds, which is the question being asked.
+    struct VolumeSpace {
+        /// The container's size, not this volume's share of it.
+        var capacity: UInt64 = 0
+        /// What this one volume occupies.
+        var used: UInt64 = 0
+        /// "disk3" for /dev/disk3s2 - volumes sharing this share their free space.
+        var container: String = ""
+    }
+
+    static func volumeSpace() -> [String: VolumeSpace] {
+        var buf: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&buf, MNT_NOWAIT)
+        guard count > 0, let list = buf else { return [:] }
+
+        var map: [String: VolumeSpace] = [:]
+        for i in 0..<Int(count) {
+            var entry = list[i]
+            let on = withUnsafeBytes(of: &entry.f_mntonname) { raw -> String in
+                String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
+            }
+            let from = withUnsafeBytes(of: &entry.f_mntfromname) { raw -> String in
+                String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
+            }
+            guard from.hasPrefix("/dev/disk") else { continue }
+            let block = UInt64(entry.f_bsize)
+            var space = VolumeSpace()
+            space.capacity = UInt64(entry.f_blocks) * block
+            space.used = UInt64(entry.f_blocks - entry.f_bfree) * block
+            space.container = ProcessSampler.container(ofBSDName: String(from.dropFirst(5)))
+            map[on] = space
+        }
+        return map
+    }
+
+    /// "disk3s2" -> "disk3". The slice is the volume; the disk is the container.
+    static func container(ofBSDName name: String) -> String {
+        guard name.hasPrefix("disk") else { return name }
+        let rest = name.dropFirst(4)
+        let number = rest.prefix { $0.isNumber }
+        return number.isEmpty ? name : "disk" + number
+    }
+
+    /// Total capacity and used space for a set of mount points, counting each
+    /// container's capacity once however many of its volumes are mounted.
+    static func combinedSpace(of mounts: [String],
+                              in table: [String: VolumeSpace]) -> (capacity: UInt64, used: UInt64)? {
+        // Once per container, for used as well as capacity. Mounting six volumes of
+        // one disk must not report six times its size or six times its contents.
+        var byContainer: [String: VolumeSpace] = [:]
+        for mount in mounts {
+            guard let space = table[mount] else { continue }
+            if let existing = byContainer[space.container], existing.capacity >= space.capacity {
+                continue
+            }
+            byContainer[space.container] = space
+        }
+        guard !byContainer.isEmpty else { return nil }
+        let capacity = byContainer.values.reduce(UInt64(0)) { $0 + $1.capacity }
+        let used = byContainer.values.reduce(UInt64(0)) { $0 + $1.used }
+        return (capacity, min(used, capacity))
+    }
+
     /// What a mounted volume does to itself while you read from it.
     ///
     /// A card you are only importing from should not be taking writes, and when it is,

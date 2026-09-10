@@ -81,6 +81,13 @@ final class MagnifierView: NSView {
                      + " and " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased()
                      + " since the counters started"]
         if row.peak > 0 { facts.append("peak " + Fmt.rate(row.peak, unit: unit)) }
+        if row.capacityBytes > 0 {
+            // Counted once per container: several volumes of one disk share its space,
+            // and each of them reports the whole disk's figures as its own.
+            facts.append(Fmt.bytes(Double(row.usedBytes)) + " used of "
+                         + Fmt.bytes(Double(row.capacityBytes)) + ", "
+                         + Fmt.bytes(Double(row.capacityBytes - row.usedBytes)) + " free")
+        }
         out.append((facts.joined(separator: "  ·  "), bodyFont, NSColor.secondaryLabelColor))
 
         if !row.actors.isEmpty {

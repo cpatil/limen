@@ -494,5 +494,87 @@ do {
     check("interfaces: show-all keeps everything", all.count == 5)
 }
 
+
+// ---- capacity, counted once per container ------------------------------------
+// Volumes in one APFS container each report the container's size and free space as
+// their own. Summing them claims several times the disk.
+do {
+    func vol(_ capacity: UInt64, _ used: UInt64, _ container: String) -> ProcessSampler.VolumeSpace {
+        var v = ProcessSampler.VolumeSpace()
+        v.capacity = capacity; v.used = used; v.container = container
+        return v
+    }
+    // Four volumes of one 3.6 TB disk, each reporting the whole container.
+    let table: [String: ProcessSampler.VolumeSpace] = [
+        "/Volumes/nam DDLJ":    vol(3_600_000_000_000, 2_460_000_000_000, "disk3"),
+        "/Volumes/necromancer": vol(3_600_000_000_000, 2_460_000_000_000, "disk3"),
+        "/Volumes/media":       vol(3_600_000_000_000, 2_460_000_000_000, "disk3"),
+        "/Volumes/admin DDLJ":  vol(3_600_000_000_000, 2_460_000_000_000, "disk3"),
+        "/Volumes/card":        vol(256_000_000_000, 8_000_000_000, "disk6"),
+    ]
+    let mounts = ["/Volumes/nam DDLJ", "/Volumes/necromancer",
+                  "/Volumes/media", "/Volumes/admin DDLJ"]
+    guard let combined = ProcessSampler.combinedSpace(of: mounts, in: table) else {
+        check("capacity: four volumes of one disk report something", false); exit(1)
+    }
+    check("capacity: the disk is counted once, not four times",
+          combined.capacity == 3_600_000_000_000,
+          "\(combined.capacity / 1_000_000_000) GB")
+    check("capacity: its contents are counted once too",
+          combined.used == 2_460_000_000_000, "\(combined.used / 1_000_000_000) GB")
+    check("capacity: free space is believable",
+          combined.capacity - combined.used == 1_140_000_000_000)
+
+    // A device with two containers does add up.
+    let both = ProcessSampler.combinedSpace(of: mounts + ["/Volumes/card"], in: table)
+    check("capacity: separate containers are summed",
+          both?.capacity == 3_856_000_000_000, "\(both?.capacity ?? 0)")
+
+    check("capacity: used never exceeds capacity",
+          (combined.used <= combined.capacity))
+    check("capacity: nothing mounted means nothing to show",
+          ProcessSampler.combinedSpace(of: [], in: table) == nil)
+    check("capacity: an unknown mount is ignored",
+          ProcessSampler.combinedSpace(of: ["/Volumes/nope"], in: table) == nil)
+
+    check("container: a slice belongs to its disk",
+          ProcessSampler.container(ofBSDName: "disk3s2") == "disk3")
+    check("container: a whole disk is its own container",
+          ProcessSampler.container(ofBSDName: "disk3") == "disk3")
+    check("container: two-digit disks parse",
+          ProcessSampler.container(ofBSDName: "disk12s4") == "disk12")
+}
+
+
+// ---- the capacity level fills from the bottom --------------------------------
+// The list is flipped, so a larger y is further down. A level that filled from the
+// top would show a disk emptying as it fills, and no value check would catch it.
+do {
+    let gauge = NSRect(x: 100, y: 20, width: 5, height: 44)
+    let full = TrafficListView.capacityFill(in: gauge, fraction: 1)
+    check("gauge: full covers the whole level", full.height == gauge.height)
+    check("gauge: full starts at the top", full.minY == gauge.minY)
+
+    let half = TrafficListView.capacityFill(in: gauge, fraction: 0.5)
+    check("gauge: half is half the height", abs(half.height - gauge.height / 2) < 0.01,
+          "\(half.height)")
+    check("gauge: and it is anchored to the bottom", half.maxY == gauge.maxY,
+          "maxY \(half.maxY) vs \(gauge.maxY)")
+    check("gauge: so the empty part is at the top", half.minY > gauge.minY)
+
+    let nearlyEmpty = TrafficListView.capacityFill(in: gauge, fraction: 0.02)
+    check("gauge: a nearly empty disk still shows a sliver", nearlyEmpty.height >= 2)
+    check("gauge: at the bottom", nearlyEmpty.maxY == gauge.maxY)
+
+    check("gauge: nothing used stays inside the track",
+          TrafficListView.capacityFill(in: gauge, fraction: 0).maxY == gauge.maxY)
+    check("gauge: over-full is clamped",
+          TrafficListView.capacityFill(in: gauge, fraction: 3).height == gauge.height)
+    check("gauge: sits clear of the row's text",
+          TrafficListView.capacityGauge(in: NSRect(x: 0, y: 0, width: 700, height: 84),
+                                        chartLeft: TrafficListView.chartLeftEdge(rowWidth: 700)).maxX
+              <= TrafficListView.chartLeftEdge(rowWidth: 700))
+}
+
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

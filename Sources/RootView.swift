@@ -52,7 +52,10 @@ final class SectionSummary: NSView {
         Text.draw(Fmt.rate(up, unit: unit),
                   at: NSPoint(x: rect.minX + 42, y: top - 76), font: rateFont, color: Palette.up)
 
-        let combined = down + up
+        // The busier direction, not the sum. A card import shows the same bytes twice
+        // - read off the card, written to the disk - so adding them said "1 GB in 5.6 s"
+        // for a transfer that was going to take 11. Exactly the job this app is for.
+        let combined = max(down, up)
         if combined > 0 {
             var bits: [String] = []
             let near = Reference.comparison(bytesPerSec: combined, families: families)

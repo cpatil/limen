@@ -141,6 +141,22 @@ first switch goes on and removed when the last goes off. It acts on cards only: 
 mounted disk image reports itself as removable media, so the gate also requires the
 protocol to be USB or Secure Digital.
 
+## How full a device is
+
+A level beside each storage row, filled from the bottom, amber past 90%. The hover
+card gives the figures.
+
+Counted **once per container**. Volumes in one APFS container each report the
+container's capacity and free space as their own, so a disk with four volumes mounted
+says "3.6 TB, 1.14 TB free" four times over — adding them claims 14.4 TB of disk. This
+is the same shape of mistake as listing a VPN tunnel alongside the interface it rides
+over, and it is counted once for the same reason.
+
+Per-volume usage is not available from `statfs` at all — every volume in a container
+returns byte-identical figures. Finder and `df` get it from APFS directly. For "how
+full is this device" that does not matter: the container's used and free are what the
+device holds.
+
 ## Transfer sessions
 
 Finished copies are logged with what was measured and what it might mean. The one

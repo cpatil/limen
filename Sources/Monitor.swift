@@ -70,6 +70,15 @@ struct Row {
     /// What the medium is, when the system says: ssd, spinning or flash. Empty when
     /// it does not, in which case the class is inferred from what the device has done.
     var mediumKinds: [String] = []
+    /// How full the device is. Counted once per container, so a disk with several
+    /// volumes mounted is not reported several times over.
+    var capacityBytes: UInt64 = 0
+    var usedBytes: UInt64 = 0
+
+    var fullness: Double? {
+        guard capacityBytes > 0 else { return nil }
+        return min(1, Double(usedBytes) / Double(capacityBytes))
+    }
 
     /// Whether Spotlight indexing is worth reporting for this row.
     ///
@@ -252,6 +261,7 @@ final class Monitor {
     private var procs: [Int32: ProcSample] = [:]
     private var mounts: [String: String] = [:]
     private var traits: [String: ProcessSampler.VolumeTraits] = [:]
+    private var space: [String: ProcessSampler.VolumeSpace] = [:]
     /// Set when something changed a volume out from under the sampler - turning off
     /// indexing, say - so the next tick re-reads rather than showing the old answer
     /// for another few seconds.
@@ -319,6 +329,7 @@ final class Monitor {
             // What each volume does to itself while being read. Refreshed with the
             // mount table rather than every tick - it only changes on mount.
             traits = ProcessSampler.volumeTraits()
+            space = ProcessSampler.volumeSpace()
         }
         prevProcs = procs
         procs = ProcessSampler.sample()
@@ -598,6 +609,10 @@ final class Monitor {
                 .filter { $0.hasPrefix("/Volumes") }
             // Volume names as shown in Finder, not full paths.
             row.volumes = row.mountRoots.map { ($0 as NSString).lastPathComponent }
+            if let combined = ProcessSampler.combinedSpace(of: row.mountRoots, in: space) {
+                row.capacityBytes = combined.capacity
+                row.usedBytes = combined.used
+            }
             if let first = row.mountRoots.first, let t = traits[first] {
                 row.fsType = t.fsType
                 row.journalWrites = t.journalWrites
