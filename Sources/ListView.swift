@@ -238,7 +238,11 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
     private func accessibilityName(for row: Row) -> String {
         var parts = [row.title]
-        if !row.mediumClass.isEmpty { parts.append(row.mediumClass) }
+        // Spelled out rather than left to the glyph: VoiceOver reads "almost equal
+        // to", which is not what the mark means here.
+        if !row.mediumClass.isEmpty {
+            parts.append("card type inferred from capacity: " + row.mediumClass)
+        }
         if !row.volumes.isEmpty { parts.append(row.volumes.joined(separator: ", ")) }
         if row.indexingWorthReporting {
             parts.append(row.indexingDisabled
@@ -257,9 +261,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if let gauge = Reference.gauge(down: row.down, up: row.up,
                                        peakDirectional: row.peakDirectional, peak: row.peak,
                                        linkBits: row.linkBits, linkTrusted: row.linkTrusted) {
-            parts.append(gauge.label)
+            parts.append(gauge.isInferred ? "estimated " + gauge.label : gauge.label)
         }
-        if !row.hint.isEmpty { parts.append(row.hint) }
+        if !row.hint.isEmpty { parts.append("inferred: " + row.hint) }
         if !row.note.isEmpty { parts.append(row.note) }
         return parts.joined(separator: ", ")
     }
@@ -338,7 +342,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if !row.volumes.isEmpty { parts.append(row.volumes.joined(separator: ", ")) }
         if parts.count == 1, !row.subtitle.isEmpty { parts.append(row.subtitle) }
         let card = Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
-        if !card.isEmpty { parts.append(card) }
+        if !card.isEmpty { parts.append(Palette.mark + card) }
         if row.capacityBytes > 0 {
             parts.append(Fmt.bytes(Double(row.capacityBytes - row.usedBytes)) + " free of "
                          + Fmt.bytes(Double(row.capacityBytes)))
@@ -669,7 +673,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // own colour and at full strength.
         let card = Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
         if !card.isEmpty {
-            cursorX += Text.drawBadge(Text.clip(card, font: cardFont, maxWidth: textLimit - 24),
+            // Marked, because the leading word is a deduction: a reader presents
+            // itself as USB mass storage and never reports which standard the card in
+            // it follows, so "SDXC" is read off the capacity. The mark rides inside
+            // the badge rather than being drawn beside it in violet - the badge
+            // already owns a colour, which means "this is the card, not the port", and
+            // two colour codes in one pill would collide. The mark alone carries it.
+            cursorX += Text.drawBadge(Text.clip(Palette.mark + card, font: cardFont,
+                                                maxWidth: textLimit - 24),
                                       at: NSPoint(x: cursorX, y: secondLineY),
                                       font: cardFont,
                                       fill: Palette.cardBadge,
@@ -700,6 +711,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // comparable to. The comparison is the point of the feature - "6.2 MB/s"
         // means little on its own, "half of USB 2.0" means something.
         var context = row.note
+        // Whether this line is a catalogue comparison rather than something observed.
+        // row.note reports a fact about the interface; "best this session" is a
+        // measurement; naming a standard from a rate is neither.
+        var contextInferred = false
         if context.isEmpty, combined > 0 || row.peak > 0 {
             if row.wireless && !row.linkTrusted {
                 // Throughput cannot identify a Wi-Fi generation, and the reported link
@@ -707,6 +722,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                 // naming a standard it cannot establish.
                 context = row.peak > 0 ? "best this session " + Fmt.rate(row.peak, unit: unit) : ""
             } else {
+                contextInferred = true
                 context = Reference.context(current: combined, peak: row.peak, unit: unit,
                                             families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
                                             roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
@@ -714,9 +730,11 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                                             kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds)
             }
         }
-        Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit - textLeft),
+        let contextText = contextInferred && !context.isEmpty ? Palette.marked(context) : context
+        Text.draw(Text.clip(contextText, font: subtitleFont, maxWidth: textLimit - textLeft),
                   at: NSPoint(x: textLeft, y: rect.minY + 56),
-                  font: subtitleFont, color: Palette.faint)
+                  font: subtitleFont,
+                  color: contextInferred ? Palette.inferred : Palette.faint)
 
         // ---- middle column: history, then link utilisation ---------------
         let chartRect = NSRect(x: chartLeft, y: rect.minY + 20, width: chartWidth, height: 30)
@@ -749,15 +767,18 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             let fraction = CGFloat(min(1.0, max(0.0, gauge.fraction)))
             // Once a transfer is near the ceiling the link is the limit, not the
             // device at either end. Colour says which regime you are in.
-            // Orange says "the link is the limit". Against a device's own best that is
-            // no limit at all - a full bar only means it is doing what it usually does -
-            // so the peak-relative bar stays neutral however full it looks.
+            //
+            // Against a typical figure from the catalogue none of that applies: the
+            // denominator is an estimate, so 90% of it is not a device at its limit
+            // and must not be dressed as one. That bar takes the inferred colour
+            // instead, the same violet as its label - the bar and the number beside
+            // it are one statement and should not be able to disagree.
             let fill: NSColor
             if gauge.ofLink {
                 fill = gauge.fraction >= 0.85 ? NSColor.systemOrange
                      : (gauge.fraction >= 0.40 ? Palette.down : Palette.up)
             } else {
-                fill = NSColor.secondaryLabelColor
+                fill = Palette.inferredFill
             }
             fill.setFill()
             NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY,
@@ -830,8 +851,11 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         Text.draw(writeTotal, at: NSPoint(x: totalsX, y: totalsY), font: totalFont,
                   color: Palette.up.withAlphaComponent(0.75))
 
-        // Against a real link, name the figure. Against the device's own best, the
-        // useful number is that best itself - the bar already shows how near it is.
+        // Name the figure in both cases, marked when it was worked out rather than
+        // measured. This line used to show the session peak whenever the bar was not
+        // link-relative, from when that bar was drawn against the peak itself; the bar
+        // means something else now, so the line that labels it has to say so. The peak
+        // is still on the hover card.
         if let gauge = gauge, gauge.ofLink {
             Text.draw(gauge.label,
                       at: NSPoint(x: 0, y: rect.minY + 65),
@@ -839,6 +863,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                       color: gauge.fraction >= 0.85 ? NSColor.systemOrange
                                                     : Palette.faint,
                       alignRight: rightEdge)
+        } else if let gauge = gauge {
+            Text.draw(Palette.marked(gauge.label),
+                      at: NSPoint(x: 0, y: rect.minY + 65),
+                      font: totalFont, color: Palette.inferred, alignRight: rightEdge)
         } else if row.peak > 0 {
             Text.draw("peak " + Fmt.rate(row.peak, unit: unit),
                       at: NSPoint(x: 0, y: rect.minY + 65),
@@ -870,15 +898,30 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             let apple = "Apple: " + row.appleName
             footer += footer.isEmpty ? apple : "   ·   " + apple
         }
-        if !row.hint.isEmpty {
-            footer += footer.isEmpty ? row.hint : "   ·   " + row.hint
-        }
+        let footerLimit = max(0, chartRight - footerX - 8)
         if !footer.isEmpty {
             // Stop short of the rate column, which shares this baseline.
-            Text.draw(Text.clip(footer, font: totalFont, maxWidth: max(0, chartRight - footerX - 8)),
-                      at: NSPoint(x: footerX, y: rect.minY + 68),
-                      font: totalFont,
-                      color: Palette.faint)
+            let text = Text.clip(footer, font: totalFont, maxWidth: footerLimit)
+            Text.draw(text, at: NSPoint(x: footerX, y: rect.minY + 68),
+                      font: totalFont, color: Palette.faint)
+            footerX += Text.width(text, font: totalFont)
+            if !row.hint.isEmpty {
+                Text.draw("   ·   ", at: NSPoint(x: footerX, y: rect.minY + 68),
+                          font: totalFont, color: Palette.faint)
+                footerX += Text.width("   ·   ", font: totalFont)
+            }
+        }
+        // Drawn on its own rather than joined to the line above, because it is the one
+        // part of it that was worked out: advice comes from what the device was seen
+        // to do, matched against the catalogue. Concatenating it into a grey string
+        // would have made a deduction look like the rest of the reporting.
+        if !row.hint.isEmpty {
+            let room = max(0, chartRight - footerX - 8)
+            if room > 40 {
+                Text.draw(Text.clip(Palette.marked(row.hint), font: totalFont, maxWidth: room),
+                          at: NSPoint(x: footerX, y: rect.minY + 68),
+                          font: totalFont, color: Palette.inferred)
+            }
         }
     }
 }

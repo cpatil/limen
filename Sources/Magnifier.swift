@@ -52,10 +52,24 @@ final class MagnifierView: NSView {
         if !identity.isEmpty {
             out.append((identity.joined(separator: "  ·  "), bodyFont, NSColor.labelColor))
         }
+        // The card badge above carries the mark. This is what the mark stands for -
+        // the evidence, so it can be disagreed with.
+        if !row.mediumClass.isEmpty {
+            out.append((Palette.marked("SD family read off the card's capacity. A reader "
+                        + "presents itself as USB mass storage and never reports which "
+                        + "standard the card follows, so its speed class - UHS-I, V30 - "
+                        + "cannot be established this way."),
+                        smallFont, Palette.inferred))
+        }
 
         let context = contextText(row)
         if !context.isEmpty {
-            out.append((context, bodyFont, NSColor.secondaryLabelColor))
+            // row.note is a fact about the interface and "best this session" is a
+            // measurement; anything else on this line names a standard from a rate,
+            // which is a comparison against the catalogue.
+            let inferred = row.note.isEmpty && !(row.wireless && !row.linkTrusted)
+            out.append((inferred ? Palette.marked(context) : context, bodyFont,
+                        inferred ? Palette.inferred : NSColor.secondaryLabelColor))
         }
         if row.indexingWorthReporting, !row.indexingDisabled {
             out.append(("No .metadata_never_index marker here, so nothing is stopping "
@@ -101,8 +115,19 @@ final class MagnifierView: NSView {
             out.append((actor.display + "   " + Fmt.rate(actor.bytesPerSec, unit: unit),
                         smallFont, NSColor.labelColor))
         }
+        // What the bar was measured against, when it was not measured against a link.
+        // The percentage on its own says nothing about how good the yardstick is.
+        if let gauge = usage(row), let basis = gauge.basis {
+            out.append((Palette.marked("the bar compares this with " + basis
+                        + " - what this class of device typically manages, not a "
+                        + "ceiling this one reported."),
+                        smallFont, Palette.inferred))
+        }
         if !row.hint.isEmpty {
-            out.append((row.hint, smallFont, NSColor.systemBlue))
+            // Was blue, which is this app's colour for the outbound direction. Advice
+            // is drawn from what the device was seen to do, so it belongs in the
+            // inferred colour and nowhere near a rate.
+            out.append((Palette.marked(row.hint), smallFont, Palette.inferred))
         }
         return out
     }
@@ -110,7 +135,7 @@ final class MagnifierView: NSView {
     /// What the bar measures: the link where that can be judged, the device's own
     /// best where it cannot. Same rule as the rows, so the card never disagrees with
     /// what is behind it.
-    private func usage(_ row: Row) -> (fraction: Double, label: String, ofLink: Bool)? {
+    private func usage(_ row: Row) -> Reference.Gauge? {
         Reference.gauge(down: row.down, up: row.up,
                         peakDirectional: row.peakDirectional, peak: row.peak,
                         linkBits: row.linkBits, linkTrusted: row.linkTrusted,
@@ -194,7 +219,7 @@ final class MagnifierView: NSView {
         // and above everything else - it is what the row is actually about.
         let cardLabel = cardText(row)
         if !cardLabel.isEmpty {
-            _ = Text.drawBadge(cardLabel, at: NSPoint(x: left, y: y + 2),
+            _ = Text.drawBadge(Palette.mark + cardLabel, at: NSPoint(x: left, y: y + 2),
                                font: cardBadgeFont,
                                fill: Palette.cardBadge,
                                textColor: NSColor.labelColor)
@@ -280,7 +305,7 @@ final class MagnifierView: NSView {
                 fill = used >= 0.85 ? NSColor.systemOrange
                      : (used >= 0.40 ? Palette.down : Palette.up)
             } else {
-                fill = NSColor.secondaryLabelColor
+                fill = Palette.inferredFill
             }
             fill.setFill()
             NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY,
@@ -294,11 +319,12 @@ final class MagnifierView: NSView {
                 NSColor.labelColor.withAlphaComponent(0.6).setFill()
                 NSRect(x: min(bar.maxX - 2, x - 1), y: bar.minY - 3, width: 2, height: 13).fill()
             }
-            Text.draw(gauge.label,
+            Text.draw(gauge.isInferred ? Palette.marked(gauge.label) : gauge.label,
                       at: NSPoint(x: bar.maxX + 10, y: y),
                       font: smallFont,
-                      color: gauge.ofLink && used >= 0.85 ? NSColor.systemOrange
-                                                          : NSColor.secondaryLabelColor)
+                      color: gauge.isInferred ? Palette.inferred
+                           : (used >= 0.85 ? NSColor.systemOrange
+                                           : NSColor.secondaryLabelColor))
             y += 28
         }
 

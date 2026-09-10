@@ -57,14 +57,29 @@ final class SectionSummary: NSView {
         // for a transfer that was going to take 11. Exactly the job this app is for.
         let combined = max(down, up)
         if combined > 0 {
-            var bits: [String] = []
+            // Two different kinds of statement on one line, so they are drawn as two.
+            // "1 GB in 12 s" is division; naming a standard from a rate is a match
+            // against a catalogue, and only that half takes the mark and the colour.
+            var x = rect.minX
             let near = Reference.comparison(bytesPerSec: combined, families: families)
-            if !near.isEmpty { bits.append(near) }
             let oneGB = Reference.timeToMove(bytes: Reference.oneGigabyte, atBytesPerSec: combined)
-            if !oneGB.isEmpty { bits.append("1 GB in " + oneGB) }
-            Text.draw(Text.clip(bits.joined(separator: "   ·   "), font: smallFont, maxWidth: rect.width - 8),
-                      at: NSPoint(x: rect.minX, y: rect.minY + 8),
-                      font: smallFont, color: Palette.faint)
+            if !near.isEmpty {
+                let text = Text.clip(Palette.marked(near), font: smallFont, maxWidth: rect.width - 8)
+                Text.draw(text, at: NSPoint(x: x, y: rect.minY + 8),
+                          font: smallFont, color: Palette.inferred)
+                x += Text.width(text, font: smallFont)
+                if !oneGB.isEmpty {
+                    Text.draw("   ·   ", at: NSPoint(x: x, y: rect.minY + 8),
+                              font: smallFont, color: Palette.faint)
+                    x += Text.width("   ·   ", font: smallFont)
+                }
+            }
+            if !oneGB.isEmpty {
+                Text.draw(Text.clip("1 GB in " + oneGB, font: smallFont,
+                                    maxWidth: max(0, rect.maxX - x - 8)),
+                          at: NSPoint(x: x, y: rect.minY + 8),
+                          font: smallFont, color: Palette.faint)
+            }
         }
 
         let chartLeft = rect.minX + 214
@@ -76,6 +91,114 @@ final class SectionSummary: NSView {
 
         Palette.hairline.setFill()
         NSRect(x: 0, y: bounds.minY, width: bounds.width, height: 1).fill()
+    }
+}
+
+/// The line along the bottom of the window that says the interface is not all
+/// measurement.
+///
+/// It exists because the app draws two different kinds of statement in the same
+/// typeface: a rate, which came from a counter, and a conclusion, which came from
+/// comparing that rate against a catalogue of what hardware normally does. The second
+/// kind is useful - it is most of why the app is worth having - but presented plainly
+/// it reads as though the machine reported it, which it did not.
+///
+/// One line, always visible, never in the way: a legend that only appears once you go
+/// looking for it is not a legend, it is a defence.
+final class InferenceNote: NSView {
+    static let height: CGFloat = 22
+
+    /// The full explanation, shown when the line is clicked.
+    static let explanation =
+        "Limen shows two kinds of statement, and they are not equally certain.\n\n"
+        + "Measured. Bytes read and written, how full a volume is, the rate a link "
+        + "negotiated, which processes hold a file open. These come from the kernel "
+        + "and the storage stack, and Limen only does arithmetic on them.\n\n"
+        + "Inferred, marked \u{2248} and drawn in violet. What kind of card is in a "
+        + "reader, how a rate compares with what that class of device typically "
+        + "manages, what limited a transfer, and what would help. These come from "
+        + "matching a measurement against a catalogue of hardware, and a match is not "
+        + "a proof: a rate near an SDXC card's ceiling is equally consistent with a "
+        + "slow reader, a busy machine at the other end, a tree of small files, or a "
+        + "device that has got hot.\n\n"
+        + "Hovering anything marked \u{2248} shows what the conclusion was drawn from, "
+        + "so you can disagree with it."
+
+    private var hovering = false
+    private var tracking: NSTrackingArea?
+
+    override var isFlipped: Bool { false }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking = tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: bounds,
+                                  options: [.mouseEnteredAndExited, .activeInKeyWindow],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
+
+    override func mouseDown(with event: NSEvent) { showExplanation() }
+
+    func showExplanation() {
+        let alert = NSAlert()
+        alert.messageText = "Measured, and worked out"
+        alert.informativeText = InferenceNote.explanation
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    /// What a view may actually paint, given the rect AppKit asked it to refresh.
+    ///
+    /// AppKit hands a subview the whole invalidated region of the window rather than
+    /// the part of it that overlaps this view, and inside a layer-backed hierarchy
+    /// nothing clips the difference away. Filling the dirty rect directly - which is
+    /// what most drawing code does, and what every other view in this app gets away
+    /// with because it fills its own bounds - painted 1280x900 of canvas from a view
+    /// 22 points tall, over the top of the lists, leaving a window that contained
+    /// nothing but this one line.
+    static func paintable(dirty: NSRect, bounds: NSRect) -> NSRect {
+        dirty.intersection(bounds)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        Palette.canvas.setFill()
+        InferenceNote.paintable(dirty: dirtyRect, bounds: bounds).fill()
+        Palette.hairline.setFill()
+        NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
+
+        let font = NSFont.systemFont(ofSize: 10.5)
+        var x: CGFloat = 16
+        let y = bounds.minY + 5
+
+        // The mark drawn in its own colour, immediately before the sentence that
+        // explains it: the legend and the thing it stands for cannot then drift apart.
+        Text.draw(Palette.mark, at: NSPoint(x: x, y: y), font: font, color: Palette.inferred)
+        x += Text.width(Palette.mark, font: font)
+
+        let sentence = "marks a reading Limen worked out rather than measured. "
+            + "Hover one to see what from."
+        Text.draw(sentence, at: NSPoint(x: x, y: y), font: font,
+                  color: hovering ? NSColor.labelColor : Palette.faint)
+    }
+
+    override func accessibilityLabel() -> String? {
+        "About measured and inferred readings"
+    }
+    override func accessibilityHelp() -> String? { InferenceNote.explanation }
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityPerformPress() -> Bool {
+        showExplanation()
+        return true
     }
 }
 
@@ -93,6 +216,7 @@ final class RootView: NSView, NSSplitViewDelegate {
     let columnsSplit = NSSplitView()
     let outerSplit = NSSplitView()
     private let magnifier = MagnifierView()
+    private let inferenceNote = InferenceNote()
     /// Mirrors the monitor's sampling interval so the chart can state its time span.
     var sampleInterval: TimeInterval = 1
     /// Which row the card is showing, so it can be refreshed on every sample rather
@@ -236,6 +360,7 @@ final class RootView: NSView, NSSplitViewDelegate {
         }
 
         addSubview(outerSplit)
+        addSubview(inferenceNote)
         addSubview(unitControl)
         addSubview(intervalPopup)
         addSubview(inactiveToggle)
@@ -392,8 +517,10 @@ final class RootView: NSView, NSSplitViewDelegate {
         _ = place(inactiveToggle, rightOf: cursor,
                   width: toggleSize.width, height: toggleSize.height)
 
-        outerSplit.frame = NSRect(x: 0, y: 0, width: bounds.width,
-                                  height: max(0, top - headerHeight - 1))
+        inferenceNote.frame = NSRect(x: 0, y: 0, width: bounds.width,
+                                     height: InferenceNote.height)
+        outerSplit.frame = NSRect(x: 0, y: InferenceNote.height, width: bounds.width,
+                                  height: max(0, top - headerHeight - 1 - InferenceNote.height))
     }
 }
 

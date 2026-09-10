@@ -9,6 +9,11 @@ enum Analysis {
         var summary: String
         /// True when nothing more was available - worth saying plainly.
         var maximised: Bool
+        /// True when this reading was worked out rather than measured. A link
+        /// utilisation is arithmetic on two reported numbers; "consistent with an
+        /// SDXC card's ceiling" is a match against a catalogue that cannot rule out a
+        /// slow reader, the far end, the workload, or a hot device.
+        var inferred: Bool = false
     }
 
     /// How steady a transfer was. A long run of large files sits near its peak the
@@ -48,21 +53,24 @@ enum Analysis {
                 // consistent with a slower reader, the other endpoint, the workload,
                 // or thermal throttling; this cannot isolate those.
                 return Verdict(summary: "peak is consistent with \(near.name)'s ceiling",
-                               maximised: true)
+                               maximised: true, inferred: true)
             }
         }
 
         if steadiness(s) < 0.45 {
+            // The ratio is measured; "many small files" is one explanation among
+            // several - a busy far end and a device that throttles look the same here.
             return Verdict(summary: String(format: "stop-start: averaged only %.0f%% of its own peak, "
                                            + "which is what many small files look like",
                                            steadiness(s) * 100),
-                           maximised: false)
+                           maximised: false, inferred: true)
         }
 
         if ceiling != nil {
+            // The percentage is measured; which end was the slow one is not.
             return Verdict(summary: String(format: "used %.0f%% of the link — the device at one end was slower",
                                            used * 100),
-                           maximised: false)
+                           maximised: false, inferred: true)
         }
         if s.physical == false {
             return Verdict(summary: "software interface — the link beneath it sets the pace",

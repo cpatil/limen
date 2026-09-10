@@ -89,6 +89,40 @@ enum Palette {
     static var headerBand: NSColor {
         NSColor.textColor.withAlphaComponent(0.07)
     }
+    /// A figure Limen worked out rather than read from the system.
+    ///
+    /// Every other colour in this app is already spoken for by something measured:
+    /// green and blue are the two directions, orange is a link at its ceiling, red is
+    /// a warning, and the capacity level runs green through amber to red. Violet is
+    /// the one hue left, and that is exactly what makes it usable as a code - it can
+    /// never be mistaken for a rate.
+    ///
+    /// Colour on its own is not a code. It is gone for anyone who cannot separate
+    /// these hues, gone in a greyscale screenshot, and gone in the accessibility
+    /// description. `mark` travels with it everywhere and carries the meaning by
+    /// itself; the colour only makes it findable at a glance.
+    static var inferred: NSColor {
+        isLight ? NSColor(srgbRed: 0.42, green: 0.23, blue: 0.66, alpha: 1)
+                : NSColor(srgbRed: 0.74, green: 0.60, blue: 0.99, alpha: 1)
+    }
+    /// The same colour as a fill, where it sits under text rather than being text.
+    static var inferredFill: NSColor {
+        inferred.withAlphaComponent(isLight ? 0.80 : 0.70)
+    }
+    static var inferredBadge: NSColor {
+        inferred.withAlphaComponent(isLight ? 0.20 : 0.26)
+    }
+    /// Prefixed to anything drawn in that colour. Read aloud as "about".
+    static let mark = "\u{2248} "
+    /// Marks a string as inferred, so the mark and the colour are always applied
+    /// together and one can never be shipped without the other.
+    /// Idempotent, because some of these strings arrive already carrying the sign -
+    /// "\u{2248} Gigabit Ethernet" is how a near match has always been written - and
+    /// marking one twice would look like a bug rather than a code.
+    static func marked(_ text: String) -> String {
+        text.hasPrefix("\u{2248}") ? text : mark + text
+    }
+
     /// Behind the row under the pointer. Tinted rather than grey so it reads as
     /// deliberate at a glance, and subtle enough not to fight the text.
     static var hover: NSColor {

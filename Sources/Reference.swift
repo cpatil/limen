@@ -238,11 +238,27 @@ enum Reference {
     /// get a bar at all: Wi-Fi reports a negotiated rate it never achieves, and an
     /// internal drive has no cable to negotiate over, so measuring against their own
     /// best says something true where a made-up specification would not.
+    /// What the bar shows, what to call it, and whether it was measured or worked out.
+    struct Gauge {
+        let fraction: Double
+        let label: String
+        /// True when the denominator is a negotiated link rate the system reported -
+        /// a real ceiling, so the proportion is a measurement. False when it is what
+        /// this class of device typically manages, which is a comparison against a
+        /// catalogue and therefore an inference.
+        let ofLink: Bool
+        /// The entry the inference was drawn from, so the hover card can show what it
+        /// was based on rather than only what it concluded. nil when measured.
+        let basis: String?
+
+        var isInferred: Bool { !ofLink }
+    }
+
     static func gauge(down: Double, up: Double, peakDirectional: Double, peak: Double,
                       linkBits: UInt64, linkTrusted: Bool,
                       families: [SpeedRef.Family]? = nil, roles: [String]? = nil,
                       internalMedium: Bool = false,
-                      kinds: [String]? = nil) -> (fraction: Double, label: String, ofLink: Bool)? {
+                      kinds: [String]? = nil) -> Gauge? {
         let current = max(down, up)
 
         // A negotiated link is a real ceiling, so this is a real proportion.
@@ -250,7 +266,9 @@ enum Reference {
            linkRateIsCredible(observedBytesPerSec: max(current, peakDirectional),
                               linkBits: linkBits),
            let used = utilization(down: down, up: up, linkBits: linkBits) {
-            return (used, String(format: "%.0f%% link utilization", used * 100), true)
+            return Gauge(fraction: used,
+                         label: String(format: "%.0f%% link utilization", used * 100),
+                         ofLink: true, basis: nil)
         }
 
         // No trustworthy ceiling. What this kind of device typically manages is the
@@ -263,7 +281,10 @@ enum Reference {
               ref.payloadBytes > 0
         else { return nil }
         let fraction = min(1.0, current / ref.payloadBytes)
-        return (fraction, String(format: "%.0f%% of typical", fraction * 100), false)
+        return Gauge(fraction: fraction,
+                     label: String(format: "%.0f%% of typical", fraction * 100),
+                     ofLink: false,
+                     basis: ref.name + ", about " + Fmt.rate(ref.payloadBytes, unit: .bytes))
     }
 
     /// A quiet, evidence-based note about a removable device: what is limiting it and

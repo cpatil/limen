@@ -106,8 +106,7 @@ check("gauge: a device that never moved data has no bar",
 do {
     func bar(_ current: Double, link: UInt64, trusted: Bool,
              roles: [String]? = nil, kinds: [String]? = nil,
-             internalMedium: Bool = false, peak: Double = 0)
-        -> (fraction: Double, label: String, ofLink: Bool)? {
+             internalMedium: Bool = false, peak: Double = 0) -> Reference.Gauge? {
         Reference.gauge(down: current, up: 0, peakDirectional: current, peak: peak,
                         linkBits: link, linkTrusted: trusted, families: [.storage],
                         roles: roles, internalMedium: internalMedium, kinds: kinds)
@@ -133,6 +132,19 @@ do {
     check("gauge: idle with no link has nothing to show",
           bar(0, link: 0, trusted: false, roles: ["disk"], kinds: ["ssd"],
               internalMedium: true, peak: 1_090_000_000) == nil)
+    // The mark is only honest if what it stands for can be shown. A gauge that says
+    // "of typical" without being able to name the typical it used is a bare assertion.
+    if let g = bar(400_000_000, link: 5_000_000_000, trusted: true, roles: ["card"]) {
+        check("inference: a link-relative bar is a measurement, not a conclusion",
+              !g.isInferred && g.basis == nil)
+    }
+    if let g = bar(200_000_000, link: 0, trusted: false, roles: ["disk"],
+                   kinds: ["ssd"], internalMedium: true, peak: 1_090_000_000) {
+        check("inference: a class-relative bar is marked as a conclusion", g.isInferred)
+        check("inference: and can say what it was drawn from",
+              (g.basis ?? "").contains("SSD") || (g.basis ?? "").contains("NVMe"),
+              g.basis ?? "nil")
+    }
     check("gauge: it never exceeds full",
           (bar(9_000_000_000, link: 0, trusted: false, roles: ["disk"],
                kinds: ["ssd"], internalMedium: true)?.fraction ?? 0) <= 1.0)
@@ -621,6 +633,70 @@ do {
     check("gauge: the boundary between amber and red is at 90%",
           TrafficListView.capacityColour(fraction: 0.899) == .systemYellow
               && TrafficListView.capacityColour(fraction: 0.90) == .systemRed)
+}
+
+// ---- the inference code ------------------------------------------------------
+// Colour cannot carry this on its own - it is gone in greyscale, gone for anyone who
+// cannot separate violet from grey, and gone in the accessibility description. The
+// mark is the part that has to be present.
+check("mark: an inferred string carries the sign",
+      Palette.marked("SDXC 256 GB").hasPrefix("\u{2248}"))
+// Several of these strings already arrive with the sign, because "about this
+// standard" is how a near match has always been written. Marking one twice looks
+// like a bug rather than a code.
+check("mark: marking is idempotent",
+      Palette.marked(Palette.marked("Gigabit Ethernet"))
+        == Palette.marked("Gigabit Ethernet"))
+check("mark: a string that already has the sign is left alone",
+      Palette.marked("\u{2248} Gigabit Ethernet") == "\u{2248} Gigabit Ethernet")
+
+// A verdict either did arithmetic on two reported numbers or matched a measurement
+// against a catalogue. Only the second is a conclusion, and only it should be marked.
+do {
+    // averageRate is derived from the bytes and the clock, so a fixture sets those
+    // rather than the average - which is the right way round: a session that could
+    // claim an average unrelated to what it moved would not be testing anything.
+    func session(peak: Double, average: Double, linkBits: UInt64, trusted: Bool,
+                 section: String = "USB") -> TransferSession {
+        let seconds = 10.0
+        let started = Date()
+        return TransferSession(id: "v", device: "Reader", section: section,
+                               started: started, ended: started.addingTimeInterval(seconds),
+                               bytesRead: UInt64(average * seconds), bytesWritten: 0,
+                               peakRate: peak, linkBits: linkBits, linkTrusted: trusted,
+                               removable: true, physical: true, wireless: false,
+                               processes: [], volumes: ["card"])
+    }
+    // 95% of a 5 Gbit/s link: measured at both ends of the division.
+    let maxed = Analysis.verdict(for: session(peak: 590_000_000, average: 580_000_000,
+                                              linkBits: 5_000_000_000, trusted: true))
+    check("verdict: reaching a reported link ceiling is measured, not inferred",
+          !maxed.inferred, maxed.summary)
+    // No link to judge against, so the only thing left is what the rate resembles.
+    let resembles = Analysis.verdict(for: session(peak: 90_000_000, average: 88_000_000,
+                                                  linkBits: 0, trusted: false))
+    check("verdict: naming a medium from a rate is a conclusion",
+          resembles.inferred, resembles.summary)
+    // Measured ratio, guessed cause: "many small files" is one explanation of a
+    // stop-start transfer, and this cannot separate it from a busy far end.
+    let stopStart = Analysis.verdict(for: session(peak: 200_000_000, average: 20_000_000,
+                                                  linkBits: 0, trusted: false))
+    check("verdict: explaining an unsteady transfer is a conclusion",
+          stopStart.inferred, stopStart.summary)
+}
+
+// A view smaller than the window must never paint outside itself. AppKit passes the
+// window's whole invalidated region to every subview, so a 22-point strip asked to
+// refresh gets a rect 900 points tall - and filling it covered the entire interface.
+do {
+    let note = NSRect(x: 0, y: 0, width: 1280, height: 22)
+    let whole = NSRect(x: 0, y: 0, width: 1280, height: 900)
+    check("painting: a subview cannot paint beyond its own bounds",
+          InferenceNote.paintable(dirty: whole, bounds: note) == note)
+    let sliver = NSRect(x: 100, y: 0, width: 40, height: 900)
+    check("painting: and still repaints only the part actually asked for",
+          InferenceNote.paintable(dirty: sliver, bounds: note)
+            == NSRect(x: 100, y: 0, width: 40, height: 22))
 }
 
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")

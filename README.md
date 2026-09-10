@@ -225,6 +225,16 @@ string is clipped anywhere with no way to see it whole, that is a bug.
 Byte counters are measured. Almost everything else on screen is a reading of them, and
 the interface tries to keep the difference visible.
 
+Anything Limen worked out rather than read carries **≈** and is drawn in violet: the SD
+family of a card, a rate compared against what that class of device typically manages,
+what limited a transfer, what would help. Violet is the only hue not already spoken for
+by something measured — green and blue are the two directions, orange is a link at its
+ceiling, red is a warning, and the capacity level runs green through amber to red — so
+it cannot be mistaken for a rate. The mark, not the colour, is what carries the meaning:
+it survives greyscale, colour blindness and the accessibility description, where the
+colour does not. A line along the bottom of the window says so, and clicking it explains
+the difference. Hovering anything marked ≈ shows what the conclusion was drawn from.
+
 A marker file on a card is a fact, so `Spotlight off` is stated plainly. Its absence
 only means nothing is stopping Spotlight, so that reads `Spotlight not blocked` — Limen
 does not check whether indexing is actually running. A rate near a known ceiling is

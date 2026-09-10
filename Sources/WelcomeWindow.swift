@@ -150,6 +150,18 @@ final class SetupWindowController: NSWindowController {
                      + "Hover anything to enlarge it. The card that appears carries the "
                      + "full text of whatever the row had to shorten."),
 
+            Page(title: "Measured, and worked out",
+                 body: "Two kinds of statement share this window, and they are not "
+                     + "equally certain.\n\n"
+                     + "Most of it is measured: bytes moved, how full a volume is, the "
+                     + "rate a link negotiated, which processes hold a file open.\n\n"
+                     + "The rest is worked out by comparing those measurements against "
+                     + "a catalogue of what hardware normally does - what kind of card "
+                     + "is in the reader, what held a transfer back, what would help. "
+                     + "Those carry a \u{2248} and are drawn in violet, and hovering one "
+                     + "shows what it was concluded from. A match is not a proof, and "
+                     + "the mark is there so you can weigh it yourself."),
+
             Page(title: "Arranging the lists",
                  body: "Each section sorts on its own, from the popup in its heading.\n\n"
                      + "Active first is worked out once and then held, so rows do not "

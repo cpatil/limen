@@ -130,9 +130,10 @@ final class HistoryView: NSView {
             case .session(let s):
                 label = HistoryView.clock.string(from: s.started) + ", "
                     + (s.volumes.first ?? s.device) + ", " + Fmt.bytes(Double(s.total))
+                let verdict = Analysis.verdict(for: s)
                 value = "average \(Fmt.rate(s.averageRate, unit: unit)), "
                     + "peak \(Fmt.rate(s.peakRate, unit: unit)). "
-                    + Analysis.verdict(for: s).summary
+                    + (verdict.inferred ? "inferred: " : "") + verdict.summary
             }
             if let element = NSAccessibilityElement.element(
                 withRole: .row, frame: window.convertToScreen(convert(frame, to: nil)),
@@ -347,9 +348,11 @@ final class HistoryView: NSView {
 
         // Did it go as fast as it could have, and if not, what stopped it.
         let verdict = Analysis.verdict(for: s)
-        Text.draw(Text.clip(verdict.summary, font: metaFont, maxWidth: rect.width - 330),
+        let summary = verdict.inferred ? Palette.marked(verdict.summary) : verdict.summary
+        Text.draw(Text.clip(summary, font: metaFont, maxWidth: rect.width - 330),
                   at: NSPoint(x: 44, y: rect.minY + 28), font: metaFont,
-                  color: verdict.maximised ? NSColor.systemGreen : NSColor.secondaryLabelColor)
+                  color: verdict.inferred ? Palette.inferred
+                       : (verdict.maximised ? NSColor.systemGreen : NSColor.secondaryLabelColor))
 
         if !s.processes.isEmpty {
             Text.draw(Text.clip(s.processes.joined(separator: ", "), font: metaFont, maxWidth: rect.width - 330),
