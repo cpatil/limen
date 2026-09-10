@@ -109,6 +109,9 @@ final class RootView: NSView, NSSplitViewDelegate {
                                          action: nil)
     let intervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let inactiveToggle = NSButton(checkboxWithTitle: "Show all", target: nil, action: nil)
+    /// Re-applies the section orders. "Active first" is held rather than recomputed
+    /// every second, so this is how you ask for it to be worked out again.
+    let resortButton = NSButton(title: "Re-sort", target: nil, action: nil)
     /// One per section, each living inside its own column beneath that column's band.
     let storageSummary = SectionSummary(families: [.storage], inLabel: "READ", outLabel: "WRITE")
     let networkSummary = SectionSummary(families: [.network], inLabel: "IN", outLabel: "OUT")
@@ -212,8 +215,16 @@ final class RootView: NSView, NSSplitViewDelegate {
 
         addSubview(outerSplit)
         addSubview(unitControl)
+        resortButton.bezelStyle = .rounded
+        resortButton.controlSize = .small
+        resortButton.font = NSFont.systemFont(ofSize: 11)
+        resortButton.toolTip = "Work out the section order again.\n\n"
+            + "\"Active first\" is decided when Limen starts and then held, so rows do "
+            + "not swap places while you are reading them. This is how you ask for it "
+            + "to be reconsidered - after plugging something in, say."
         addSubview(intervalPopup)
         addSubview(inactiveToggle)
+        addSubview(resortButton)
         // Last, so it is drawn above everything. Added earlier it sat beneath the
         // summary, which then painted its text over the panel and made it look
         // translucent when it never was.
@@ -353,7 +364,9 @@ final class RootView: NSView, NSSplitViewDelegate {
         cursor = place(unitControl, rightOf: cursor, width: unitSize.width, height: unitSize.height) - 10
         cursor = place(intervalPopup, rightOf: cursor, width: 78, height: 24) - 10
         let toggleSize = inactiveToggle.fittingSize
-        _ = place(inactiveToggle, rightOf: cursor, width: toggleSize.width, height: toggleSize.height)
+        cursor = place(inactiveToggle, rightOf: cursor,
+                       width: toggleSize.width, height: toggleSize.height) - 12
+        _ = place(resortButton, rightOf: cursor, width: 68, height: 22)
 
         outerSplit.frame = NSRect(x: 0, y: 0, width: bounds.width,
                                   height: max(0, top - headerHeight - 1))
@@ -399,6 +412,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root.intervalPopup.action = #selector(intervalChanged)
         root.inactiveToggle.target = self
         root.inactiveToggle.action = #selector(inactiveChanged)
+        root.resortButton.target = self
+        root.resortButton.action = #selector(resortNow)
 
         // Adopt the persisted preferences rather than resetting them.
         monitor.showInactive = root.inactiveToggle.state == .on
@@ -570,10 +585,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? .activeFirst
     }
 
+    /// Choosing a sort, or asking for a re-sort, discards the held arrangement. The
+    /// next sample then works one out - there is no second ordering path that could
+    /// disagree with the ordinary one.
+    @objc func resortNow(_ sender: Any? = nil) {
+        monitor.resortNow()
+        refresh()
+    }
+
     @objc private func sortChanged() {
         UserDefaults.standard.set(root.storageSort.indexOfSelectedItem, forKey: "SortOrder.Storage")
         UserDefaults.standard.set(root.networkSort.indexOfSelectedItem, forKey: "SortOrder.Network")
         adoptSortOrders()
+        monitor.resortNow()
         refresh()
     }
 

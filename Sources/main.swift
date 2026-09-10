@@ -80,6 +80,13 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
     detailItem.submenu = detailMenu
     viewMenu.addItem(detailItem)
 
+    let resortItem = NSMenuItem(title: "Re-sort Now",
+                               action: #selector(AppDelegate.resortNow(_:)),
+                               keyEquivalent: "r")
+    resortItem.target = target
+    viewMenu.addItem(resortItem)
+    viewMenu.addItem(NSMenuItem.separator())
+
     let hoverItem = NSMenuItem(title: "Magnify on Hover",
                                action: #selector(AppDelegate.toggleHover(_:)),
                                keyEquivalent: "")

@@ -217,5 +217,56 @@ do {
           SingleInstance.claim(at: "/this/path/cannot/exist/limen.lock"))
 }
 
+
+// ---- held "active first" ordering --------------------------------------------
+// The complaint this fixes: rows swapping places every sample as devices go busy
+// and idle, which makes the list unreadable while you are trying to read it.
+func r(_ id: String, active: Bool, physical: Bool = true) -> Row {
+    var row = Row(id: id, title: id, subtitle: "", badge: "")
+    row.active = active
+    row.isPhysical = physical
+    return row
+}
+do {
+    let idle = [r("c", active: false), r("a", active: false), r("b", active: false)]
+    let fresh = Monitor.ordered(idle, by: .activeFirst)
+    check("order: with nothing pinned, active-first decides",
+          fresh.map { $0.id } == ["a", "b", "c"], fresh.map { $0.id }.joined(separator: ","))
+
+    // Pin that arrangement, then make the last row busy. It must not jump to the top.
+    let pinned = fresh.map { $0.id }
+    let nowBusy = [r("a", active: false), r("b", active: false), r("c", active: true)]
+    let held = Monitor.ordered(nowBusy, by: .activeFirst, pinned: pinned)
+    check("order: a row going busy does not jump while the order is held",
+          held.map { $0.id } == ["a", "b", "c"], held.map { $0.id }.joined(separator: ","))
+
+    // And the reverse: the top row going idle must not sink.
+    let topIdle = [r("a", active: false), r("b", active: true), r("c", active: true)]
+    check("order: a row going idle does not sink while the order is held",
+          Monitor.ordered(topIdle, by: .activeFirst, pinned: pinned).map { $0.id } == ["a", "b", "c"])
+
+    // A card plugged in mid-session appears, but at the end rather than barging in.
+    let withNew = nowBusy + [r("z-new", active: true)]
+    check("order: a new device appears at the end",
+          Monitor.ordered(withNew, by: .activeFirst, pinned: pinned).map { $0.id }
+              == ["a", "b", "c", "z-new"])
+
+    // Ejecting one drops it without disturbing the rest.
+    let ejected = [r("a", active: false), r("c", active: true)]
+    check("order: an ejected device is dropped, order otherwise intact",
+          Monitor.ordered(ejected, by: .activeFirst, pinned: pinned).map { $0.id } == ["a", "c"])
+
+    // Re-sorting means forgetting the pin, so active-first applies again.
+    check("order: re-sorting reconsiders",
+          Monitor.ordered(nowBusy, by: .activeFirst).map { $0.id } == ["c", "a", "b"],
+          Monitor.ordered(nowBusy, by: .activeFirst).map { $0.id }.joined(separator: ","))
+
+    // The live sorts stay live - they were chosen deliberately.
+    var fast = r("fast", active: true); fast.down = 100
+    var slow = r("slow", active: true); slow.down = 1
+    check("order: sorting by rate still tracks the rate",
+          Monitor.ordered([slow, fast], by: .rate).map { $0.id } == ["fast", "slow"])
+}
+
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

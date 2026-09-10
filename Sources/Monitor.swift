@@ -111,6 +111,18 @@ final class Monitor {
     /// Row ids in the arrangement the user dragged them into, per section.
     var storageOrder: [String] = []
     var networkOrder: [String] = []
+    /// The "active first" arrangement as it stood when it was last worked out. Empty
+    /// means it has not been decided yet, so the next sample decides and keeps it.
+    private var storagePinned: [String] = []
+    private var networkPinned: [String] = []
+
+    /// Forget the held arrangement so the next sample works it out again. This is what
+    /// the Re-sort command does: nothing is reordered on the spot, the next tick simply
+    /// finds no arrangement to hold and establishes a new one.
+    func resortNow() {
+        storagePinned = []
+        networkPinned = []
+    }
 
     /// How the list is ordered. Rate-ranked ordering is available but not the
     /// default: it reshuffles the list every second, which is unreadable while
@@ -138,17 +150,25 @@ final class Monitor {
     /// Ordering is applied here so both sections agree, and so "active first" stays
     /// stable: it groups by whether a row is carrying traffic, then sorts by name
     /// within each group, rather than by a rate that changes every tick.
-    static func ordered(_ rows: [Row], by order: SortOrder, manual: [String] = []) -> [Row] {
+    static func ordered(_ rows: [Row], by order: SortOrder,
+                        manual: [String] = [], pinned: [String] = []) -> [Row] {
         func byName(_ a: Row, _ b: Row) -> Bool {
             a.title.localizedStandardCompare(b.title) == .orderedAscending
         }
+        func activeFirst(_ a: Row, _ b: Row) -> Bool {
+            if a.active != b.active { return a.active }
+            if a.isPhysical != b.isPhysical { return a.isPhysical }
+            return byName(a, b)
+        }
         switch order {
         case .activeFirst:
-            return rows.sorted { a, b in
-                if a.active != b.active { return a.active }
-                if a.isPhysical != b.isPhysical { return a.isPhysical }
-                return byName(a, b)
-            }
+            // Held, not recomputed. Ordering by "is it busy right now" every second
+            // means rows swap places while you are reading them, which is what the
+            // sort was meant to avoid in the first place. The arrangement is decided
+            // once - at launch, or when Re-sort is chosen - and then left alone.
+            // Anything that appears afterwards goes to the end rather than shoving
+            // its way into the middle.
+            return held(rows, order: pinned, newcomersBy: activeFirst)
         case .name:
             return rows.sorted(by: byName)
         case .rate:
@@ -162,16 +182,24 @@ final class Monitor {
                 return l != r ? l > r : byName(a, b)
             }
         case .manual:
-            // Rows that were placed keep their places. Anything not in the saved
-            // arrangement - a card just inserted - goes to the end rather than
-            // displacing what the user deliberately arranged.
-            var rank: [String: Int] = [:]
-            for (index, id) in manual.enumerated() { rank[id] = index }
-            return rows.sorted { a, b in
-                let l = rank[a.id] ?? Int.max, r = rank[b.id] ?? Int.max
-                return l != r ? l < r : byName(a, b)
-            }
+            return held(rows, order: manual, newcomersBy: byName)
         }
+    }
+
+    /// Rows in the order given by `order`, with anything not named in it appended,
+    /// sorted among themselves by `newcomersBy`.
+    ///
+    /// An empty `order` means nothing has been decided yet, so the fallback comparator
+    /// decides everything - which is how the first sample after launch establishes the
+    /// arrangement that later samples then hold.
+    private static func held(_ rows: [Row], order: [String],
+                             newcomersBy fallback: (Row, Row) -> Bool) -> [Row] {
+        guard !order.isEmpty else { return rows.sorted(by: fallback) }
+        var rank: [String: Int] = [:]
+        for (index, id) in order.enumerated() { rank[id] = index }
+        let known = order.compactMap { id in rows.first { $0.id == id } }
+        let newcomers = rows.filter { rank[$0.id] == nil }.sorted(by: fallback)
+        return known + newcomers
     }
 
     private(set) var networkRows: [Row] = []
@@ -411,12 +439,16 @@ final class Monitor {
             rows.append(row)
         }
 
-        rows = Monitor.ordered(rows, by: networkSort, manual: networkOrder)
+        rows = Monitor.ordered(rows, by: networkSort, manual: networkOrder,
+                               pinned: networkPinned)
 
         // Default view: hardware interfaces (so Wi-Fi stays visible when idle) plus anything
         // currently moving data (so an active VPN tunnel still appears). "Show all" reveals
         // the long tail of virtual interfaces that have merely seen a byte since boot.
         networkRows = showInactive ? rows : rows.filter { $0.isPhysical || $0.active }
+        if networkSort == .activeFirst, networkPinned.isEmpty, !networkRows.isEmpty {
+            networkPinned = networkRows.map { $0.id }
+        }
         totalDown = sumDown
         totalUp = sumUp
         Monitor.appendCapped(&totalDownHist, sumDown)
@@ -551,9 +583,13 @@ final class Monitor {
             rows.append(row)
         }
 
-        rows = Monitor.ordered(rows, by: storageSort, manual: storageOrder)
+        rows = Monitor.ordered(rows, by: storageSort, manual: storageOrder,
+                               pinned: storagePinned)
 
         usbRows = rows
+        if storageSort == .activeFirst, storagePinned.isEmpty, !usbRows.isEmpty {
+            storagePinned = usbRows.map { $0.id }
+        }
         usbTotalDown = sumDown
         usbTotalUp = sumUp
         Monitor.appendCapped(&usbDownHist, sumDown)

@@ -87,6 +87,20 @@ of one ceiling.
 Ceilings are realistic rather than advertised: 8b/10b coding costs USB 3.0 a fifth of
 its headline number before framing, so "5 Gbit/s" is treated as ~450 MB/s.
 
+## Ordering
+
+Each section sorts independently, chosen from the popup in its heading.
+
+**Active first is held, not recomputed.** It is worked out when Limen starts and then
+left alone, because re-running it every second means rows swap places while you are
+reading them — which is the thing that sort was supposed to avoid. **Re-sort** in the
+toolbar (or ⌘R) asks for it to be reconsidered. Devices that appear afterwards are
+appended rather than barging into the middle. Sorting by rate or by total still tracks
+the live figures, since choosing those is choosing that behaviour.
+
+Rows have a drag handle in the left margin. Dragging one switches that section to a
+custom order and remembers it; the whole row is draggable, the grip is there to say so.
+
 Comparisons stay inside the right kind of medium — a card against cards, a drive
 against drives, an internal drive against media that can live inside a machine.
 Getting this wrong is how an early build reported that my internal SSD was running at

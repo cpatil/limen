@@ -223,6 +223,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if !dragArmed {
             guard abs(local.y - dragStartedAt.y) > 6 else { return }
             dragArmed = true
+            NSCursor.closedHand.push()
             // The hover card would otherwise sit over the rows being rearranged.
             onHover?(nil, .rate, "", .zero)
         }
@@ -240,6 +241,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     override func mouseUp(with event: NSEvent) {
         defer { draggingIndex = nil; dragArmed = false }
         guard dragArmed else { return }
+        NSCursor.pop()
         onReorder?(rows.map { $0.id })
     }
 
@@ -378,6 +380,40 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         }
     }
 
+    /// Width of the margin reserved for the drag handle.
+    static let gripWidth: CGFloat = 14
+
+    private func drawGrip(in rect: NSRect, emphasised: Bool) {
+        let dot: CGFloat = 2.4
+        let columns: CGFloat = 2, rowsOfDots: CGFloat = 3
+        let spacing: CGFloat = 4
+        let blockWidth = (columns - 1) * spacing + dot
+        let blockHeight = (rowsOfDots - 1) * spacing + dot
+        let originX = (TrafficListView.gripWidth - blockWidth) / 2
+        let originY = rect.midY - blockHeight / 2
+
+        (emphasised ? NSColor.secondaryLabelColor
+                    : NSColor.tertiaryLabelColor.withAlphaComponent(0.55)).setFill()
+        for column in 0..<Int(columns) {
+            for row in 0..<Int(rowsOfDots) {
+                let box = NSRect(x: originX + CGFloat(column) * spacing,
+                                 y: originY + CGFloat(row) * spacing,
+                                 width: dot, height: dot)
+                NSBezierPath(ovalIn: box).fill()
+            }
+        }
+    }
+
+    /// A hand over the handle, so the affordance is felt as well as seen. The whole
+    /// row still drags - restricting it to the grip would make reordering harder, and
+    /// the point of the grip is to advertise it, not to gate it.
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard !rows.isEmpty else { return }
+        addCursorRect(NSRect(x: 0, y: 0, width: TrafficListView.gripWidth, height: bounds.height),
+                      cursor: .openHand)
+    }
+
     private func draw(row: Row, in rect: NSRect, index: Int) {
         if index % 2 == 1 {
             Palette.rowAlt.setFill()
@@ -409,6 +445,12 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         let combined = row.down + row.up
         let dimmed = row.active ? 1.0 : 0.55
         let verbose = RowDetail.current.showsEverything
+
+        // ---- the drag handle ---------------------------------------------
+        // Rows have always been draggable, but nothing said so, so nobody tried it.
+        // The grip lives in the margin the icon already left empty, which is why
+        // adding it moved nothing else on the row.
+        drawGrip(in: rect, emphasised: index == hoveredIndex || index == draggingIndex)
 
         // ---- left column: what this is -----------------------------------
         let iconBox = NSRect(x: 16, y: rect.minY + 18, width: 18, height: 18)
