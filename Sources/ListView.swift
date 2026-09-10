@@ -28,6 +28,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     /// Emitted when rows have been dragged into a new arrangement, with the row ids in
     /// their new order. The window persists it and switches this list to custom order.
     var onReorder: (([String]) -> Void)?
+    /// Something about a mounted volume changed, so the next sample should re-read it.
+    var onVolumeChanged: (() -> Void)?
 
     /// Index of the row being dragged, while a drag is in progress.
     private var draggingIndex: Int?
@@ -153,6 +155,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     private func hit(_ point: NSPoint) -> (Row, MagnifierView.Zone)? {
         let index = Int(point.y / TrafficListView.rowHeight)
         guard index >= 0, index < rows.count else { return nil }
+        // The handle's gutter magnifies nothing: you are on your way to grab the row.
+        guard !TrafficListView.isOverHandle(x: point.x) else { return nil }
         let row = rows[index]
         let rightEdge = bounds.maxX - 16
         let rateColumnWidth: CGFloat = 92
@@ -236,6 +240,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         var parts = [row.title]
         if !row.mediumClass.isEmpty { parts.append(row.mediumClass) }
         if !row.volumes.isEmpty { parts.append(row.volumes.joined(separator: ", ")) }
+        if row.indexingWorthReporting {
+            parts.append(row.indexingDisabled ? "Spotlight indexing off"
+                                              : "Spotlight is indexing this volume")
+        }
         if !row.badge.isEmpty { parts.append(row.badge) }
         return parts.joined(separator: ", ")
     }
@@ -385,6 +393,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                 failed.append((root as NSString).lastPathComponent)
             }
         }
+        onVolumeChanged?()
         let alert = NSAlert()
         if failed.isEmpty {
             alert.messageText = "Spotlight indexing stopped"
@@ -417,7 +426,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
         for (index, row) in rows.enumerated() {
             let y = CGFloat(index) * TrafficListView.rowHeight
-            let rect = NSRect(x: 12, y: y, width: textWidth, height: TrafficListView.rowHeight)
+            let rect = NSRect(x: TrafficListView.contentLeft, y: y,
+                              width: max(40, textWidth - TrafficListView.contentLeft + 12),
+                              height: TrafficListView.rowHeight)
             let tag = addToolTip(rect, owner: self, userData: nil)
             tooltips[tag] = identity(for: row)
         }
@@ -479,6 +490,18 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
     /// Width of the margin reserved for the drag handle.
     static let gripWidth: CGFloat = 20
+
+    /// Where a row's own content starts. Everything left of this is the handle's
+    /// gutter, and one definition keeps the icon, the hover test and the tooltip
+    /// rectangles from drifting apart.
+    static let contentLeft: CGFloat = 24
+
+    /// True when the pointer is in the handle's gutter.
+    ///
+    /// Hover magnification and dragging want the same pixels, and magnification wins
+    /// by default because it needs no click. Reaching for the grip would raise a card
+    /// over the row you were about to pick up, so the gutter is kept quiet.
+    static func isOverHandle(x: CGFloat) -> Bool { x < contentLeft }
 
     private func drawGrip(in rect: NSRect, emphasised: Bool) {
         let dot: CGFloat = 4.0
@@ -545,7 +568,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         drawGrip(in: rect, emphasised: index == hoveredIndex || index == draggingIndex)
 
         // ---- left column: what this is -----------------------------------
-        let iconBox = NSRect(x: 24, y: rect.minY + 18, width: 18, height: 18)
+        let iconBox = NSRect(x: TrafficListView.contentLeft, y: rect.minY + 18,
+                             width: 18, height: 18)
         Icons.draw(row.icon, in: iconBox,
                    color: NSColor.secondaryLabelColor.withAlphaComponent(row.active ? 0.9 : 0.45))
 
@@ -586,6 +610,24 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             let badge = Text.clip(badgeText, font: badgeFont, maxWidth: textLimit - 24)
             cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY),
                                       font: badgeFont, prominent: true) + 6
+        }
+        // Spotlight, for anything you plug in. Off is stated quietly; on is stated in
+        // red, because on a card being read it costs wear and steals bandwidth from
+        // the import, and one right-click fixes it.
+        if row.indexingWorthReporting {
+            let label = row.indexingDisabled ? "Spotlight off" : "Spotlight indexing"
+            let needed = Text.width(label, font: badgeFont) + 16
+            // The warning always earns its place; the reassurance only takes space
+            // that is going spare.
+            if !row.indexingDisabled || cursorX + needed < textLimit {
+                cursorX += Text.drawBadge(label, at: NSPoint(x: cursorX, y: secondLineY),
+                                          font: badgeFont,
+                                          fill: row.indexingDisabled ? Palette.badge
+                                                                     : Palette.alertBadge,
+                                          textColor: row.indexingDisabled
+                                              ? NSColor.secondaryLabelColor
+                                              : NSColor.labelColor) + 6
+            }
         }
         if !alternate.isEmpty, cursorX + Text.width(alternate, font: badgeFont) < textLimit {
             Text.draw(alternate, at: NSPoint(x: cursorX, y: secondLineY + 1),

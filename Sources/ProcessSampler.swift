@@ -120,6 +120,11 @@ enum ProcessSampler {
         /// Journalled and updating access times: reading writes.
         var journalWrites = false
         var spotlight = false
+        /// A `.metadata_never_index` marker at the volume root: a positive statement
+        /// that Spotlight is not to index this volume. Unlike the presence of an index
+        /// directory, which survives indexing being turned off, this one means what it
+        /// says.
+        var neverIndex = false
     }
 
     static func volumeTraits() -> [String: VolumeTraits] {
@@ -143,6 +148,7 @@ enum ProcessSampler {
             traits.fsType = fs
             traits.journalWrites = journaled && !noatime
             traits.spotlight = FileManager.default.fileExists(atPath: on + "/.Spotlight-V100")
+            traits.neverIndex = FileManager.default.fileExists(atPath: on + "/.metadata_never_index")
             map[on] = traits
         }
         return map

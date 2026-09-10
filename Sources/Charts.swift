@@ -65,6 +65,10 @@ enum Palette {
     static var cardBadge: NSColor {
         NSColor.systemGreen.withAlphaComponent(0.30)
     }
+    /// Behind a warning pill - something is costing you and can be turned off.
+    static var alertBadge: NSColor {
+        NSColor.systemRed.withAlphaComponent(0.22)
+    }
     /// Behind a section heading. The headings divide the window, so they carry a
     /// band of their own rather than floating in the same field as the rows - which
     /// is what made them easy to miss.

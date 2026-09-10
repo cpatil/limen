@@ -325,5 +325,46 @@ do {
           TrafficListView.insertionIndex(floatY: 40, rowCount: 0, rowHeight: h) == 0)
 }
 
+
+// ---- the handle's gutter -----------------------------------------------------
+// Reaching for the grip used to raise the hover card over the row you were about
+// to pick up.
+do {
+    check("gutter: the far left is the handle", TrafficListView.isOverHandle(x: 0))
+    check("gutter: the middle of the grip is the handle",
+          TrafficListView.isOverHandle(x: TrafficListView.gripWidth / 2))
+    check("gutter: just inside the content is not",
+          !TrafficListView.isOverHandle(x: TrafficListView.contentLeft))
+    check("gutter: the icon and text are not",
+          !TrafficListView.isOverHandle(x: 200))
+    check("gutter: the grip fits inside the gutter",
+          TrafficListView.gripWidth <= TrafficListView.contentLeft)
+}
+
+
+// ---- the Spotlight indicator -------------------------------------------------
+do {
+    func vol(section: String, internalMedium: Bool, mounts: [String]) -> Row {
+        var row = Row(id: "v", title: "v", subtitle: "", badge: "")
+        row.section = section
+        row.internalMedium = internalMedium
+        row.mountRoots = mounts
+        return row
+    }
+    check("spotlight: reported for a card in a reader",
+          vol(section: "USB", internalMedium: false, mounts: ["/Volumes/sd"])
+              .indexingWorthReporting)
+    check("spotlight: reported for an external drive",
+          vol(section: "USB", internalMedium: false, mounts: ["/Volumes/media"])
+              .indexingWorthReporting)
+    check("spotlight: NOT reported for the internal drive - indexing it is the point",
+          !vol(section: "Internal", internalMedium: true, mounts: ["/"])
+              .indexingWorthReporting)
+    check("spotlight: not reported for a network interface",
+          !vol(section: "Network", internalMedium: false, mounts: []).indexingWorthReporting)
+    check("spotlight: not reported for a device with nothing mounted",
+          !vol(section: "USB", internalMedium: false, mounts: []).indexingWorthReporting)
+}
+
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

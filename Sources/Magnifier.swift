@@ -53,6 +53,11 @@ final class MagnifierView: NSView {
             out.append((identity.joined(separator: "  ·  "), bodyFont, NSColor.labelColor))
         }
 
+        if row.indexingWorthReporting, !row.indexingDisabled {
+            out.append(("Spotlight is indexing this volume. On something you only read "
+                        + "from, that is wear and contention for nothing - right-click "
+                        + "the row to stop it.", smallFont, NSColor.systemRed))
+        }
         if !row.appleName.isEmpty {
             // Its own line. Squeezed onto the link row beside the badge and the speed
             // it had nowhere to go and was being cut mid-word.

@@ -67,10 +67,22 @@ struct Row {
     var compareRoles: [String] = []
     /// A drive inside the machine, so cable-only media are not fair comparisons.
     var internalMedium: Bool = false
+
+    /// Whether Spotlight indexing is worth reporting for this row.
+    ///
+    /// Only for storage you plug in. Indexing the boot disk is what makes the machine
+    /// searchable, so flagging it red would be advice nobody should take; a card you
+    /// import from gains nothing from being indexed and pays for it in wear and
+    /// contention.
+    var indexingWorthReporting: Bool {
+        section != "Network" && !internalMedium && !mountRoots.isEmpty
+    }
     /// The filesystem on the mounted volume, and what it does to itself when read.
     var fsType: String = ""
     var journalWrites: Bool = false
     var spotlight: Bool = false
+    /// Spotlight has been told never to index this volume.
+    var indexingDisabled: Bool = false
     /// Every place this device is mounted. A single enclosure often carries
     /// several partitions, and the traffic may be on any of them.
     var mountRoots: [String] = []
@@ -237,6 +249,12 @@ final class Monitor {
     private var procs: [Int32: ProcSample] = [:]
     private var mounts: [String: String] = [:]
     private var traits: [String: ProcessSampler.VolumeTraits] = [:]
+    /// Set when something changed a volume out from under the sampler - turning off
+    /// indexing, say - so the next tick re-reads rather than showing the old answer
+    /// for another few seconds.
+    private var volumesDirty = false
+
+    func volumeStateChanged() { volumesDirty = true }
     private var mountRefresh = 0
     private var histDown: [String: [Double]] = [:]
     private var histUp: [String: [Double]] = [:]
@@ -292,7 +310,8 @@ final class Monitor {
         let net = NetSampler.sample()
         // Mount points move rarely; processes change constantly.
         mountRefresh += 1
-        if mounts.isEmpty || mountRefresh % 10 == 0 {
+        if mounts.isEmpty || volumesDirty || mountRefresh % 5 == 0 {
+            volumesDirty = false
             mounts = ProcessSampler.mountPoints()
             // What each volume does to itself while being read. Refreshed with the
             // mount table rather than every tick - it only changes on mount.
@@ -574,6 +593,7 @@ final class Monitor {
                 row.fsType = t.fsType
                 row.journalWrites = t.journalWrites
                 row.spotlight = t.spotlight
+                row.indexingDisabled = t.neverIndex
             }
             if combinedActive(down, up), !row.mountRoots.isEmpty {
                 row.actors = actors(under: row.mountRoots, elapsed: elapsed)

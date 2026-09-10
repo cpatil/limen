@@ -97,6 +97,7 @@ final class RootView: NSView, NSSplitViewDelegate {
     private var magnifiedRowID: String?
     /// (row ids in their new order, whether this is the storage list).
     var onReorder: (([String], Bool) -> Void)?
+    var onVolumeChanged: (() -> Void)?
 
     /// One sort control per section, shown in that section's heading rather than the
     /// toolbar - so it is obvious which list it orders, and each is remembered
@@ -225,6 +226,9 @@ final class RootView: NSView, NSSplitViewDelegate {
         // sample, so a drag selects custom order for that list and saves it.
         usbList.onReorder = { [weak self] ids in self?.onReorder?(ids, true) }
         netList.onReorder = { [weak self] ids in self?.onReorder?(ids, false) }
+        for list in [usbList, netList] {
+            list.onVolumeChanged = { [weak self] in self?.onVolumeChanged?() }
+        }
 
         addSubview(outerSplit)
         addSubview(unitControl)
@@ -414,6 +418,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         root.onReorder = { [weak self] ids, isStorage in
             self?.rowsReordered(ids, isStorage: isStorage)
+        }
+        root.onVolumeChanged = { [weak self] in
+            self?.monitor.volumeStateChanged()
+            self?.refresh()
         }
         root.storageSort.target = self
         root.storageSort.action = #selector(sortChanged)

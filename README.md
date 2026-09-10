@@ -113,6 +113,19 @@ so a plateau near a known ceiling is reported as consistent with that class, not
 proof of it. The reader, the destination, the filesystem and the workload are all
 alternative explanations Limen cannot rule out.
 
+## Spotlight
+
+Anything you plug in carries a badge saying whether Spotlight is indexing it — quietly
+when it is off, in red when it is not. Indexing a card you only import from buys
+nothing and costs wear and bandwidth, and right-clicking the row stops it for good.
+
+The badge reads `.metadata_never_index`, a positive statement that indexing is off,
+rather than the presence of a `.Spotlight-V100` directory — that survives indexing
+being disabled and would keep the light red for no reason.
+
+Internal drives are left out of this. Indexing the boot disk is what makes the machine
+searchable; flagging it would be advice nobody should take.
+
 ## Transfer sessions
 
 Finished copies are logged with what was measured and what it might mean. The one
