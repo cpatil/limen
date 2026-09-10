@@ -53,6 +53,10 @@ final class MagnifierView: NSView {
             out.append((identity.joined(separator: "  ·  "), bodyFont, NSColor.labelColor))
         }
 
+        let context = contextText(row)
+        if !context.isEmpty {
+            out.append((context, bodyFont, NSColor.secondaryLabelColor))
+        }
         if row.indexingWorthReporting, !row.indexingDisabled {
             out.append(("No .metadata_never_index marker here, so nothing is stopping "
                         + "Spotlight indexing this volume. Whether it is doing so now is "
@@ -106,6 +110,22 @@ final class MagnifierView: NSView {
     }
 
     /// Type, capacity and name of the card in this reader, if there is one.
+    /// What the row's third line says, repeated here in full.
+    ///
+    /// It is the one line the row shortens that the card did not carry, which made it
+    /// the only text in the interface with no way to read it whole.
+    private func contextText(_ row: Row) -> String {
+        if !row.note.isEmpty { return row.note }
+        if row.wireless && !row.linkTrusted {
+            return row.peak > 0 ? "best this session " + Fmt.rate(row.peak, unit: unit) : ""
+        }
+        return Reference.context(current: row.down + row.up, peak: row.peak, unit: unit,
+                                 families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
+                                 roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
+                                 internalMedium: row.internalMedium,
+                                 kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds)
+    }
+
     private func cardText(_ row: Row) -> String {
         Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
     }

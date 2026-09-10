@@ -42,7 +42,7 @@ Swift's ABI-stable runtime arrived in the OS, since no Swift libraries are embed
 but nothing between 10.14.4 and 11.7 has been tested. The arm64 slice targets 11.0,
 as low as Apple Silicon goes.
 
-`./test.sh` runs the checks. `./deploy.sh <ssh-host>` builds and installs on another
+`./test.sh` runs 219 checks. `./deploy.sh <ssh-host>` builds and installs on another
 Mac over SSH.
 
 ## Where the numbers come from
@@ -51,9 +51,10 @@ Storage throughput is `IOBlockStorageDriver`'s `Statistics` dictionary. Network 
 `sysctl(NET_RT_IFLIST2)` with the 64-bit `if_data64` — the easier `getifaddrs` path
 gives you 32-bit counters that wrap every 4 GB.
 
-The headline network total counts hardware interfaces only. A VPN tunnel or a bridge
-carries traffic that is *also* counted on the physical interface underneath it, so
-summing everything reports roughly double.
+Only hardware interfaces are listed. A VPN tunnel or a bridge carries traffic that is
+*also* counted on the interface underneath it, so listing both puts the same bytes on
+screen twice and summing them reports roughly double. **Show all** brings back tunnels,
+bridges, loopback and the long tail of virtual interfaces.
 
 Byte counters are the part Limen is confident about. Everything downstream of them —
 which component was the bottleneck, which process moved which bytes, why a card took
@@ -126,6 +127,20 @@ being disabled and would keep the light red for no reason.
 Internal drives are left out of this. Indexing the boot disk is what makes the machine
 searchable; flagging it would be advice nobody should take.
 
+## The Cards menu
+
+Two things Limen can do by itself when a memory card is inserted, both off until you
+turn them on:
+
+- **Open Limen When a Card Is Inserted** — so a transfer is recorded from the first
+  byte rather than from whenever you think to look.
+- **Stop Spotlight Indexing New Cards** — writes the marker as the card mounts.
+
+They are carried out by a small LaunchAgent watching `/Volumes`, installed when the
+first switch goes on and removed when the last goes off. It acts on cards only: a
+mounted disk image reports itself as removable media, so the gate also requires the
+protocol to be USB or Secure Digital.
+
 ## Transfer sessions
 
 Finished copies are logged with what was measured and what it might mean. The one
@@ -171,8 +186,16 @@ has a way back, offered where the change was made:
 | Clears the transfer log | **Undo Last Clear** in the log's right-click menu |
 | Downloads a newer speed catalogue | **Use the Built-in Speed Catalogue** |
 | Remembers layout, sorting, units | **Reset Settings…** — leaves your log and your cards alone |
+| Anything the Cards menu switched on | Switch it off; the watcher is removed with the last one |
 
 Where something is genuinely irreversible it asks first, rather than succeeding quietly.
+
+## Nothing is truncated without a way to read it
+
+Rows shorten what does not fit. Everything they shorten — the device name, the vendor,
+the identifier, the volumes, the comparison line, the recommendation — is carried in
+full by the card that appears on hover, and by **Copy** in the right-click menu. If a
+string is clipped anywhere with no way to see it whole, that is a bug.
 
 ## What is measured and what is inferred
 

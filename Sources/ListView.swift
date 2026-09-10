@@ -669,36 +669,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                                             kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds)
             }
         }
-        // Spotlight rides at the end of this line rather than among the badges: the
-        // badge row names what the device *is*, and crowding a warning in there
-        // pushed the vendor and the link off the end of it.
-        var spotlightNote = ""
-        if row.indexingWorthReporting {
-            // The marker's presence is a fact. Its absence only means nothing is
-            // stopping Spotlight - whether it is actually indexing right now is
-            // macOS's business and is not checked here.
-            spotlightNote = row.indexingDisabled ? "Spotlight off" : "Spotlight not blocked"
-        }
-        let noteWidth = spotlightNote.isEmpty ? 0
-                                              : Text.width(spotlightNote, font: subtitleFont) + 14
-        let contextRoom = max(0, textLimit - textLeft - noteWidth)
-        let shown = Text.clip(context, font: subtitleFont, maxWidth: contextRoom)
-        Text.draw(shown, at: NSPoint(x: textLeft, y: rect.minY + 56),
+        Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit - textLeft),
+                  at: NSPoint(x: textLeft, y: rect.minY + 56),
                   font: subtitleFont, color: Palette.faint)
-
-        if !spotlightNote.isEmpty {
-            var x = textLeft + Text.width(shown, font: subtitleFont)
-            if !shown.isEmpty {
-                Text.draw("  ·  ", at: NSPoint(x: x, y: rect.minY + 56),
-                          font: subtitleFont, color: Palette.faint)
-                x += Text.width("  ·  ", font: subtitleFont)
-            }
-            // Red only for the state worth acting on. The reassurance stays as quiet
-            // as everything else on this line.
-            Text.draw(spotlightNote, at: NSPoint(x: x, y: rect.minY + 56),
-                      font: subtitleFont,
-                      color: row.indexingDisabled ? Palette.faint : NSColor.systemRed)
-        }
 
         // ---- middle column: history, then link utilisation ---------------
         let chartRect = NSRect(x: chartLeft, y: rect.minY + 20, width: chartWidth, height: 30)
@@ -810,10 +783,21 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
         // Fourth line: the processes the kernel says are responsible, then any
         // suggestion. Kept small and grey so it informs without shouting.
-        var footer = ""
+        // Spotlight sits on this line rather than among the badges or beside the
+        // comparison: both of those were already full, and this one is empty on most
+        // rows. It is drawn separately from the rest so the warning can stay red.
+        var footerX = textLeft
+        if row.indexingWorthReporting {
+            let note = row.indexingDisabled ? "Spotlight off" : "Spotlight not blocked"
+            Text.draw(note, at: NSPoint(x: footerX, y: rect.minY + 68), font: totalFont,
+                      color: row.indexingDisabled ? Palette.faint : NSColor.systemRed)
+            footerX += Text.width(note, font: totalFont) + 10
+        }
+
         // Calm rows keep the recommendation - it is the reason to read the row at all -
         // and drop the running commentary of processes and Apple's marketing name,
         // both of which the hover card shows in full.
+        var footer = ""
         if verbose, !row.actors.isEmpty {
             footer = row.actors.map { "\($0.display) \(Fmt.rate($0.bytesPerSec, unit: unit))" }
                 .joined(separator: "   ")
@@ -827,8 +811,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         }
         if !footer.isEmpty {
             // Stop short of the rate column, which shares this baseline.
-            Text.draw(Text.clip(footer, font: totalFont, maxWidth: max(0, chartRight - textLeft - 8)),
-                      at: NSPoint(x: textLeft, y: rect.minY + 68),
+            Text.draw(Text.clip(footer, font: totalFont, maxWidth: max(0, chartRight - footerX - 8)),
+                      at: NSPoint(x: footerX, y: rect.minY + 68),
                       font: totalFont,
                       color: Palette.faint)
         }

@@ -193,10 +193,12 @@ final class RootView: NSView, NSSplitViewDelegate {
         usbColumn.header = storageSummary
         netColumn.header = networkSummary
         inactiveToggle.state = UserDefaults.standard.bool(forKey: Pref.showAll) ? .on : .off
-        inactiveToggle.toolTip = "Include things that are idle or not real hardware.\n\n"
-            + "Normally the lists show physical devices plus anything currently moving "
-            + "data. Turning this on also reveals loopback, VPN tunnels, bridges and "
-            + "other virtual interfaces, and USB hubs with nothing attached."
+        inactiveToggle.toolTip = "Include things that are not real hardware.\n\n"
+            + "Normally the lists show physical devices only. A VPN tunnel or a bridge "
+            + "carries traffic that is also counted on the interface underneath it, so "
+            + "showing both puts the same bytes on screen twice.\n\n"
+            + "Turning this on reveals tunnels, bridges, loopback and other virtual "
+            + "interfaces, and USB hubs with nothing attached."
 
         columnsSplit.dividerStyle = .thin
         columnsSplit.delegate = self

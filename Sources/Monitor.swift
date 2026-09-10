@@ -464,10 +464,13 @@ final class Monitor {
         rows = Monitor.ordered(rows, by: networkSort, manual: networkOrder,
                                pinned: networkPinned)
 
-        // Default view: hardware interfaces (so Wi-Fi stays visible when idle) plus anything
-        // currently moving data (so an active VPN tunnel still appears). "Show all" reveals
-        // the long tail of virtual interfaces that have merely seen a byte since boot.
-        networkRows = showInactive ? rows : rows.filter { $0.isPhysical || $0.active }
+        // Hardware only by default, whether busy or idle, so Wi-Fi stays visible when
+        // nothing is moving. Tunnels and bridges are left out because their traffic is
+        // already counted on the interface underneath them - a VPN carrying a download
+        // put the same bytes on screen twice, once as utun and once as en0. "Show all"
+        // brings them back, along with loopback and the long tail of virtual
+        // interfaces that have merely seen a byte since boot.
+        networkRows = showInactive ? rows : rows.filter { $0.isPhysical }
         if networkSort == .activeFirst, networkPinned.isEmpty, !networkRows.isEmpty {
             networkPinned = networkRows.map { $0.id }
         }

@@ -469,5 +469,30 @@ do {
     check("undo: nothing is duplicated", ids.count == log.sessions.count)
 }
 
+
+// ---- which interfaces are shown ----------------------------------------------
+// A tunnel's bytes are already counted on the interface it rides over, so listing
+// both put the same traffic on screen twice.
+do {
+    func iface(_ id: String, physical: Bool, active: Bool) -> Row {
+        var r = Row(id: id, title: id, subtitle: "", badge: "")
+        r.isPhysical = physical
+        r.active = active
+        return r
+    }
+    let all = [iface("en0", physical: true, active: true),
+               iface("en1", physical: true, active: false),
+               iface("utun5", physical: false, active: true),
+               iface("lo0", physical: false, active: true),
+               iface("bridge0", physical: false, active: false)]
+    let shown = all.filter { $0.isPhysical }
+    check("interfaces: hardware is shown", shown.contains { $0.id == "en0" })
+    check("interfaces: idle hardware stays visible", shown.contains { $0.id == "en1" })
+    check("interfaces: an active tunnel is not listed twice",
+          !shown.contains { $0.id == "utun5" })
+    check("interfaces: loopback is not listed", !shown.contains { $0.id == "lo0" })
+    check("interfaces: show-all keeps everything", all.count == 5)
+}
+
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)
