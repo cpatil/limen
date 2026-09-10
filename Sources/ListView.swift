@@ -611,24 +611,6 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY),
                                       font: badgeFont, prominent: true) + 6
         }
-        // Spotlight, for anything you plug in. Off is stated quietly; on is stated in
-        // red, because on a card being read it costs wear and steals bandwidth from
-        // the import, and one right-click fixes it.
-        if row.indexingWorthReporting {
-            let label = row.indexingDisabled ? "Spotlight off" : "Spotlight indexing"
-            let needed = Text.width(label, font: badgeFont) + 16
-            // The warning always earns its place; the reassurance only takes space
-            // that is going spare.
-            if !row.indexingDisabled || cursorX + needed < textLimit {
-                cursorX += Text.drawBadge(label, at: NSPoint(x: cursorX, y: secondLineY),
-                                          font: badgeFont,
-                                          fill: row.indexingDisabled ? Palette.badge
-                                                                     : Palette.alertBadge,
-                                          textColor: row.indexingDisabled
-                                              ? NSColor.secondaryLabelColor
-                                              : NSColor.labelColor) + 6
-            }
-        }
         if !alternate.isEmpty, cursorX + Text.width(alternate, font: badgeFont) < textLimit {
             Text.draw(alternate, at: NSPoint(x: cursorX, y: secondLineY + 1),
                       font: badgeFont, color: Palette.faint)
@@ -662,10 +644,33 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                                                internalMedium: row.internalMedium)
             }
         }
-        Text.draw(Text.clip(context, font: subtitleFont, maxWidth: textLimit - textLeft),
-                  at: NSPoint(x: textLeft, y: rect.minY + 56),
-                  font: subtitleFont,
-                  color: Palette.faint)
+        // Spotlight rides at the end of this line rather than among the badges: the
+        // badge row names what the device *is*, and crowding a warning in there
+        // pushed the vendor and the link off the end of it.
+        var spotlightNote = ""
+        if row.indexingWorthReporting {
+            spotlightNote = row.indexingDisabled ? "Spotlight off" : "Spotlight indexing"
+        }
+        let noteWidth = spotlightNote.isEmpty ? 0
+                                              : Text.width(spotlightNote, font: subtitleFont) + 14
+        let contextRoom = max(0, textLimit - textLeft - noteWidth)
+        let shown = Text.clip(context, font: subtitleFont, maxWidth: contextRoom)
+        Text.draw(shown, at: NSPoint(x: textLeft, y: rect.minY + 56),
+                  font: subtitleFont, color: Palette.faint)
+
+        if !spotlightNote.isEmpty {
+            var x = textLeft + Text.width(shown, font: subtitleFont)
+            if !shown.isEmpty {
+                Text.draw("  ·  ", at: NSPoint(x: x, y: rect.minY + 56),
+                          font: subtitleFont, color: Palette.faint)
+                x += Text.width("  ·  ", font: subtitleFont)
+            }
+            // Red only for the state worth acting on. The reassurance stays as quiet
+            // as everything else on this line.
+            Text.draw(spotlightNote, at: NSPoint(x: x, y: rect.minY + 56),
+                      font: subtitleFont,
+                      color: row.indexingDisabled ? Palette.faint : NSColor.systemRed)
+        }
 
         // ---- middle column: history, then link utilisation ---------------
         let chartRect = NSRect(x: chartLeft, y: rect.minY + 20, width: chartWidth, height: 30)

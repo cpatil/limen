@@ -115,8 +115,8 @@ alternative explanations Limen cannot rule out.
 
 ## Spotlight
 
-Anything you plug in carries a badge saying whether Spotlight is indexing it — quietly
-when it is off, in red when it is not. Indexing a card you only import from buys
+Anything you plug in says whether Spotlight is indexing it, at the end of the line
+under its name — quietly when it is off, in red when it is not. Indexing a card you only import from buys
 nothing and costs wear and bandwidth, and right-clicking the row stops it for good.
 
 The badge reads `.metadata_never_index`, a positive statement that indexing is off,
