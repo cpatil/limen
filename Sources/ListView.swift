@@ -631,17 +631,18 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // comparable to. The comparison is the point of the feature - "6.2 MB/s"
         // means little on its own, "half of USB 2.0" means something.
         var context = row.note
-        if context.isEmpty && combined > 0 {
+        if context.isEmpty, combined > 0 || row.peak > 0 {
             if row.wireless && !row.linkTrusted {
                 // Throughput cannot identify a Wi-Fi generation, and the reported link
                 // rate is not usable either, so this says what was seen rather than
                 // naming a standard it cannot establish.
                 context = row.peak > 0 ? "best this session " + Fmt.rate(row.peak, unit: unit) : ""
             } else {
-                context = Reference.comparison(bytesPerSec: combined,
-                                               families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
-                                               roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
-                                               internalMedium: row.internalMedium)
+                context = Reference.context(current: combined, peak: row.peak, unit: unit,
+                                            families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
+                                            roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
+                                            internalMedium: row.internalMedium,
+                                            kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds)
             }
         }
         // Spotlight rides at the end of this line rather than among the badges: the
@@ -744,9 +745,26 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         Text.draw(row.outShort + " " + Fmt.rate(row.up, unit: unit),
                   at: NSPoint(x: 0, y: rect.minY + 34),
                   font: rateFont, color: Palette.up, alignRight: rightEdge)
-        Text.draw(Fmt.bytes(Double(row.totalDown)) + " / " + Fmt.bytes(Double(row.totalUp)),
-                  at: NSPoint(x: 0, y: rect.minY + 53),
-                  font: totalFont, color: Palette.faint, alignRight: rightEdge)
+        // Two bare numbers side by side said nothing about which was which, and there
+        // is no room in this column for "R" and "W" without running into the chart.
+        // The rates immediately above are already labelled and colour-coded, so the
+        // same colours identify these without costing any width.
+        let readTotal = Fmt.bytes(Double(row.totalDown))
+        let writeTotal = Fmt.bytes(Double(row.totalUp))
+        let separator = " / "
+        let totalsWidth = Text.width(readTotal, font: totalFont)
+            + Text.width(separator, font: totalFont)
+            + Text.width(writeTotal, font: totalFont)
+        var totalsX = rightEdge - totalsWidth
+        let totalsY = rect.minY + 53
+        Text.draw(readTotal, at: NSPoint(x: totalsX, y: totalsY), font: totalFont,
+                  color: Palette.down.withAlphaComponent(0.75))
+        totalsX += Text.width(readTotal, font: totalFont)
+        Text.draw(separator, at: NSPoint(x: totalsX, y: totalsY), font: totalFont,
+                  color: Palette.faint)
+        totalsX += Text.width(separator, font: totalFont)
+        Text.draw(writeTotal, at: NSPoint(x: totalsX, y: totalsY), font: totalFont,
+                  color: Palette.up.withAlphaComponent(0.75))
 
         // Against a real link, name the figure. Against the device's own best, the
         // useful number is that best itself - the bar already shows how near it is.

@@ -145,6 +145,7 @@ enum InternalStorage {
                 fresh.id = "internal:" + key
                 fresh.name = described.name
                 fresh.vendor = described.solidState ? "internal SSD" : "internal drive"
+                fresh.solidState = described.solidState
                 // No negotiated link to report: the internal bus is not a cable the
                 // user can change, so claiming a ceiling here would only mislead.
                 fresh.speedCode = -1

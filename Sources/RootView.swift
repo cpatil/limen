@@ -445,6 +445,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Fill the catalogue from the copy inside the binary. No network: the app
         // never contacts anything unless the user explicitly asks it to.
+        // So a watcher installed earlier opens this copy rather than guessing.
+        CardWatch.rememberAppLocation()
         Catalogue.seedIfMissing()
         offerUpdateIfDue()
 
@@ -465,6 +467,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var setupWindow: SetupWindowController?
+
+    @objc func toggleCardJob(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let job = CardWatch.Job(rawValue: raw) else { return }
+        let turningOn = !CardWatch.isOn(job)
+        do {
+            try CardWatch.set(job, on: turningOn)
+            sender.state = turningOn ? .on : .off
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Could not change that"
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
 
     @objc func showSetup(_ sender: Any?) {
         if setupWindow == nil { setupWindow = SetupWindowController() }

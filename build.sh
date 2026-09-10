@@ -65,6 +65,10 @@ if [ ! -f "$BUILD_DIR/Limen.icns" ]; then
 fi
 cp "$BUILD_DIR/Limen.icns" "$APP_DIR/Contents/Resources/Limen.icns"
 
+# The card watcher's script travels inside the app, so the copy the user installs is
+# always the one that shipped with that build.
+cp tools/card-watch.sh "$APP_DIR/Contents/Resources/card-watch.sh"
+
 echo "==> Signing (ad-hoc)"
 codesign --force --deep --sign - "$APP_DIR" 2>/dev/null || echo "    (ad-hoc signing skipped)"
 

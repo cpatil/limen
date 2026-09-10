@@ -366,5 +366,73 @@ do {
           !vol(section: "USB", internalMedium: false, mounts: []).indexingWorthReporting)
 }
 
+
+// ---- what a rate means -------------------------------------------------------
+// The class is named from the best the device has done, not from what it happens
+// to be doing. Anchoring on the momentary rate reported an idle SSD as "7% of
+// desktop hard disk", and a struggling UHS-I card as a "default speed" card.
+do {
+    func ctx(current: Double, peak: Double, roles: [String], internalMedium: Bool = false) -> String {
+        Reference.context(current: current, peak: peak, unit: .bytes,
+                          families: [.storage], roles: roles, internalMedium: internalMedium)
+    }
+    let ssdIdle = ctx(current: 0, peak: 1.09e9, roles: ["disk"], internalMedium: true)
+    check("context: an idle SSD is still described as an SSD",
+          ssdIdle.contains("SSD"), ssdIdle)
+    check("context: an idle SSD is not called a hard disk",
+          !ssdIdle.lowercased().contains("hard disk"), ssdIdle)
+    check("context: it states what the class typically does",
+          ssdIdle.contains("typically"), ssdIdle)
+
+    let slowSsd = ctx(current: 40e6, peak: 1.09e9, roles: ["disk"], internalMedium: true)
+    check("context: a lightly used SSD is not reported as a fraction of a hard disk",
+          !slowSsd.contains("hard disk"), slowSsd)
+
+    let struggling = ctx(current: 6e6, peak: 96e6, roles: ["card"])
+    check("context: a struggling card keeps the class its peak established",
+          struggling.contains("UHS-I SDR104"), struggling)
+    check("context: and says what that class should manage",
+          struggling.contains("typically"), struggling)
+
+    let atCeiling = ctx(current: 86e6, peak: 96e6, roles: ["card"])
+    check("context: a rate at the class ceiling is said outright",
+          atCeiling.hasPrefix("≈"), atCeiling)
+
+    check("context: a device that has never moved a byte says nothing",
+          ctx(current: 0, peak: 0, roles: ["disk"]).isEmpty)
+}
+
+
+// ---- the medium the system already reported ----------------------------------
+do {
+    // An idle SSD was being matched to a spinning disk purely because it was idle.
+    let ssd = Reference.context(current: 2e6, peak: 17e6, unit: .bytes,
+                                families: [.storage], roles: ["disk"],
+                                internalMedium: true, kinds: ["ssd"])
+    check("kind: a known SSD is never called a hard disk",
+          !ssd.lowercased().contains("hard disk"), ssd)
+    check("kind: it is described as an SSD", ssd.contains("SSD"), ssd)
+
+    let spinning = Reference.context(current: 1e6, peak: 111e6, unit: .bytes,
+                                     families: [.storage], roles: ["disk"], kinds: ["spinning"])
+    check("kind: a known spinning disk is not called an SSD",
+          !spinning.contains("SSD"), spinning)
+
+    // Without a reported kind the class still comes from what the device has done.
+    let unknown = Reference.context(current: 2e6, peak: 17e6, unit: .bytes,
+                                    families: [.storage], roles: ["disk"], internalMedium: true)
+    check("kind: with nothing reported, it still says something", !unknown.isEmpty, unknown)
+
+    // A kind the catalogue has no entry for must not empty the pool.
+    let nonsense = Reference.context(current: 2e6, peak: 17e6, unit: .bytes,
+                                     families: [.storage], roles: ["disk"], kinds: ["unobtanium"])
+    check("kind: an unknown kind falls back rather than going silent", !nonsense.isEmpty, nonsense)
+
+    for e in Catalogue.builtIn.entries where e.kind != nil {
+        check("catalogue: \(e.name) has a sensible kind",
+              ["ssd", "spinning", "flash"].contains(e.kind!), e.kind!)
+    }
+}
+
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

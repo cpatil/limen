@@ -27,6 +27,8 @@ struct USBDeviceInfo {
     /// Capacity of the removable medium in bytes, from the whole-disk IOMedia. The SD
     /// specification divides cards by capacity, so this is what names the family.
     var mediumBytes: UInt64 = 0
+    /// Solid state, as the storage stack reports it. Nil when it does not say.
+    var solidState: Bool?
 
     /// Negotiated link speed as advertised by the port, in bits/sec.
     var linkSpeedBits: UInt64 {

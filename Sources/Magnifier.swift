@@ -69,8 +69,11 @@ final class MagnifierView: NSView {
     private func footerBlocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
         var out: [(String, NSFont, NSColor)] = []
 
-        var facts = ["total " + Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
-                     + " · " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased()]
+        // Spelled out here, because the row can only afford colour to distinguish
+        // them. These are the device's own counters, not this session's.
+        var facts = [Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
+                     + " and " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased()
+                     + " since the counters started"]
         if row.peak > 0 { facts.append("peak " + Fmt.rate(row.peak, unit: unit)) }
         out.append((facts.joined(separator: "  ·  "), bodyFont, NSColor.secondaryLabelColor))
 

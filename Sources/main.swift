@@ -131,6 +131,22 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
     helpMenu.addItem(setupItem)
     helpMenuItem.submenu = helpMenu
 
+    // Things Limen does by itself when a card turns up. Off until asked for.
+    let cardsMenuItem = NSMenuItem()
+    let cardsMenu = NSMenu(title: "Cards")
+    for job in CardWatch.Job.allCases {
+        let item = NSMenuItem(title: job.title,
+                              action: #selector(AppDelegate.toggleCardJob(_:)),
+                              keyEquivalent: "")
+        item.target = target
+        item.representedObject = job.rawValue
+        item.state = CardWatch.isOn(job) ? .on : .off
+        item.toolTip = job.explanation
+        cardsMenu.addItem(item)
+    }
+    cardsMenuItem.submenu = cardsMenu
+    mainMenu.addItem(cardsMenuItem)
+
     let windowMenuItem = NSMenuItem()
     let windowMenu = NSMenu(title: "Window")
     windowMenu.addItem(withTitle: "Minimize",

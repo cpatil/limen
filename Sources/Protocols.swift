@@ -35,6 +35,10 @@ struct SpeedCatalogue: Codable {
         /// The sensible thing to buy today for this kind of medium. Anything slower is
         /// legacy, and stepping one rung from legacy is poor advice.
         var mainstream: Bool?
+        // What the medium physically is: ssd | spinning | flash. A drive whose type
+        // the system already reports should not have it guessed from throughput - an
+        // SSD is still an SSD while it is idle.
+        var kind: String?
         // Where this medium physically lives: "external" for things that only ever
         // hang off a cable. Absent means it can be either, so it is a fair yardstick
         // for a drive inside the machine as well as one on the desk. Without this an
@@ -145,7 +149,7 @@ enum Catalogue {
     /// of its headline number before any protocol framing.
     static let builtInJSON = """
     {
-      "version": 6,
+      "version": 7,
       "updated": "2026-09-08",
       "entries": [
         {
@@ -424,7 +428,8 @@ enum Catalogue {
           "family": "storage",
           "role": "disk",
           "upgrade": "portable hard disk",
-          "mount": "external"
+          "mount": "external",
+          "kind": "flash"
         },
         {
           "name": "portable hard disk",
@@ -433,7 +438,8 @@ enum Catalogue {
           "family": "storage",
           "role": "disk",
           "upgrade": "desktop hard disk",
-          "mount": "external"
+          "mount": "external",
+          "kind": "spinning"
         },
         {
           "name": "desktop hard disk",
@@ -441,7 +447,8 @@ enum Catalogue {
           "payload": 1440000000.0,
           "family": "storage",
           "role": "disk",
-          "upgrade": "SATA SSD"
+          "upgrade": "SATA SSD",
+          "kind": "spinning"
         },
         {
           "name": "SATA SSD",
@@ -451,7 +458,8 @@ enum Catalogue {
           "role": "disk",
           "upgrade": "NVMe SSD (Gen 3)",
           "alias": "SATA III",
-          "mainstream": true
+          "mainstream": true,
+          "kind": "ssd"
         },
         {
           "name": "NVMe SSD (Gen 3)",
@@ -459,7 +467,8 @@ enum Catalogue {
           "payload": 28000000000.0,
           "family": "storage",
           "role": "disk",
-          "upgrade": "NVMe SSD (Gen 4)"
+          "upgrade": "NVMe SSD (Gen 4)",
+          "kind": "ssd"
         },
         {
           "name": "NVMe SSD (Gen 4)",
@@ -467,14 +476,16 @@ enum Catalogue {
           "payload": 56000000000.0,
           "family": "storage",
           "role": "disk",
-          "upgrade": "NVMe SSD (Gen 5)"
+          "upgrade": "NVMe SSD (Gen 5)",
+          "kind": "ssd"
         },
         {
           "name": "NVMe SSD (Gen 5)",
           "line": 128000000000.0,
           "payload": 112000000000.0,
           "family": "storage",
-          "role": "disk"
+          "role": "disk",
+          "kind": "ssd"
         }
       ],
       "processOwners": {

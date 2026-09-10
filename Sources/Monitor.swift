@@ -67,6 +67,9 @@ struct Row {
     var compareRoles: [String] = []
     /// A drive inside the machine, so cable-only media are not fair comparisons.
     var internalMedium: Bool = false
+    /// What the medium is, when the system says: ssd, spinning or flash. Empty when
+    /// it does not, in which case the class is inferred from what the device has done.
+    var mediumKinds: [String] = []
 
     /// Whether Spotlight indexing is worth reporting for this row.
     ///
@@ -572,6 +575,9 @@ final class Monitor {
             // storage stack reports, rather than by the product name.
             if device.hasStorageCounters {
                 row.compareRoles = device.removableMedia ? ["card"] : ["disk"]
+                if let solid = device.solidState {
+                    row.mediumKinds = solid ? ["ssd"] : ["spinning"]
+                }
                 row.internalMedium = device.id.hasPrefix("internal:")
             }
             if let std = Reference.standard(forLinkBits: device.linkSpeedBits),

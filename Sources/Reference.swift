@@ -31,6 +31,8 @@ struct SpeedRef {
     let mainstream: Bool?
     /// "external" when this medium only exists on the end of a cable.
     let mount: String?
+    /// ssd | spinning | flash, when the catalogue says.
+    let kind: String?
 
     var payloadBytes: Double { payload / 8 }
 
@@ -52,7 +54,7 @@ enum Reference {
                  line: e.line, payload: e.payload,
                  family: SpeedRef.Family(rawValue: e.family) ?? .usb,
                  role: e.role, upgrade: e.upgrade, upgradeNote: e.upgradeNote,
-                 mainstream: e.mainstream, mount: e.mount)
+                 mainstream: e.mainstream, mount: e.mount, kind: e.kind)
     }
 
     static func entry(named name: String) -> SpeedRef? {
@@ -90,7 +92,8 @@ enum Reference {
     /// portable disk is running at "52% of an SD card" compares it to a medium it will
     /// never be. A card is measured against cards, a disk against disks.
     static func nearest(bytesPerSec: Double, families: [SpeedRef.Family]? = nil,
-                        roles: [String]? = nil, internalMedium: Bool = false) -> SpeedRef? {
+                        roles: [String]? = nil, internalMedium: Bool = false,
+                        kinds: [String]? = nil) -> SpeedRef? {
         guard bytesPerSec > 1024 else { return nil }
         let bits = bytesPerSec * 8
         var pool = families.map { fams in all.filter { fams.contains($0.family) } } ?? all
@@ -99,6 +102,13 @@ enum Reference {
             // Never narrow to nothing: a catalogue that lacks the role still has to
             // produce some comparison rather than falling silent.
             if !narrowed.isEmpty { pool = narrowed }
+        }
+        if let kinds = kinds, !kinds.isEmpty {
+            // What the drive is, when the system already told us. Throughput cannot
+            // establish this and should not be asked to: an idle SSD was being matched
+            // against a spinning disk purely because it was idle.
+            let matching = pool.filter { kinds.contains($0.kind ?? "") }
+            if !matching.isEmpty { pool = matching }
         }
         if internalMedium {
             // A drive inside the machine is not a USB stick or a bus-powered portable,
@@ -111,6 +121,33 @@ enum Reference {
         }
     }
 
+    /// What a rate means, in one short phrase.
+    ///
+    /// The kind of device is named from the best it has been seen to do, not from
+    /// whatever it happens to be doing now. Anchoring on the momentary rate meant an
+    /// idle SSD was matched against a spinning disk and reported as "7% of desktop
+    /// hard disk" - a class decided by how busy the device was, which is backwards.
+    ///
+    /// Once the class is settled, a rate near that class's ceiling is worth saying
+    /// outright; anything else is more usefully expressed as what this kind of device
+    /// is expected to do, so a low number reads as "idle" rather than as "bad".
+    static func context(current: Double, peak: Double, unit: RateUnit,
+                        families: [SpeedRef.Family]? = nil,
+                        roles: [String]? = nil, internalMedium: Bool = false,
+                        kinds: [String]? = nil) -> String {
+        let anchor = max(current, peak)
+        guard let ref = nearest(bytesPerSec: anchor, families: families,
+                                roles: roles, internalMedium: internalMedium, kinds: kinds)
+        else { return "" }
+
+        if current > 0 {
+            let ratio = (current * 8) / ref.payload
+            if ratio > 0.85 && ratio < 1.18 { return "≈ " + ref.name }
+            if ratio >= 1.18 { return String(format: "%.1f× %@", ratio, ref.name) }
+        }
+        return ref.name + " · typically " + Fmt.rate(ref.payloadBytes, unit: unit)
+    }
+
     /// "≈ Gigabit Ethernet" when it is close, "2.1× USB 2.0" when it is not.
     static func comparison(bytesPerSec: Double, families: [SpeedRef.Family]? = nil,
                            roles: [String]? = nil, internalMedium: Bool = false) -> String {
@@ -118,12 +155,8 @@ enum Reference {
                                 roles: roles, internalMedium: internalMedium)
         else { return "" }
         let ratio = (bytesPerSec * 8) / ref.payload
-        if ratio > 0.85 && ratio < 1.18 {
-            return "≈ " + ref.name
-        }
-        if ratio >= 1 {
-            return String(format: "%.1f× %@", ratio, ref.name)
-        }
+        if ratio > 0.85 && ratio < 1.18 { return "≈ " + ref.name }
+        if ratio >= 1 { return String(format: "%.1f× %@", ratio, ref.name) }
         return String(format: "%.0f%% of %@", ratio * 100, ref.name)
     }
 
