@@ -142,5 +142,80 @@ check("housekeeping: does not assert a cause it cannot observe",
 check("host: no port generation claimed on Intel", HostPorts.best == nil)
 #endif
 
+
+// ---- session accounting ------------------------------------------------------
+// Built on a fresh log each time so these do not touch the real history file.
+func row(_ id: String, section: String, totalDown: UInt64, totalUp: UInt64,
+         down: Double, up: Double) -> Row {
+    var r = Row(id: id, title: "Dev", subtitle: "", badge: "")
+    r.section = section
+    r.totalDown = totalDown; r.totalUp = totalUp
+    r.down = down; r.up = up
+    r.isPhysical = true
+    return r
+}
+do {
+    let log = TransferLog.makeForTesting(minimumSize: 1)
+    let t0 = Date()
+    // A quiet sample first: 100 bytes on the clock, nothing moving.
+    log.record(row: row("d", section: "USB", totalDown: 100, totalUp: 0, down: 0, up: 0), now: t0)
+    // Then two busy seconds moving 1_000_000 each.
+    log.record(row: row("d", section: "USB", totalDown: 1_000_100, totalUp: 0,
+                        down: 1_000_000, up: 0), now: t0.addingTimeInterval(1))
+    log.record(row: row("d", section: "USB", totalDown: 2_000_100, totalUp: 0,
+                        down: 1_000_000, up: 0), now: t0.addingTimeInterval(2))
+    // Quiet long enough to close it.
+    log.record(row: row("d", section: "USB", totalDown: 2_000_100, totalUp: 0, down: 0, up: 0),
+               now: t0.addingTimeInterval(2 + TransferLog.idleGrace + 1))
+    check("session: closes when the device goes quiet", log.sessions.count == 1)
+    if let s = log.sessions.first {
+        check("session: keeps the first interval's bytes", s.bytesRead == 2_000_000,
+              "got \(s.bytesRead), expected 2000000")
+    }
+}
+do {
+    // Counters reset mid-session (unplug/replug). The old baseline is meaningless.
+    let log = TransferLog.makeForTesting(minimumSize: 1)
+    let t0 = Date()
+    log.record(row: row("d", section: "USB", totalDown: 5_000_000, totalUp: 0, down: 0, up: 0), now: t0)
+    log.record(row: row("d", section: "USB", totalDown: 6_000_000, totalUp: 0,
+                        down: 1_000_000, up: 0), now: t0.addingTimeInterval(1))
+    log.record(row: row("d", section: "USB", totalDown: 500_000, totalUp: 0,
+                        down: 500_000, up: 0), now: t0.addingTimeInterval(2))
+    for s in log.sessions {
+        check("session: a counter reset never yields a nonsense total",
+              s.bytesRead < 100_000_000, "got \(s.bytesRead)")
+    }
+    check("session: reset closed the old session", log.sessions.count >= 1)
+}
+
+// ---- direction vocabulary ----------------------------------------------------
+func sess(_ section: String) -> TransferSession {
+    TransferSession(id: "x", device: "d", section: section, started: Date(), ended: Date(),
+                    bytesRead: 1, bytesWritten: 1, peakRate: 1, linkBits: 0,
+                    linkTrusted: false, removable: false, physical: true, wireless: false,
+                    processes: [], volumes: [])
+}
+check("labels: internal storage reads and writes", sess("Internal").isStorageLike)
+check("labels: USB storage reads and writes", sess("USB").isStorageLike)
+check("labels: a network interface does not", !sess("Network").isStorageLike)
+
+
+// ---- single instance ---------------------------------------------------------
+// Two copies both write history.json and neither knows about the other's sessions,
+// so whichever saves last discards the other's transfers.
+do {
+    let path = NSTemporaryDirectory() + "limen-test-\(UUID().uuidString).lock"
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    check("instance: the first claim succeeds", SingleInstance.claim(at: path))
+    check("instance: a second claim on the same lock is refused",
+          !SingleInstance.claim(at: path))
+    let other = NSTemporaryDirectory() + "limen-test-\(UUID().uuidString).lock"
+    defer { try? FileManager.default.removeItem(atPath: other) }
+    check("instance: a different lock file is independent", SingleInstance.claim(at: other))
+    check("instance: an unwritable location does not block startup",
+          SingleInstance.claim(at: "/this/path/cannot/exist/limen.lock"))
+}
+
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -125,6 +125,12 @@ before sharing diagnostics. Right-click the log to clear a device or the lot.
 No network access at all. The speed catalogue ships inside the binary and only updates
 when you choose the menu item.
 
+One instance at a time, enforced with a file lock. LaunchServices already refuses a
+second copy of the same bundle, but a copy in `~/Downloads` and one in `/Applications`
+are different bundles to it, and running the executable inside a bundle directly
+bypasses it. Two instances both write the session log and neither knows about the
+other's transfers, so the last one to save discards the other's.
+
 The rows are custom-drawn, so they are published to VoiceOver explicitly: each device
 and each session is an accessibility row with a spoken summary ("en0, IN 67.6 KB/s,
 OUT 17.7 MB/s, 34% link utilization"). Keyboard equivalents for reorder and fold are

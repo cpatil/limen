@@ -45,6 +45,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>1.0</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconFile</key><string>Limen</string>
     <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -54,6 +55,15 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+# The icon is drawn from tools/make-icon.swift rather than checked in as pixels, so
+# the repository holds no binaries and the artwork stays editable.
+if [ ! -f "$BUILD_DIR/Limen.icns" ]; then
+    echo "==> Drawing icon"
+    swift tools/make-icon.swift >/dev/null
+    iconutil -c icns "$BUILD_DIR/Limen.iconset" -o "$BUILD_DIR/Limen.icns"
+fi
+cp "$BUILD_DIR/Limen.icns" "$APP_DIR/Contents/Resources/Limen.icns"
 
 echo "==> Signing (ad-hoc)"
 codesign --force --deep --sign - "$APP_DIR" 2>/dev/null || echo "    (ad-hoc signing skipped)"

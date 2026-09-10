@@ -32,6 +32,9 @@ struct TransferSession: Codable {
     var journalWrites: Bool?
     var spotlight: Bool?
 
+    /// Storage is read and written; a network carries traffic in and out.
+    var isStorageLike: Bool { section != "Network" }
+
     var duration: TimeInterval { max(1, ended.timeIntervalSince(started)) }
     var total: UInt64 { bytesRead + bytesWritten }
     var averageRate: Double { Double(total) / duration }
@@ -69,7 +72,25 @@ final class TransferLog {
         return dir.appendingPathComponent("history.json")
     }
 
-    private init() {
+    /// An isolated log for the checks in Tests/, so they never read or write the
+    /// real history file.
+    static func makeForTesting(minimumSize: UInt64) -> TransferLog {
+        let log = TransferLog(persist: false)
+        log.testMinimumSize = minimumSize
+        return log
+    }
+
+    private var testMinimumSize: UInt64?
+    private let persist: Bool
+
+    private var effectiveMinimumSize: UInt64 { testMinimumSize ?? TransferLog.minimumSize }
+
+    private init(persist: Bool) {
+        self.persist = persist
+    }
+
+    private convenience init() {
+        self.init(persist: true)
         load()
     }
 
@@ -80,6 +101,8 @@ final class TransferLog {
     }
 
     private func save() {
+        // A log made for the checks never touches the real history file.
+        guard persist else { return }
         guard let data = try? JSONEncoder().encode(sessions) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
@@ -106,8 +129,18 @@ final class TransferLog {
     func record(row: Row, now: Date = Date()) {
         let key = row.id
         let rate = row.down + row.up
+        // Captured before anything else, so the next sample's baseline is the totals
+        // as they stood *before* that sample's traffic.
+        defer { previousTotals[key] = (row.totalDown, row.totalUp) }
 
         if rate >= TransferLog.activeThreshold {
+            // Cumulative counters only ever climb. A drop means the device was
+            // unplugged and replugged, or the driver reloaded, and the open session's
+            // baseline now refers to counters that no longer exist. Close it and start
+            // again rather than reporting a negative or absurd total.
+            if let start = startTotals[key], row.totalDown < start.0 || row.totalUp < start.1 {
+                if let stale = open[key] { finish(key: key, session: stale) }
+            }
             lastActive[key] = now
             if var session = open[key] {
                 session.ended = now
@@ -139,7 +172,10 @@ final class TransferLog {
                                             fsType: row.fsType,
                                             journalWrites: row.journalWrites,
                                             spotlight: row.spotlight)
-                startTotals[key] = (row.totalDown, row.totalUp)
+                // The first active sample already includes the bytes moved during
+                // that interval, so using it as the baseline discarded them. The
+                // previous sample's totals are the true starting point.
+                startTotals[key] = previousTotals[key] ?? (row.totalDown, row.totalUp)
             }
             return
         }
@@ -151,6 +187,8 @@ final class TransferLog {
     }
 
     private var startTotals: [String: (UInt64, UInt64)] = [:]
+    /// Totals seen at the previous sample, whether the device was busy or not.
+    private var previousTotals: [String: (UInt64, UInt64)] = [:]
 
     /// Turns the lifetime counters held while a session is open into the amount moved
     /// during it. Without this an open session divides a device's whole-life total by
@@ -169,7 +207,7 @@ final class TransferLog {
         startTotals.removeValue(forKey: key)
         lastActive.removeValue(forKey: key)
 
-        guard closed.total >= TransferLog.minimumSize else { return }
+        guard closed.total >= effectiveMinimumSize else { return }
         sessions.insert(closed, at: 0)
         if sessions.count > TransferLog.maxEntries {
             sessions.removeLast(sessions.count - TransferLog.maxEntries)

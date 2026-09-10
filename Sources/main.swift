@@ -130,6 +130,11 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
 }
 
 let application = NSApplication.shared
+
+// Before anything is built or shown. A second copy that got as far as opening a
+// window would already have read the transfer log it is about to overwrite.
+guard SingleInstance.claim() else { exit(0) }
+
 let appDelegate = AppDelegate()
 application.setActivationPolicy(.regular)
 application.mainMenu = buildMainMenu(target: appDelegate)

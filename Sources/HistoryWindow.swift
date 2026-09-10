@@ -342,8 +342,10 @@ final class HistoryView: NSView {
                   at: NSPoint(x: 0, y: rect.minY + 29), font: numFont,
                   color: NSColor.secondaryLabelColor, alignRight: right)
 
-        let inTag = s.section == "USB" ? "R" : "IN"
-        let outTag = s.section == "USB" ? "W" : "OUT"
+        // Same rule the rows use. Testing for "USB" alone left internal drives
+        // labelled IN/OUT, as though they were network interfaces.
+        let inTag = s.isStorageLike ? "R" : "IN"
+        let outTag = s.isStorageLike ? "W" : "OUT"
         var tail = inTag + " " + Fmt.bytes(Double(s.bytesRead))
             + "  " + outTag + " " + Fmt.bytes(Double(s.bytesWritten))
         if s.linkTrusted == true,
