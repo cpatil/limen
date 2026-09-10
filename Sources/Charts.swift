@@ -41,8 +41,22 @@ enum Palette {
         NSColor.labelColor.withAlphaComponent(isLight ? 0.55 : 0.42)
     }
 
+    /// The ground everything sits on.
+    ///
+    /// Nothing used to paint this: the scroll views draw no background and the lists
+    /// are transparent, so the whole app inherited the window's default, which in the
+    /// light appearance is very close to white. Naming it makes the tone a decision
+    /// rather than something inherited, and a soft grey is easier to sit in front of
+    /// for a window that stays open all day.
+    static var canvas: NSColor {
+        isLight ? NSColor(srgbRed: 0.902, green: 0.902, blue: 0.914, alpha: 1)
+                : NSColor.windowBackgroundColor
+    }
+
+    /// A row's alternating stripe. On a grey ground it has to be a touch stronger than
+    /// it needed to be on white, or the alternation disappears.
     static var rowAlt: NSColor {
-        NSColor.textColor.withAlphaComponent(0.03)
+        NSColor.textColor.withAlphaComponent(isLight ? 0.045 : 0.03)
     }
     static var hairline: NSColor {
         NSColor.textColor.withAlphaComponent(0.10)

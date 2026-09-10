@@ -64,6 +64,9 @@ final class ColumnView: NSView {
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
+        Palette.canvas.setFill()
+        dirtyRect.fill()
+
         // A banded heading with a rule under it, in the section's own colour at full
         // strength. Small grey capitals in the same field as the rows read as another
         // row; a band reads as a divider, which is what it is.

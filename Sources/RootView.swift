@@ -281,6 +281,8 @@ final class RootView: NSView, NSSplitViewDelegate {
     override var isFlipped: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
+        Palette.canvas.setFill()
+        dirtyRect.fill()
         Palette.hairline.setFill()
         NSRect(x: 0, y: bounds.maxY - headerHeight, width: bounds.width, height: 1).fill()
     }
