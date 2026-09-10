@@ -239,17 +239,31 @@ enum Reference {
     /// internal drive has no cable to negotiate over, so measuring against their own
     /// best says something true where a made-up specification would not.
     static func gauge(down: Double, up: Double, peakDirectional: Double, peak: Double,
-                      linkBits: UInt64,
-                      linkTrusted: Bool) -> (fraction: Double, label: String, ofLink: Bool)? {
+                      linkBits: UInt64, linkTrusted: Bool,
+                      families: [SpeedRef.Family]? = nil, roles: [String]? = nil,
+                      internalMedium: Bool = false,
+                      kinds: [String]? = nil) -> (fraction: Double, label: String, ofLink: Bool)? {
+        let current = max(down, up)
+
+        // A negotiated link is a real ceiling, so this is a real proportion.
         if linkTrusted,
-           linkRateIsCredible(observedBytesPerSec: max(max(down, up), peakDirectional),
+           linkRateIsCredible(observedBytesPerSec: max(current, peakDirectional),
                               linkBits: linkBits),
            let used = utilization(down: down, up: up, linkBits: linkBits) {
             return (used, String(format: "%.0f%% link utilization", used * 100), true)
         }
-        guard peak > 0 else { return nil }
-        let fraction = min(1.0, (down + up) / peak)
-        return (fraction, String(format: "%.0f%% of its peak", fraction * 100), false)
+
+        // No trustworthy ceiling. What this kind of device typically manages is the
+        // nearest thing to one, and it is at least a statement about capability.
+        // Measuring a device against its own past - the previous behaviour - only ever
+        // answered "is it working as hard as it has before", which is not a capacity.
+        guard current > 0,
+              let ref = nearest(bytesPerSec: max(current, peak), families: families,
+                                roles: roles, internalMedium: internalMedium, kinds: kinds),
+              ref.payloadBytes > 0
+        else { return nil }
+        let fraction = min(1.0, current / ref.payloadBytes)
+        return (fraction, String(format: "%.0f%% of typical", fraction * 100), false)
     }
 
     /// A quiet, evidence-based note about a removable device: what is limiting it and

@@ -516,11 +516,26 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         }
     }
 
-    /// Where the capacity level is drawn. Exposed so the checks can render a row and
-    /// read the pixels back, rather than trusting that a bar filled the way intended.
-    static func capacityGauge(in row: NSRect, chartLeft: CGFloat) -> NSRect {
-        let width: CGFloat = 5
-        return NSRect(x: chartLeft - width - 11, y: row.minY + 20, width: width, height: 44)
+    /// The capacity level's own lane, between the icon and the text.
+    ///
+    /// Its own column rather than borrowed space beside the chart: how full a disk is
+    /// belongs with what the disk *is*, not with what it is doing this second.
+    static func capacityGauge(in row: NSRect) -> NSRect {
+        NSRect(x: gaugeLeft, y: row.minY + 15, width: 8, height: 54)
+    }
+
+    /// Left edge of the capacity lane, and of the text that follows it.
+    static let gaugeLeft: CGFloat = 48
+    static let textLeft: CGFloat = 66
+
+    /// Green while there is room, amber as it tightens, red when a copy is about to
+    /// fail for want of space. The familiar reading for a disk.
+    static func capacityColour(fraction: Double) -> NSColor {
+        switch fraction {
+        case ..<0.70: return NSColor.systemGreen
+        case ..<0.90: return NSColor.systemYellow
+        default: return NSColor.systemRed
+        }
     }
 
     /// The filled part of the level, for a fullness of 0...1.
@@ -627,7 +642,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         Icons.draw(row.icon, in: iconBox,
                    color: NSColor.secondaryLabelColor.withAlphaComponent(row.active ? 0.9 : 0.45))
 
-        let textLeft: CGFloat = 50
+        let textLeft = TrafficListView.textLeft
         let title = Text.clip(row.title, font: titleFont, maxWidth: textLimit - textLeft)
         Text.draw(title,
                   at: NSPoint(x: textLeft, y: rect.minY + 16),
@@ -721,7 +736,11 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // measures against the fastest that device has actually gone.
         let gauge = Reference.gauge(down: row.down, up: row.up,
                                     peakDirectional: row.peakDirectional, peak: row.peak,
-                                    linkBits: row.linkBits, linkTrusted: row.linkTrusted)
+                                    linkBits: row.linkBits, linkTrusted: row.linkTrusted,
+                                    families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
+                                    roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
+                                    internalMedium: row.internalMedium,
+                                    kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds)
         if let gauge = gauge {
             let bar = NSRect(x: chartLeft, y: rect.minY + 56, width: chartWidth, height: 5)
             Palette.hairline.setFill()
@@ -765,15 +784,12 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // compare them, and they measure unrelated things: one is speed against a
         // link, this is space against a disk.
         if let full = row.fullness {
-            let gauge = TrafficListView.capacityGauge(in: rect, chartLeft: chartLeft)
+            let gauge = TrafficListView.capacityGauge(in: rect)
             let width = gauge.width
             Palette.hairline.setFill()
             NSBezierPath(roundedRect: gauge, xRadius: width / 2, yRadius: width / 2).fill()
 
-            // Amber near the top, because a disk about to run out is worth noticing
-            // before a copy fails rather than after.
-            (full >= 0.9 ? NSColor.systemOrange
-                         : NSColor.labelColor.withAlphaComponent(0.45)).setFill()
+            TrafficListView.capacityColour(fraction: full).setFill()
             NSBezierPath(roundedRect: TrafficListView.capacityFill(in: gauge, fraction: full),
                          xRadius: width / 2, yRadius: width / 2).fill()
         }

@@ -113,7 +113,11 @@ final class MagnifierView: NSView {
     private func usage(_ row: Row) -> (fraction: Double, label: String, ofLink: Bool)? {
         Reference.gauge(down: row.down, up: row.up,
                         peakDirectional: row.peakDirectional, peak: row.peak,
-                        linkBits: row.linkBits, linkTrusted: row.linkTrusted)
+                        linkBits: row.linkBits, linkTrusted: row.linkTrusted,
+                        families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
+                        roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
+                        internalMedium: row.internalMedium,
+                        kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds)
     }
 
     /// Type, capacity and name of the card in this reader, if there is one.

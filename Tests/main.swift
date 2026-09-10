@@ -99,14 +99,43 @@ check("sd: a non-reader removable gets no card label",
 check("gauge: a device that never moved data has no bar",
       Reference.gauge(down: 0, up: 0, peakDirectional: 0, peak: 0,
                       linkBits: 0, linkTrusted: false) == nil)
-if let g = Reference.gauge(down: 10_000_000, up: 0, peakDirectional: 20_000_000,
-                           peak: 20_000_000, linkBits: 0, linkTrusted: false) {
-    check("gauge: no link means peak-relative", !g.ofLink)
-    check("gauge: peak-relative is capped at 1", g.fraction <= 1.0)
-}
-if let g = Reference.gauge(down: 400_000_000, up: 0, peakDirectional: 400_000_000,
-                           peak: 400_000_000, linkBits: 5_000_000_000, linkTrusted: true) {
-    check("gauge: a credible link is measured against the link", g.ofLink)
+
+// The bar answers one question: how much of what this device could do is it doing.
+// It used to fall back to the device's own past, which answered "is it working as
+// hard as it has before" - not a capacity, and not what the bar looks like it means.
+do {
+    func bar(_ current: Double, link: UInt64, trusted: Bool,
+             roles: [String]? = nil, kinds: [String]? = nil,
+             internalMedium: Bool = false, peak: Double = 0)
+        -> (fraction: Double, label: String, ofLink: Bool)? {
+        Reference.gauge(down: current, up: 0, peakDirectional: current, peak: peak,
+                        linkBits: link, linkTrusted: trusted, families: [.storage],
+                        roles: roles, internalMedium: internalMedium, kinds: kinds)
+    }
+    if let g = bar(400_000_000, link: 5_000_000_000, trusted: true, roles: ["card"]) {
+        check("gauge: a real link gives a real proportion", g.ofLink)
+        check("gauge: and says so", g.label.contains("link"))
+    } else {
+        check("gauge: a credible link produces a bar", false)
+    }
+    if let g = bar(200_000_000, link: 0, trusted: false, roles: ["disk"],
+                   kinds: ["ssd"], internalMedium: true, peak: 1_090_000_000) {
+        check("gauge: without a link it measures against what the class manages",
+              !g.ofLink)
+        check("gauge: and says that too", g.label.contains("typical"), g.label)
+        check("gauge: never against the device's own past",
+              !g.label.contains("peak"), g.label)
+        check("gauge: 200 of ~550 is about a third",
+              g.fraction > 0.25 && g.fraction < 0.45, String(format: "%.2f", g.fraction))
+    } else {
+        check("gauge: a known class produces a bar", false)
+    }
+    check("gauge: idle with no link has nothing to show",
+          bar(0, link: 0, trusted: false, roles: ["disk"], kinds: ["ssd"],
+              internalMedium: true, peak: 1_090_000_000) == nil)
+    check("gauge: it never exceeds full",
+          (bar(9_000_000_000, link: 0, trusted: false, roles: ["disk"],
+               kinds: ["ssd"], internalMedium: true)?.fraction ?? 0) <= 1.0)
 }
 
 // ---- session verdicts and housekeeping ---------------------------------------
@@ -570,10 +599,28 @@ do {
           TrafficListView.capacityFill(in: gauge, fraction: 0).maxY == gauge.maxY)
     check("gauge: over-full is clamped",
           TrafficListView.capacityFill(in: gauge, fraction: 3).height == gauge.height)
-    check("gauge: sits clear of the row's text",
-          TrafficListView.capacityGauge(in: NSRect(x: 0, y: 0, width: 700, height: 84),
-                                        chartLeft: TrafficListView.chartLeftEdge(rowWidth: 700)).maxX
-              <= TrafficListView.chartLeftEdge(rowWidth: 700))
+    // Its own lane: after the icon, before the text, overlapping neither.
+    let lane = TrafficListView.capacityGauge(in: NSRect(x: 0, y: 0, width: 700, height: 84))
+    check("gauge: starts after the icon", lane.minX >= TrafficListView.contentLeft + 18)
+    check("gauge: ends before the text", lane.maxX <= TrafficListView.textLeft)
+    check("gauge: is wide enough to see", lane.width >= 6, "\(lane.width)")
+    check("gauge: is tall enough to read as a level", lane.height >= 44, "\(lane.height)")
+    check("gauge: stays inside the row",
+          lane.minY >= 0 && lane.maxY <= TrafficListView.rowHeight)
+
+    // Colour carries the meaning, so the thresholds are worth pinning down.
+    check("gauge: room to spare reads green",
+          TrafficListView.capacityColour(fraction: 0.3) == .systemGreen)
+    check("gauge: tightening reads amber",
+          TrafficListView.capacityColour(fraction: 0.8) == .systemYellow)
+    check("gauge: nearly full reads red",
+          TrafficListView.capacityColour(fraction: 0.95) == .systemRed)
+    check("gauge: the boundary between green and amber is at 70%",
+          TrafficListView.capacityColour(fraction: 0.699) == .systemGreen
+              && TrafficListView.capacityColour(fraction: 0.70) == .systemYellow)
+    check("gauge: the boundary between amber and red is at 90%",
+          TrafficListView.capacityColour(fraction: 0.899) == .systemYellow
+              && TrafficListView.capacityColour(fraction: 0.90) == .systemRed)
 }
 
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")

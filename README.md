@@ -80,10 +80,17 @@ writes — is inference, and the interface tries to say which is which.
 
 ## Rates need a denominator
 
-"111 MB/s" means nothing alone, so rows say what the rate is comparable to and how
-much of the link is in use. Utilisation is per direction, not the sum — links are full
-duplex, and a gigabit interface doing 600 Mbit/s each way is at 60% each way, not 128%
-of one ceiling.
+"111 MB/s" means nothing alone, so rows say what the rate is comparable to and draw a
+bar for how much of the device's capability is in use. Where the negotiated link rate
+is believable that is a real proportion — `19% link utilization`. Where it is not
+(Wi-Fi, an internal drive) the bar measures against what that class of device typically
+manages — `36% of typical` — which is approximate but is still a statement about
+capability. It never measures a device against its own past: "50% of its own peak" only
+says whether it is working as hard as it has before, which is not a capacity and does
+not belong in a bar that looks like one.
+
+Utilisation is per direction, not the sum — links are full duplex, and a gigabit
+interface doing 600 Mbit/s each way is at 60% each way, not 128% of one ceiling.
 
 Ceilings are realistic rather than advertised: 8b/10b coding costs USB 3.0 a fifth of
 its headline number before framing, so "5 Gbit/s" is treated as ~450 MB/s.
@@ -143,8 +150,8 @@ protocol to be USB or Secure Digital.
 
 ## How full a device is
 
-A level beside each storage row, filled from the bottom, amber past 90%. The hover
-card gives the figures.
+A level in its own lane between the icon and the name, filled from the bottom: green
+while there is room, amber past 70%, red past 90%. The hover card gives the figures.
 
 Counted **once per container**. Volumes in one APFS container each report the
 container's capacity and free space as their own, so a disk with four volumes mounted

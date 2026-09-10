@@ -98,6 +98,10 @@ struct Row {
     /// Every place this device is mounted. A single enclosure often carries
     /// several partitions, and the traffic may be on any of them.
     var mountRoots: [String] = []
+    /// Every mount of this device, including ones outside /Volumes. The boot drive
+    /// lives at "/" and "/System/Volumes/...", so filtering to /Volumes - right for
+    /// naming volumes and for attributing open files - left it with no capacity at all.
+    var allMounts: [String] = []
 }
 
 extension Row {
@@ -605,11 +609,11 @@ final class Monitor {
             // Where this device is mounted, so its traffic can be tied to the
             // processes holding files open there. All partitions, since a copy may
             // be touching any one of them.
-            row.mountRoots = device.disks.compactMap { mounts[$0] }
-                .filter { $0.hasPrefix("/Volumes") }
+            row.allMounts = device.disks.compactMap { mounts[$0] }
+            row.mountRoots = row.allMounts.filter { $0.hasPrefix("/Volumes") }
             // Volume names as shown in Finder, not full paths.
             row.volumes = row.mountRoots.map { ($0 as NSString).lastPathComponent }
-            if let combined = ProcessSampler.combinedSpace(of: row.mountRoots, in: space) {
+            if let combined = ProcessSampler.combinedSpace(of: row.allMounts, in: space) {
                 row.capacityBytes = combined.capacity
                 row.usedBytes = combined.used
             }
