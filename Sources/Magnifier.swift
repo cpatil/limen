@@ -363,7 +363,15 @@ final class MagnifierView: NSView {
 
     /// What to call the first panel. A reader is a holder for something else, so its
     /// panel is about the card; everything else is about itself.
+    /// What to call the first panel - or nothing, when there is no second panel for
+    /// it to be told apart from.
+    ///
+    /// "THE CARD" earns its place beside "HOW IT IS CONNECTED": two subjects, one
+    /// card, and the captions say which is which. A drive with no cable to describe
+    /// has one panel, directly under a title that already names it, and captioning it
+    /// THE DRIVE says the same word twice in three lines.
     func devicePanelCaption(_ row: Row) -> String {
+        guard linkPanelHeight(row) > 0 else { return "" }
         if !cardText(row).isEmpty { return "THE CARD" }
         return row.section == "Network" ? "THE INTERFACE" : "THE DRIVE"
     }
@@ -404,7 +412,8 @@ final class MagnifierView: NSView {
         let parts = (hasCard ? 1 : 0) + (identityLine(row).isEmpty ? 0 : 1)
             + (capacityStats(for: row).isEmpty ? 0 : 1) + cardBlocks(for: row).count
         guard parts > 1 else { return 0 }
-        var h = MagnifierView.captionHeight + (hasCard ? 28 : 0)
+        var h = (devicePanelCaption(row).isEmpty ? 0 : MagnifierView.captionHeight)
+            + (hasCard ? 28 : 0)
         let identity = identityLine(row)
         if !identity.isEmpty {
             h += Text.wrappedHeight(identity, font: bodyFont, width: panelWidth) + 5
@@ -575,10 +584,13 @@ final class MagnifierView: NSView {
             let innerWidth = panelWidth
             var py = y + MagnifierView.panelPad
 
-            Text.draw(devicePanelCaption(row), at: NSPoint(x: inner, y: py),
-                      font: NSFont.systemFont(ofSize: 9, weight: .semibold),
-                      color: Palette.faint, tracking: 0.7)
-            py += MagnifierView.captionHeight
+            let caption = devicePanelCaption(row)
+            if !caption.isEmpty {
+                Text.draw(caption, at: NSPoint(x: inner, y: py),
+                          font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+                          color: Palette.faint, tracking: 0.7)
+                py += MagnifierView.captionHeight
+            }
 
             // Used and free go in the empty half of the badge line when there is one.
             let besideCapacity = capacityFitsBeside(row)
