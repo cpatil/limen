@@ -118,6 +118,19 @@ enum ProcessSampler {
     /// Per-volume usage is not available this way at all - Finder and `df` get it from
     /// APFS directly. For a per-device bar that does not matter: the container's used
     /// and free are what the device actually holds, which is the question being asked.
+    /// Whether a filesystem shares its space with the others on the same disk.
+    ///
+    /// APFS volumes live in a container and draw from one pool: each reports the
+    /// container's capacity as its own, and a used figure differing from its siblings'
+    /// by a few tens of megabytes - their own metadata and snapshots. Every other
+    /// filesystem here is a partition with a fixed slice of its own.
+    ///
+    /// Measured, not assumed: this machine's boot container reports 994.61 GB from
+    /// four volumes, with used figures of 895.31, 895.29 and 895.28 GB. A rule that
+    /// compared the numbers for equality called those four separate filesystems and
+    /// reported a 1 TB drive as holding 3.58 TB.
+    static func sharesSpace(fsType: String) -> Bool { fsType == "apfs" }
+
     struct VolumeSpace {
         /// The container's size, not this volume's share of it.
         var capacity: UInt64 = 0
@@ -125,6 +138,8 @@ enum ProcessSampler {
         var used: UInt64 = 0
         /// "disk3" for /dev/disk3s2 - volumes sharing this share their free space.
         var container: String = ""
+        /// Whether this volume draws from the container's pool or owns its slice.
+        var shared = false
     }
 
     static func volumeSpace() -> [String: VolumeSpace] {
@@ -147,6 +162,10 @@ enum ProcessSampler {
             space.capacity = UInt64(entry.f_blocks) * block
             space.used = UInt64(entry.f_blocks - entry.f_bfree) * block
             space.container = ProcessSampler.container(ofBSDName: String(from.dropFirst(5)))
+            let fs = withUnsafeBytes(of: &entry.f_fstypename) { raw -> String in
+                String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
+            }
+            space.shared = ProcessSampler.sharesSpace(fsType: fs)
             map[on] = space
         }
         return map
@@ -179,18 +198,38 @@ enum ProcessSampler {
         // exactly equal bytes used would be taken for one. That is a coincidence to
         // the byte, and the alternative - trusting the disk number alone - is wrong
         // every time for a partitioned disk rather than almost never.
-        var seen: [String: Set<String>] = [:]
+        // Volumes that draw from one pool are counted once per container, taking the
+        // largest used figure among them - each sibling reports the pool's contents
+        // with a slightly different view of its own metadata. Partitions are counted
+        // separately, because their space really is separate.
+        //
+        // The filesystem decides which, rather than the numbers: comparing figures for
+        // equality called this machine's four boot volumes separate filesystems, since
+        // they differ by tens of megabytes, and reported a 1 TB drive as 3.58 TB. It
+        // would also have merged two partitions that happened to be the same size.
+        var pooled: [String: VolumeSpace] = [:]
         var capacity: UInt64 = 0
         var used: UInt64 = 0
+        var counted = false
         for mount in mounts {
             guard let space = table[mount] else { continue }
-            let fingerprint = "\(space.capacity)/\(space.used)"
-            if seen[space.container]?.contains(fingerprint) == true { continue }
-            seen[space.container, default: []].insert(fingerprint)
-            capacity += space.capacity
-            used += space.used
+            counted = true
+            guard space.shared else {
+                capacity += space.capacity
+                used += space.used
+                continue
+            }
+            if let existing = pooled[space.container] {
+                pooled[space.container]?.used = max(existing.used, space.used)
+            } else {
+                pooled[space.container] = space
+            }
         }
-        guard !seen.isEmpty else { return nil }
+        guard counted else { return nil }
+        for pool in pooled.values {
+            capacity += pool.capacity
+            used += pool.used
+        }
         return (capacity, min(used, capacity))
     }
 

@@ -170,26 +170,37 @@ do {
 // one pool of space and each reports the whole pool as its own, so they count once. A
 // partitioned disk carrying two independent filesystems has two pools that add up.
 do {
-    func space(_ capacity: UInt64, _ used: UInt64, _ container: String)
-        -> ProcessSampler.VolumeSpace {
-        ProcessSampler.VolumeSpace(capacity: capacity, used: used, container: container)
+    func space(_ capacity: UInt64, _ used: UInt64, _ container: String,
+               shared: Bool = false) -> ProcessSampler.VolumeSpace {
+        ProcessSampler.VolumeSpace(capacity: capacity, used: used,
+                                   container: container, shared: shared)
     }
-    // APFS: byte-identical figures, one container.
-    let apfs = ["/Volumes/a": space(1_000, 400, "disk4"),
-                "/Volumes/b": space(1_000, 400, "disk4"),
-                "/Volumes/c": space(1_000, 400, "disk4")]
+    // APFS volumes draw from one pool. Their capacities match and their used figures
+    // differ slightly - each sees its own metadata - so this cannot be decided by
+    // comparing the numbers, which is what reported a 1 TB drive as holding 3.58 TB.
+    let apfs = ["/Volumes/a": space(1_000, 400, "disk4", shared: true),
+                "/Volumes/b": space(1_000, 398, "disk4", shared: true),
+                "/Volumes/c": space(1_000, 399, "disk4", shared: true)]
     let shared = ProcessSampler.combinedSpace(of: Array(apfs.keys), in: apfs)
-    check("space: volumes sharing a container are counted once",
+    check("space: volumes sharing a pool are counted once",
           shared?.capacity == 1_000 && shared?.used == 400,
           "\(shared?.capacity ?? 0) / \(shared?.used ?? 0)")
 
-    // A partitioned HDD: same disk, different filesystems, different figures.
+    // A partitioned HDD: same disk, separate filesystems, separate space.
     let split = ["/Volumes/one": space(600, 100, "disk4"),
                  "/Volumes/two": space(400, 350, "disk4")]
     let summed = ProcessSampler.combinedSpace(of: Array(split.keys), in: split)
     check("space: separate partitions on one disk add up",
           summed?.capacity == 1_000 && summed?.used == 450,
           "\(summed?.capacity ?? 0) / \(summed?.used ?? 0)")
+
+    // Two partitions of exactly the same size are still two partitions - the case a
+    // rule based on comparing figures would have merged.
+    let even = ["/Volumes/left": space(500, 100, "disk5"),
+                "/Volumes/right": space(500, 100, "disk5")]
+    let evenly = ProcessSampler.combinedSpace(of: Array(even.keys), in: even)
+    check("space: two partitions of equal size are still two",
+          evenly?.capacity == 1_000, "\(evenly?.capacity ?? 0)")
 
     // And used never exceeds capacity, whatever the arithmetic.
     let odd = ["/Volumes/x": space(100, 900, "disk9")]
@@ -1080,6 +1091,7 @@ do {
 do {
     func vol(_ capacity: UInt64, _ used: UInt64, _ container: String) -> ProcessSampler.VolumeSpace {
         var v = ProcessSampler.VolumeSpace()
+        v.shared = true            // these four are APFS volumes of one container
         v.capacity = capacity; v.used = used; v.container = container
         return v
     }

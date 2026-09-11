@@ -18,8 +18,8 @@ final class MagnifierView: NSView {
 
     static let width: CGFloat = 400
     private static let pad: CGFloat = 14
-    private static let fullChartHeight: CGFloat = 58
-    private static let compactChartHeight: CGFloat = 34
+    private static let fullChartHeight: CGFloat = 44
+    private static let compactChartHeight: CGFloat = 28
 
     /// Set when the card cannot fit in the window at its natural size.
     ///
@@ -196,15 +196,19 @@ final class MagnifierView: NSView {
     func volumeFacts(_ row: Row) -> String {
         var parts: [String] = []
         if row.blockSize > 0 {
-            parts.append(Fmt.blockSize(row.blockSize) + " allocation unit")
+            // "clusters" rather than "allocation unit": same thing, a third the width,
+            // and this line has a capacity block sitting beside it.
+            parts.append(Fmt.blockSize(row.blockSize) + " clusters")
         }
         // Always, not only when locked: "read-write" is the answer to a question
         // people ask of a card, and silence is not an answer.
         parts.append(row.readOnly ? "write-protected" : "read-write")
-        // Stated even when absent, because "no date" is itself worth knowing - exFAT
-        // records no creation time for the volume, so a card formatted in a camera
-        // usually has none.
-        parts.append("formatted " + (row.created.map(MagnifierView.day.string(from:)) ?? "—"))
+        // Only when there is one. exFAT records no creation time for the volume, so
+        // "formatted —" was a dash taking a third of a line to say nothing; the
+        // absence is worth knowing once, in the tooltip, not on every card.
+        if let created = row.created {
+            parts.append("formatted " + MagnifierView.day.string(from: created))
+        }
         if !row.deviceNode.isEmpty { parts.append(row.deviceNode) }
         return parts.joined(separator: "  ·  ")
     }
@@ -393,7 +397,7 @@ final class MagnifierView: NSView {
     /// Measured here so it can be given a panel like the other two, and so the card
     /// reads as three grouped blocks rather than two boxes and a loose tail.
     func livePanelHeight(_ row: Row) -> CGFloat {
-        var h: CGFloat = 8 + 12 + chartHeight + 8 + 36
+        var h: CGFloat = 6 + 11 + chartHeight + 6 + 30
         if let gauge = usage(row) { h += gaugeLabelWraps(gauge) ? 46 : 28 }
         let statCount = stats(for: row).count
         if statCount > 0 {
@@ -452,9 +456,13 @@ final class MagnifierView: NSView {
         // "HOW IT IS CONNECTED" keeps its own, because a reader and a link are not
         // implied by the name of the card.
         var h = hasCard ? CGFloat(28) : 0
+        // Beside the capacity block, these lines have the rest of the panel, not all
+        // of it - they were wrapping underneath the figures and colliding with them.
+        let textWidth = capacityFitsBeside(row) ? panelWidth - capacityBlockWidth - 12
+                                                : panelWidth
         let identity = identityLine(row)
         if !identity.isEmpty {
-            h += Text.wrappedHeight(identity, font: bodyFont, width: panelWidth) + 5
+            h += Text.wrappedHeight(identity, font: bodyFont, width: textWidth) + 5
         }
         for line in volumeLines(row) {
             h += Text.wrappedHeight(line, font: smallFont, width: panelWidth) + 3
@@ -663,14 +671,20 @@ final class MagnifierView: NSView {
                 py += 28
             }
 
+            let textWidth = besideCapacity ? innerWidth - capacityBlockWidth - 12
+                                           : innerWidth
             let identity = identityLine(row)
             if !identity.isEmpty {
-                let h = Text.wrappedHeight(identity, font: bodyFont, width: innerWidth)
+                let h = Text.wrappedHeight(identity, font: bodyFont, width: textWidth)
                 Text.drawWrapped(identity,
-                                 in: NSRect(x: inner, y: py, width: innerWidth, height: h),
+                                 in: NSRect(x: inner, y: py, width: textWidth, height: h),
                                  font: bodyFont, color: NSColor.labelColor)
                 py += h + 5
             }
+            // Full width again: the capacity block is one row tall and the badge and
+            // identity above have already cleared it, so these lines have the panel to
+            // themselves. Wrapping them into the narrow column broke a device node in
+            // half and a UUID across three lines.
             for line in volumeLines(row) {
                 let h = Text.wrappedHeight(line, font: smallFont, width: innerWidth)
                 Text.drawWrapped(line, in: NSRect(x: inner, y: py, width: innerWidth, height: h),
@@ -822,7 +836,7 @@ final class MagnifierView: NSView {
             y += MagnifierView.panelPad
 
         // ---- history, labelled with its own scale ---------------------------
-        y += 8
+        y += 6
         let scale = Chart.peak(down: row.downHist, up: row.upHist)
         let span = Double(Monitor.historyLength) * sampleInterval
         Text.draw(span >= 120 ? String(format: "last %.0f min", span / 60)
@@ -831,7 +845,7 @@ final class MagnifierView: NSView {
         Text.draw(Fmt.rate(scale, unit: unit) + " full scale",
                   at: NSPoint(x: 0, y: y), font: tickFont,
                   color: Palette.secondary, alignRight: left + width)
-        y += 12
+        y += 11
         Palette.faint.setFill()
         NSRect(x: left, y: y, width: width, height: 1).fill()
 
@@ -843,7 +857,7 @@ final class MagnifierView: NSView {
         flip.concat()
         Chart.draw(down: row.downHist, up: row.upHist, in: chart, lineWidth: 1.8)
         NSGraphicsContext.restoreGraphicsState()
-        y += chartHeight + 8
+        y += chartHeight + 6
 
         // ---- live rates -----------------------------------------------------
         let mid = left + width / 2
@@ -853,7 +867,7 @@ final class MagnifierView: NSView {
                   font: rateFont, color: Palette.down)
         Text.draw(Fmt.rate(row.up, unit: unit), at: NSPoint(x: mid, y: y + 13),
                   font: rateFont, color: Palette.up)
-        y += 36
+        y += 30
 
         // A bar as well as a number: the share of a link is a proportion, and a
         // proportion is read faster as a length than as text.
