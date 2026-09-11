@@ -136,6 +136,25 @@ check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
 
+// ---- a badge that does not fit ---------------------------------------------------
+// "via USB 3..." is a pill containing an ellipsis: it takes the width of a fact and
+// states none. Where the full badge does not fit, a shorter true one is better, and
+// where even that does not fit, nothing is.
+do {
+    let font = NSFont.systemFont(ofSize: 10, weight: .medium)
+    let full = "via USB 3.2 Gen 1 · ≈ 450 MB/s"
+    let short = "via USB 3.2 Gen 1"
+    func fits(_ text: String, in room: CGFloat) -> Bool {
+        Text.width(text, font: font) + 12 <= room
+    }
+    let wide = Text.width(full, font: font) + 20
+    check("badge: the whole thing is shown when it fits", fits(full, in: wide))
+    let narrow = Text.width(short, font: font) + 14
+    check("badge: the short form fits where the whole does not",
+          !fits(full, in: narrow) && fits(short, in: narrow))
+    check("badge: and nothing fits in nothing", !fits(short, in: 20))
+}
+
 // ---- what a row is called --------------------------------------------------------
 // A reader is a holder; the subject is the card in it. But the log, the records and
 // the hidden list are all keyed by the device's own name, so renaming the identity

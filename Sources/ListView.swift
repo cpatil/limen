@@ -810,10 +810,24 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // full column width let it start near the end of the column and run on into
         // the chart - which is what put a graph line through the middle of it.
         let badgeRoom = TrafficListView.roomFor(cursorX: cursorX, limit: textLimit)
-        if !badgeText.isEmpty, badgeRoom > 0 {
-            let badge = Text.clip(badgeText, font: badgeFont, maxWidth: badgeRoom)
-            cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY),
-                                      font: badgeFont, prominent: true) + 6
+        // Shortened rather than clipped. "via USB 3..." is a pill containing an
+        // ellipsis: it takes the width of a fact and states none. Where the whole
+        // thing does not fit, the standard's name alone does more work than a truncated
+        // version of both, and where even that does not fit, nothing does.
+        var linkForFooter = ""
+        if !badgeText.isEmpty {
+            let shortForm = row.badge.isEmpty ? "" : (row.removable ? "via " : "") + row.badge
+            let candidates = [badgeText, shortForm].filter { !$0.isEmpty }
+            if let badge = candidates.first(where: {
+                badgeRoom > 0 && Text.width($0, font: badgeFont) + 12 <= badgeRoom
+            }) {
+                cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY),
+                                          font: badgeFont, prominent: true) + 6
+            } else {
+                // No room on the badge line, but the line below is nearly empty - it
+                // holds a word like "exFAT". A fact moved is better than a fact lost.
+                linkForFooter = badgeText
+            }
         }
         if !alternate.isEmpty, cursorX + Text.width(alternate, font: badgeFont) < textLimit {
             Text.draw(alternate, at: NSPoint(x: cursorX, y: secondLineY + 1),
@@ -1033,6 +1047,15 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             Text.draw(format, at: NSPoint(x: footerX, y: rect.minY + 68), font: totalFont,
                       color: Palette.secondary)
             footerX += Text.width(format, font: totalFont) + 10
+        }
+        if !linkForFooter.isEmpty {
+            let room = max(0, chartRight - footerX - 8)
+            let text = Text.clip(linkForFooter, font: totalFont, maxWidth: room)
+            if Text.width(text, font: totalFont) >= Text.width(linkForFooter, font: totalFont) {
+                Text.draw(text, at: NSPoint(x: footerX, y: rect.minY + 68), font: totalFont,
+                          color: Palette.secondary)
+                footerX += Text.width(text, font: totalFont) + 10
+            }
         }
         if row.indexingWorthReporting {
             let note = row.indexingDisabled ? "Spotlight off" : "Spotlight not blocked"
