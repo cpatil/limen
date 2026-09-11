@@ -1000,6 +1000,19 @@ check("palette (\(mode)): nor for the quiet grey everything else uses",
 // The transfer log's advice was drawn in four system colours, two of which - yellow
 // and orange - sat at about 1.5:1 on the log's own background. Whatever colour these
 // notes take, they have to be readable in both appearances.
+// Every piece of text, not just the headline figures. These are the small greys -
+// subtitles, footnotes, totals - and they are the ones that go first.
+check("palette (\(mode)): the quiet grey clears the bar for body text",
+      contrast(Palette.faint, Palette.canvas) >= 4.5,
+      String(format: "%.2f:1", contrast(Palette.faint, Palette.canvas)))
+check("palette (\(mode)): so does the secondary text beside it",
+      contrast(Palette.secondary, Palette.canvas) >= 4.5,
+      String(format: "%.2f:1", contrast(Palette.secondary, Palette.canvas)))
+check("palette (\(mode)): and the two direction colours as small totals",
+      contrast(Palette.downQuiet, Palette.canvas) >= 3.0
+        && contrast(Palette.upQuiet, Palette.canvas) >= 3.0,
+      String(format: "%.2f:1 / %.2f:1", contrast(Palette.downQuiet, Palette.canvas),
+             contrast(Palette.upQuiet, Palette.canvas)))
 check("palette (\(mode)): advice about a conclusion is readable in the log",
       contrast(Palette.inferred, Palette.canvas) >= 4.5,
       String(format: "%.2f:1", contrast(Palette.inferred, Palette.canvas)))

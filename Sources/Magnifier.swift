@@ -103,7 +103,7 @@ final class MagnifierView: NSView {
             // which is a comparison against the catalogue.
             let inferred = row.note.isEmpty && row.hasKnownMediumClass
             out.append((inferred ? Palette.marked(context) : context, bodyFont,
-                        inferred ? Palette.inferred : NSColor.secondaryLabelColor))
+                        inferred ? Palette.inferred : Palette.secondary))
         }
         if row.indexingWorthReporting, !row.indexingDisabled {
             out.append(("No .metadata_never_index marker here, so nothing is stopping "
@@ -120,7 +120,7 @@ final class MagnifierView: NSView {
             // "also known as", not "Apple calls this".
             let names = [row.alsoKnown, row.appleName].filter { !$0.isEmpty }
             out.append(("Also known as " + names.joined(separator: "  ·  "),
-                        smallFont, NSColor.secondaryLabelColor))
+                        smallFont, Palette.secondary))
         }
         return out
     }
@@ -385,7 +385,7 @@ final class MagnifierView: NSView {
         var y = card.minY + pad
 
         Icons.draw(row.icon, in: NSRect(x: left, y: y, width: 20, height: 20),
-                   color: NSColor.secondaryLabelColor)
+                   color: Palette.secondary)
         Text.draw(row.title, at: NSPoint(x: left + 28, y: y + 1),
                   font: titleFont, color: NSColor.labelColor)
         y += 24
@@ -469,7 +469,7 @@ final class MagnifierView: NSView {
                   at: NSPoint(x: left, y: y), font: tickFont, color: Palette.faint)
         Text.draw(Fmt.rate(scale, unit: unit) + " full scale",
                   at: NSPoint(x: 0, y: y), font: tickFont,
-                  color: NSColor.secondaryLabelColor, alignRight: left + width)
+                  color: Palette.secondary, alignRight: left + width)
         y += 14
         Palette.faint.setFill()
         NSRect(x: left, y: y, width: width, height: 1).fill()
@@ -528,7 +528,7 @@ final class MagnifierView: NSView {
                       font: smallFont,
                       color: gauge.isInferred ? Palette.inferred
                            : (used >= 0.85 ? NSColor.systemOrange
-                                           : NSColor.secondaryLabelColor))
+                                           : Palette.secondary))
             y += 28
         }
 

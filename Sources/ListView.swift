@@ -705,7 +705,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         let iconBox = NSRect(x: TrafficListView.contentLeft, y: rect.minY + 18,
                              width: 18, height: 18)
         Icons.draw(row.icon, in: iconBox,
-                   color: NSColor.secondaryLabelColor.withAlphaComponent(row.active ? 0.9 : 0.45))
+                   color: Palette.secondary.withAlphaComponent(row.active ? 0.9 : 0.45))
 
         let textLeft = TrafficListView.textLeft
         let title = Text.clip(row.title, font: titleFont, maxWidth: textLimit - textLeft)
@@ -765,7 +765,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             Text.draw(Text.clip(row.subtitle, font: subtitleFont, maxWidth: subtitleRoom),
                       at: NSPoint(x: cursorX, y: secondLineY + 1),
                       font: subtitleFont,
-                      color: NSColor.secondaryLabelColor)
+                      color: Palette.secondary)
         }
 
         let gauge = Reference.gauge(down: row.down, up: row.up,
@@ -909,13 +909,13 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         var totalsX = rightEdge - totalsWidth
         let totalsY = rect.minY + 53
         Text.draw(readTotal, at: NSPoint(x: totalsX, y: totalsY), font: totalFont,
-                  color: Palette.down.withAlphaComponent(0.75))
+                  color: Palette.downQuiet)
         totalsX += Text.width(readTotal, font: totalFont)
         Text.draw(separator, at: NSPoint(x: totalsX, y: totalsY), font: totalFont,
                   color: Palette.faint)
         totalsX += Text.width(separator, font: totalFont)
         Text.draw(writeTotal, at: NSPoint(x: totalsX, y: totalsY), font: totalFont,
-                  color: Palette.up.withAlphaComponent(0.75))
+                  color: Palette.upQuiet)
 
         // Name the figure in both cases, marked when it was worked out rather than
         // measured. This line used to show the session peak whenever the bar was not
@@ -955,7 +955,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         let format = Fmt.fsName(row.fsType)
         if !format.isEmpty {
             Text.draw(format, at: NSPoint(x: footerX, y: rect.minY + 68), font: totalFont,
-                      color: NSColor.secondaryLabelColor)
+                      color: Palette.secondary)
             footerX += Text.width(format, font: totalFont) + 10
         }
         if row.indexingWorthReporting {

@@ -46,8 +46,21 @@ enum Palette {
     /// light ground tertiaryLabelColor is about 26% black, which is legible for a
     /// disabled menu item and not for a line you are meant to read.
     static var faint: NSColor {
-        NSColor.labelColor.withAlphaComponent(isLight ? 0.55 : 0.42)
+        NSColor.labelColor.withAlphaComponent(isLight ? 0.72 : 0.62)
     }
+
+    /// Subtitles, identifiers, footnotes - everything one step down from the headline
+    /// figures. NSColor.secondaryLabelColor is about half strength, which is fine for
+    /// a disabled menu item and thin for a line someone is expected to read; these are
+    /// the greys that go first for anyone whose eyes are not twenty-five.
+    static var secondary: NSColor {
+        NSColor.labelColor.withAlphaComponent(isLight ? 0.80 : 0.72)
+    }
+
+    /// The direction colours as small totals rather than headline rates. They were
+    /// drawn at three-quarter strength, which washed them out at 10pt.
+    static var downQuiet: NSColor { headingText(down) }
+    static var upQuiet: NSColor { headingText(up) }
 
     /// The ground everything sits on.
     ///
@@ -321,7 +334,7 @@ enum Text {
         path.fill()
         draw(string, at: NSPoint(x: point.x + padding, y: point.y + 1),
              font: font,
-             color: textColor ?? (prominent ? NSColor.labelColor : NSColor.secondaryLabelColor))
+             color: textColor ?? (prominent ? NSColor.labelColor : Palette.secondary))
         return rect.width
     }
 }

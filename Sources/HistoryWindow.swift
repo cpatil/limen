@@ -340,12 +340,12 @@ final class HistoryView: NSView {
             tri.line(to: NSPoint(x: 8.5, y: mid + 3))
         }
         tri.close()
-        NSColor.secondaryLabelColor.setFill()
+        Palette.secondary.setFill()
         tri.fill()
 
         Icons.draw(group.section == "Network" ? .ethernet : (group.removable ? .memoryCard : .hardDisk),
                    in: NSRect(x: 16, y: rect.minY + 10, width: 18, height: 18),
-                   color: NSColor.secondaryLabelColor)
+                   color: Palette.secondary)
 
         var title = group.device
         // Named where it is known. Where it is not, say so rather than showing the
@@ -366,7 +366,7 @@ final class HistoryView: NSView {
         summary += "  ·  " + Fmt.bytes(Double(group.total))
             + "  ·  best " + Fmt.rate(group.bestPeak, unit: unit)
         Text.draw(summary, at: NSPoint(x: 0, y: rect.minY + 11), font: metaFont,
-                  color: NSColor.secondaryLabelColor, alignRight: rect.maxX - 16)
+                  color: Palette.secondary, alignRight: rect.maxX - 16)
 
         // The recommendation belongs to the hardware, so it is said once per group
         // rather than repeated against every copy.
@@ -413,7 +413,7 @@ final class HistoryView: NSView {
         Text.draw(Text.clip(summary, font: metaFont, maxWidth: rect.width - 330),
                   at: NSPoint(x: 44, y: rect.minY + 28), font: metaFont,
                   color: verdict.inferred ? Palette.inferred
-                       : (verdict.maximised ? NSColor.systemGreen : NSColor.secondaryLabelColor))
+                       : (verdict.maximised ? NSColor.systemGreen : Palette.secondary))
 
         if !s.processes.isEmpty {
             Text.draw(Text.clip(s.processes.joined(separator: ", "), font: metaFont, maxWidth: rect.width - 330),
@@ -426,7 +426,7 @@ final class HistoryView: NSView {
         Text.draw("avg " + Fmt.rate(s.averageRate, unit: unit)
                     + "   peak " + Fmt.rate(s.peakRate, unit: unit),
                   at: NSPoint(x: 0, y: rect.minY + 29), font: numFont,
-                  color: NSColor.secondaryLabelColor, alignRight: right)
+                  color: Palette.secondary, alignRight: right)
 
         // Same rule the rows use. Testing for "USB" alone left internal drives
         // labelled IN/OUT, as though they were network interfaces.
