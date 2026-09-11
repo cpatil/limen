@@ -21,6 +21,33 @@ enum IconKind {
 }
 
 enum Icons {
+    /// An information symbol as an image rather than the character \u{24D8}.
+    ///
+    /// The character sits wherever its font decides, which in a 24-point button was
+    /// visibly above centre - text is placed on a baseline, and a circled glyph's
+    /// baseline is not its middle. Drawn here, the ring is centred on the rect by
+    /// construction, and as a template image the button tints it for us.
+    static func infoImage(diameter: CGFloat = 15) -> NSImage {
+        let size = NSSize(width: diameter, height: diameter)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        let rect = NSRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1)
+        NSColor.black.setStroke()
+        NSColor.black.setFill()
+        let ring = NSBezierPath(ovalIn: rect)
+        ring.lineWidth = 1.3
+        ring.stroke()
+        // The dot and the stem, both measured from the centre of the ring.
+        let dot = NSRect(x: rect.midX - 0.75, y: rect.maxY - 4.4, width: 1.5, height: 1.5)
+        NSBezierPath(ovalIn: dot).fill()
+        let stem = NSRect(x: rect.midX - 0.75, y: rect.minY + 3.2,
+                          width: 1.5, height: rect.height - 8.4)
+        NSBezierPath(rect: stem).fill()
+        image.unlockFocus()
+        image.isTemplate = true
+        return image
+    }
+
     /// Draws the glyph inside `rect`, in a single colour so it sits quietly beside the
     /// text rather than competing with the charts.
     static func draw(_ kind: IconKind, in rect: NSRect, color: NSColor) {

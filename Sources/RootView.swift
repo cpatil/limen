@@ -383,10 +383,9 @@ final class RootView: NSView, NSSplitViewDelegate {
         infoButton.refusesFirstResponder = true
         infoButton.target = self
         infoButton.action = #selector(showInferenceHelp)
-        infoButton.attributedTitle = NSAttributedString(
-            string: "\u{24D8}",
-            attributes: [.foregroundColor: NSColor.secondaryLabelColor,
-                         .font: NSFont.systemFont(ofSize: 14, weight: .regular)])
+        infoButton.image = Icons.infoImage()
+        infoButton.imagePosition = .imageOnly
+        infoButton.title = ""
         infoButton.toolTip = "How Limen infers: every conclusion it draws, and what "
             + "each one is based on."
 

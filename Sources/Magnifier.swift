@@ -138,25 +138,6 @@ final class MagnifierView: NSView {
     private func footerBlocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
         var out: [(String, NSFont, NSColor)] = []
 
-        // Spelled out here, because the row can only afford colour to distinguish
-        // them. These are the device's own counters, not this session's.
-        var facts = [Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
-                     + " and " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased()
-                     + " since the counters started"]
-        if row.peak > 0 { facts.append("peak this run " + Fmt.rate(row.peak, unit: unit)) }
-        // From the transfer log, so it outlives the run - and outlives the device
-        // being idle all afternoon, which is what made "peak" alone misleading.
-        if row.allTimePeak > row.peak {
-            facts.append("best ever " + Fmt.rate(row.allTimePeak, unit: unit))
-        }
-        if row.capacityBytes > 0 {
-            // Counted once per container: several volumes of one disk share its space,
-            // and each of them reports the whole disk's figures as its own.
-            facts.append(Fmt.bytes(Double(row.usedBytes)) + " used of "
-                         + Fmt.bytes(Double(row.capacityBytes)) + ", "
-                         + Fmt.bytes(Double(row.capacityBytes - row.usedBytes)) + " free")
-        }
-        out.append((facts.joined(separator: "  ·  "), bodyFont, NSColor.secondaryLabelColor))
 
         if !row.actors.isEmpty {
             // Not "the processes causing this traffic". proc_pid_rusage reports a
@@ -185,6 +166,72 @@ final class MagnifierView: NSView {
             out.append((Palette.marked(row.hint), smallFont, Palette.inferred))
         }
         return out
+    }
+
+    /// One figure with its name above it. Six of these used to be a single grey
+    /// sentence joined by middle dots - every number the same size and colour as the
+    /// words around it, so finding "best ever" meant reading the whole line.
+    struct Stat {
+        let label: String
+        let value: String
+        let colour: NSColor
+    }
+
+    func stats(for row: Row) -> [Stat] {
+        var out: [Stat] = []
+        // The device's own counters, not this session's - said once, under the grid,
+        // rather than folded into each figure's name.
+        // "TOTAL READ", not "READ": the live rate above the grid is already labelled
+        // READ, and two figures under the same word meaning different things is the
+        // sort of thing you only notice after misreading it once.
+        out.append(Stat(label: "TOTAL " + row.inLong.uppercased(),
+                        value: Fmt.bytes(Double(row.totalDown)), colour: Palette.down))
+        out.append(Stat(label: "TOTAL " + row.outLong.uppercased(),
+                        value: Fmt.bytes(Double(row.totalUp)), colour: Palette.up))
+        if row.peak > 0 {
+            out.append(Stat(label: "PEAK THIS RUN", value: Fmt.rate(row.peak, unit: unit),
+                            colour: NSColor.labelColor))
+        }
+        // From the transfer log, so it outlives the run - and outlives the device
+        // being idle all afternoon, which is what made "peak" alone misleading.
+        if row.allTimePeak > row.peak {
+            out.append(Stat(label: "BEST EVER", value: Fmt.rate(row.allTimePeak, unit: unit),
+                            colour: NSColor.labelColor))
+        }
+        if row.capacityBytes > 0 {
+            // Counted once per container: several volumes of one disk share its space,
+            // and each of them reports the whole disk's figures as its own.
+            let used = Double(row.usedBytes)
+            out.append(Stat(label: "USED", value: Fmt.bytes(used),
+                            colour: TrafficListView.capacityColour(fraction: row.fullness ?? 0)))
+            out.append(Stat(label: "FREE",
+                            value: Fmt.bytes(Double(row.capacityBytes) - used),
+                            colour: NSColor.labelColor))
+        }
+        return out
+    }
+
+    /// Two to a line, so the height follows from the count in one place rather than
+    /// being guessed at in two.
+    static func statRows(_ count: Int) -> Int { (count + 1) / 2 }
+
+    private static let statRowHeight: CGFloat = 38
+
+    private func drawStats(_ stats: [Stat], at origin: NSPoint, width: CGFloat) -> CGFloat {
+        let labelFont = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 15, weight: .medium)
+        let column = width / 2
+        var y = origin.y
+        for (index, stat) in stats.enumerated() {
+            let x = origin.x + (index % 2 == 0 ? 0 : column)
+            Text.draw(stat.label, at: NSPoint(x: x, y: y), font: labelFont,
+                      color: Palette.faint, tracking: 0.7)
+            Text.draw(stat.value, at: NSPoint(x: x, y: y + 12), font: valueFont,
+                      color: stat.colour)
+            if index % 2 == 1 { y += MagnifierView.statRowHeight }
+        }
+        if stats.count % 2 == 1 { y += MagnifierView.statRowHeight }
+        return y
     }
 
     /// What the bar measures: the link where that can be judged, the device's own
@@ -239,6 +286,12 @@ final class MagnifierView: NSView {
         if usage(row) != nil { height += 28 }
         height += 10 + 14 + MagnifierView.chartHeight + 12       // scale labels + chart
         height += 46                                             // the two big rates
+        // The grid, then the one line saying where its counters come from.
+        let statCount = stats(for: row).count
+        if statCount > 0 {
+            height += CGFloat(MagnifierView.statRows(statCount)) * MagnifierView.statRowHeight
+            height += 26
+        }
         for block in footerBlocks(for: row) {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 4
         }
@@ -411,6 +464,17 @@ final class MagnifierView: NSView {
                            : (used >= 0.85 ? NSColor.systemOrange
                                            : NSColor.secondaryLabelColor))
             y += 28
+        }
+
+        // ---- the figures, as a grid ----------------------------------------
+        let grid = stats(for: row)
+        if !grid.isEmpty {
+            Palette.hairline.setFill()
+            NSRect(x: left, y: y - 6, width: width, height: 1).fill()
+            y = drawStats(grid, at: NSPoint(x: left, y: y + 4), width: width)
+            Text.draw("Totals are the device's own counters, since it was attached.",
+                      at: NSPoint(x: left, y: y), font: tickFont, color: Palette.faint)
+            y += 20
         }
 
         for block in footerBlocks(for: row) {
