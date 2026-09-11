@@ -142,7 +142,7 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
     helpMenu.addItem(setupItem)
     // The same key the toolbar mark and the bottom line open. Three ways in, because
     // a legend nobody finds is a legend that does not exist.
-    let keyItem = NSMenuItem(title: "What the Colours Mean…",
+    let keyItem = NSMenuItem(title: "What the Colors Mean…",
                              action: #selector(AppDelegate.showLegend(_:)),
                              keyEquivalent: "")
     keyItem.target = target

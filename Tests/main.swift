@@ -186,6 +186,19 @@ do {
               (g.basis ?? "").contains("SSD") || (g.basis ?? "").contains("NVMe"),
               g.basis ?? "nil")
     }
+    // A Wi-Fi interface has no entry of its own in the catalogue, so "nearest" would
+    // hand it whatever wired standard sat near the rate it happened to be doing - and
+    // then report it as ~100% of that, every time, because the yardstick was picked by
+    // the measurement. No known class, no bar.
+    check("gauge: no bar for a device with no class to be measured against",
+          Reference.gauge(down: 1_350_000, up: 47_000, peakDirectional: 1_390_000,
+                          peak: 1_390_000, linkBits: 0, linkTrusted: false,
+                          families: [.network], hasKnownClass: false) == nil)
+    check("gauge: the same rate does get a bar where the class is known",
+          Reference.gauge(down: 1_350_000, up: 0, peakDirectional: 1_390_000,
+                          peak: 1_390_000, linkBits: 0, linkTrusted: false,
+                          families: [.storage], roles: ["card"],
+                          hasKnownClass: true) != nil)
     check("gauge: it never exceeds full",
           (bar(9_000_000_000, link: 0, trusted: false, roles: ["disk"],
                kinds: ["ssd"], internalMedium: true)?.fraction ?? 0) <= 1.0)
@@ -733,13 +746,14 @@ do {
     let note = NSRect(x: 0, y: 0, width: 1280, height: 22)
     let whole = NSRect(x: 0, y: 0, width: 1280, height: 900)
     check("painting: a subview cannot paint beyond its own bounds",
-          InferenceNote.paintable(dirty: whole, bounds: note) == note)
+          Palette.paintable(dirty: whole, bounds: note) == note)
     let sliver = NSRect(x: 100, y: 0, width: 40, height: 900)
     check("painting: and still repaints only the part actually asked for",
-          InferenceNote.paintable(dirty: sliver, bounds: note)
+          Palette.paintable(dirty: sliver, bounds: note)
             == NSRect(x: 100, y: 0, width: 40, height: 22))
 }
 
+// A view smaller than the region AppKit asks it to refresh must clip to itself.
 // The card's dismiss button: drawn and hit-tested from one expression, because when
 // those are written out twice they drift and the cross stops being clickable.
 do {

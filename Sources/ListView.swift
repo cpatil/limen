@@ -770,7 +770,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                                     families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
                                     roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
                                     internalMedium: row.internalMedium,
-                                    kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds)
+                                    kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds,
+                                    hasKnownClass: row.hasKnownMediumClass)
         if let gauge = gauge {
             let bar = NSRect(x: chartLeft, y: rect.minY + 56, width: chartWidth, height: 5)
             Palette.hairline.setFill()

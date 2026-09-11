@@ -188,7 +188,8 @@ final class MagnifierView: NSView {
                         families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
                         roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
                         internalMedium: row.internalMedium,
-                        kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds)
+                        kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds,
+                        hasKnownClass: row.hasKnownMediumClass)
     }
 
     /// Type, capacity and name of the card in this reader, if there is one.

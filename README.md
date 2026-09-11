@@ -235,8 +235,8 @@ it cannot be mistaken for a rate. The mark, not the colour, is what carries the 
 it survives greyscale, colour blindness and the accessibility description, where the
 colour does not.
 
-Three ways to the key: the ≈ at the top left, the line along the bottom of the window,
-and Help ▸ What the Colours Mean. Hovering a row brings up its card, which says what
+**Color key** at the top left opens it, the information button beside it explains the
+difference at length, and Help ▸ What the Colors Mean does both. Hovering a row brings up its card, which says what
 each conclusion on that row was drawn from; clicking a row keeps that card open —
 with a cross to dismiss it, or Escape — so it can be read and copied from without the
 pointer having to stay still.

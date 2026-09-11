@@ -73,6 +73,12 @@ struct Row {
     /// What the medium is, when the system says: ssd, spinning or flash. Empty when
     /// it does not, in which case the class is inferred from what the device has done.
     var mediumKinds: [String] = []
+    /// Whether there is a class of device in the catalogue this row can honestly be
+    /// measured against. A drive or a card has one; a Wi-Fi interface does not, and
+    /// matching it to the nearest wired standard says nothing except that a number
+    /// exists near another number.
+    var hasKnownMediumClass: Bool { !compareRoles.isEmpty || !mediumKinds.isEmpty }
+
     /// How full the device is. Counted once per container, so a disk with several
     /// volumes mounted is not reported several times over.
     var capacityBytes: UInt64 = 0

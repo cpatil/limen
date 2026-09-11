@@ -127,6 +127,18 @@ enum Palette {
         text.hasPrefix("\u{2248}") ? text : mark + text
     }
 
+    /// What a view may actually paint, given the rect AppKit asked it to refresh.
+    ///
+    /// AppKit hands a subview the whole invalidated region of the window rather than
+    /// the part of it that overlaps this view, and inside a layer-backed hierarchy
+    /// nothing clips the difference away. Filling the dirty rect directly - which is
+    /// what most drawing code does, and what a full-size view gets away with because
+    /// its bounds are the window - once let a strip 22 points tall paint 1280x900 of
+    /// canvas over the top of the lists, leaving a window that appeared empty.
+    static func paintable(dirty: NSRect, bounds: NSRect) -> NSRect {
+        dirty.intersection(bounds)
+    }
+
     /// Behind the row under the pointer. Tinted rather than grey so it reads as
     /// deliberate at a glance, and subtle enough not to fight the text.
     static var hover: NSColor {

@@ -263,7 +263,8 @@ enum Reference {
                       linkBits: UInt64, linkTrusted: Bool,
                       families: [SpeedRef.Family]? = nil, roles: [String]? = nil,
                       internalMedium: Bool = false,
-                      kinds: [String]? = nil) -> Gauge? {
+                      kinds: [String]? = nil,
+                      hasKnownClass: Bool = true) -> Gauge? {
         let current = max(down, up)
 
         // A negotiated link is a real ceiling, so this is a real proportion.
@@ -280,7 +281,14 @@ enum Reference {
         // nearest thing to one, and it is at least a statement about capability.
         // Measuring a device against its own past - the previous behaviour - only ever
         // answered "is it working as hard as it has before", which is not a capacity.
-        guard current > 0,
+        //
+        // Only where the kind of device is actually known. A Wi-Fi interface has no
+        // medium in the catalogue, so the nearest entry to its rate was whatever wired
+        // standard happened to sit near it - it read "100% of typical" at 10 Mbit/s
+        // because it had been matched against 10 Mbit Ethernet, which is a category
+        // error and a circular one: the yardstick was chosen by the rate it measures.
+        guard hasKnownClass,
+              current > 0,
               let ref = nearest(bytesPerSec: max(current, peak), families: families,
                                 roles: roles, internalMedium: internalMedium, kinds: kinds),
               ref.payloadBytes > 0

@@ -1,105 +1,51 @@
 import Cocoa
 
-/// One section's totals, drawn directly beneath that section's heading band and
-/// directly above its list.
-///
-/// It lives inside the column rather than in a strip of its own, so it is always
-/// exactly as wide as the list it summarises - dragging the divider or swapping the
-/// sections cannot pull the two out of line, because there is nothing to keep in line.
-///
-/// Deliberately one panel per section rather than one combined figure. Copying from a
-/// card to an SMB share is both storage and network traffic at once, and the useful
-/// thing is seeing the two move together - a single total would hide exactly the
-/// relationship you want.
-final class SectionSummary: NSView {
-    var down: Double = 0
-    var up: Double = 0
-    var downHist: [Double] = []
-    var upHist: [Double] = []
-    var unit: RateUnit = .bytes
-
-    private let families: [SpeedRef.Family]
-    private let inLabel: String
-    private let outLabel: String
-
-    static let height: CGFloat = 104
-
-    init(families: [SpeedRef.Family], inLabel: String, outLabel: String) {
-        self.families = families
-        self.inLabel = inLabel
-        self.outLabel = outLabel
-        super.init(frame: .zero)
-    }
-
-    required init?(coder: NSCoder) { fatalError("not used") }
-
-    override var isFlipped: Bool { false }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let rect = NSRect(x: bounds.minX + 16, y: bounds.minY,
-                          width: max(40, bounds.width - 32), height: bounds.height)
-        let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 22, weight: .medium)
-        let tagFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
-        let smallFont = NSFont.systemFont(ofSize: 10.5)
-        let top = rect.maxY - 4
-
-        // Stacked, with the chart beside them rather than underneath: side by side put
-        // the graph behind the numbers as soon as anything moved.
-        Text.draw(inLabel, at: NSPoint(x: rect.minX, y: top - 36), font: tagFont, color: Palette.down)
-        Text.draw(Fmt.rate(down, unit: unit),
-                  at: NSPoint(x: rect.minX + 42, y: top - 44), font: rateFont, color: Palette.down)
-        Text.draw(outLabel, at: NSPoint(x: rect.minX, y: top - 68), font: tagFont, color: Palette.up)
-        Text.draw(Fmt.rate(up, unit: unit),
-                  at: NSPoint(x: rect.minX + 42, y: top - 76), font: rateFont, color: Palette.up)
-
-        // The busier direction, not the sum. A card import shows the same bytes twice
-        // - read off the card, written to the disk - so adding them said "1 GB in 5.6 s"
-        // for a transfer that was going to take 11. Exactly the job this app is for.
-        let combined = max(down, up)
-        if combined > 0 {
-            // Two different kinds of statement on one line, so they are drawn as two.
-            // "1 GB in 12 s" is division; naming a standard from a rate is a match
-            // against a catalogue, and only that half takes the mark and the colour.
-            var x = rect.minX
-            let near = Reference.comparison(bytesPerSec: combined, families: families)
-            let oneGB = Reference.timeToMove(bytes: Reference.oneGigabyte, atBytesPerSec: combined)
-            if !near.isEmpty {
-                let text = Text.clip(Palette.marked(near), font: smallFont, maxWidth: rect.width - 8)
-                Text.draw(text, at: NSPoint(x: x, y: rect.minY + 8),
-                          font: smallFont, color: Palette.inferred)
-                x += Text.width(text, font: smallFont)
-                if !oneGB.isEmpty {
-                    Text.draw("   ·   ", at: NSPoint(x: x, y: rect.minY + 8),
-                              font: smallFont, color: Palette.faint)
-                    x += Text.width("   ·   ", font: smallFont)
-                }
-            }
-            if !oneGB.isEmpty {
-                Text.draw(Text.clip("1 GB in " + oneGB, font: smallFont,
-                                    maxWidth: max(0, rect.maxX - x - 8)),
-                          at: NSPoint(x: x, y: rect.minY + 8),
-                          font: smallFont, color: Palette.faint)
-            }
-        }
-
-        let chartLeft = rect.minX + 214
-        let chartRect = NSRect(x: chartLeft, y: rect.minY + 26,
-                               width: max(0, rect.maxX - chartLeft), height: rect.height - 46)
-        if chartRect.width > 40 {
-            Chart.draw(down: downHist, up: upHist, in: chartRect, lineWidth: 1.5)
-        }
-
-        Palette.hairline.setFill()
-        NSRect(x: 0, y: bounds.minY, width: bounds.width, height: 1).fill()
-    }
-}
-
 /// The colour key, as a chart rather than a paragraph.
 ///
 /// Shown from the mark in the toolbar and from the line along the bottom. A legend
 /// that only exists in prose is one most people never read; the point of a code is
 /// that it can be looked up in a second.
 final class LegendView: NSView {
+
+    /// The long form, shown from the information button beside the key.
+    static let explanation =
+        "Limen shows two kinds of statement, and they are not equally certain.\n\n"
+        + "Measured. Bytes read and written, how full a volume is, the rate a link "
+        + "negotiated, which processes hold a file open. These come from the kernel "
+        + "and the storage stack, and Limen only does arithmetic on them.\n\n"
+        + "Inferred, marked \u{2248} and drawn in violet. What kind of card is in a "
+        + "reader, how a rate compares with what that class of device typically "
+        + "manages, what limited a transfer, and what would help. These come from "
+        + "matching a measurement against a catalogue of hardware, and a match is not "
+        + "a proof: a rate near an SDXC card's ceiling is equally consistent with a "
+        + "slow reader, a busy machine at the other end, a tree of small files, or a "
+        + "device that has got hot.\n\n"
+        + "Hovering a row brings up its card, which spells out every conclusion on that "
+        + "row and what each was drawn from - so you can disagree with it. Clicking a "
+        + "row keeps that card open until you dismiss it."
+
+
+    static func explain() {
+        let alert = NSAlert()
+        alert.messageText = "Measured, and worked out"
+        alert.informativeText = LegendView.explanation
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    /// The key itself: swatches and one line each.
+    static func showKey() {
+        let alert = NSAlert()
+        alert.messageText = "What the colors mean"
+        alert.informativeText = "Anything marked \u{2248} was worked out from a "
+            + "measurement rather than measured. Hovering a row explains each one it "
+            + "carries; clicking a row keeps that card open."
+        alert.accessoryView = LegendView(frame: NSRect(origin: .zero,
+                                                       size: LegendView.fittingSize))
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     struct Entry {
         let swatches: [NSColor]
         let mark: String
@@ -139,6 +85,8 @@ final class LegendView: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
+        Palette.canvas.setFill()
+        Palette.paintable(dirty: dirtyRect, bounds: bounds).fill()
         let titleFont = NSFont.systemFont(ofSize: 12.5, weight: .medium)
         let detailFont = NSFont.systemFont(ofSize: 11.5)
         let markFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
@@ -168,135 +116,6 @@ final class LegendView: NSView {
     }
 }
 
-/// The line along the bottom of the window that says the interface is not all
-/// measurement.
-///
-/// It exists because the app draws two different kinds of statement in the same
-/// typeface: a rate, which came from a counter, and a conclusion, which came from
-/// comparing that rate against a catalogue of what hardware normally does. The second
-/// kind is useful - it is most of why the app is worth having - but presented plainly
-/// it reads as though the machine reported it, which it did not.
-///
-/// One line, always visible, never in the way: a legend that only appears once you go
-/// looking for it is not a legend, it is a defence.
-final class InferenceNote: NSView {
-    static let height: CGFloat = 22
-
-    /// The full explanation, shown when the line is clicked.
-    static let explanation =
-        "Limen shows two kinds of statement, and they are not equally certain.\n\n"
-        + "Measured. Bytes read and written, how full a volume is, the rate a link "
-        + "negotiated, which processes hold a file open. These come from the kernel "
-        + "and the storage stack, and Limen only does arithmetic on them.\n\n"
-        + "Inferred, marked \u{2248} and drawn in violet. What kind of card is in a "
-        + "reader, how a rate compares with what that class of device typically "
-        + "manages, what limited a transfer, and what would help. These come from "
-        + "matching a measurement against a catalogue of hardware, and a match is not "
-        + "a proof: a rate near an SDXC card's ceiling is equally consistent with a "
-        + "slow reader, a busy machine at the other end, a tree of small files, or a "
-        + "device that has got hot.\n\n"
-        + "Hovering a row brings up its card, which spells out every conclusion on that "
-        + "row and what each was drawn from - so you can disagree with it."
-
-    private var hovering = false
-    private var tracking: NSTrackingArea?
-
-    override var isFlipped: Bool { false }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking = tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds,
-                                  options: [.mouseEnteredAndExited, .activeInKeyWindow],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
-
-    override func mouseDown(with event: NSEvent) { showExplanation() }
-
-    func showExplanation() { InferenceNote.explain() }
-
-    static func explain() {
-        let alert = NSAlert()
-        alert.messageText = "Measured, and worked out"
-        alert.informativeText = InferenceNote.explanation
-        let legend = LegendView(frame: NSRect(origin: .zero, size: LegendView.fittingSize))
-        alert.accessoryView = legend
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
-
-    /// What a view may actually paint, given the rect AppKit asked it to refresh.
-    ///
-    /// AppKit hands a subview the whole invalidated region of the window rather than
-    /// the part of it that overlaps this view, and inside a layer-backed hierarchy
-    /// nothing clips the difference away. Filling the dirty rect directly - which is
-    /// what most drawing code does, and what every other view in this app gets away
-    /// with because it fills its own bounds - painted 1280x900 of canvas from a view
-    /// 22 points tall, over the top of the lists, leaving a window that contained
-    /// nothing but this one line.
-    static func paintable(dirty: NSRect, bounds: NSRect) -> NSRect {
-        dirty.intersection(bounds)
-    }
-
-    static let sentence = "marks a reading Limen worked out rather than measured. "
-        + "Hovering a row explains each one it carries."
-    static let affordance = "Colour key"
-
-    override func draw(_ dirtyRect: NSRect) {
-        // A tint rather than the plain canvas. This line is the key to a code used
-        // all over the window, and drawn in the same grey as everything else it read
-        // as a status bar - something to ignore.
-        Palette.inferredBadge.setFill()
-        InferenceNote.paintable(dirty: dirtyRect, bounds: bounds).fill()
-        Palette.hairline.setFill()
-        NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
-
-        let font = NSFont.systemFont(ofSize: 10.5)
-        let markFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
-        var x: CGFloat = 16
-        let y = bounds.minY + 5
-
-        // The mark drawn in its own colour, immediately before the sentence that
-        // explains it: the legend and the thing it stands for cannot then drift apart.
-        Text.draw(Palette.mark, at: NSPoint(x: x, y: y - 1), font: markFont,
-                  color: Palette.inferred)
-        x += Text.width(Palette.mark, font: markFont)
-        Text.draw(InferenceNote.sentence, at: NSPoint(x: x, y: y), font: font,
-                  color: NSColor.labelColor.withAlphaComponent(hovering ? 0.95 : 0.70))
-        x += Text.width(InferenceNote.sentence, font: font) + 10
-
-        // Saying what happens if you click, because nothing else here does. A line of
-        // prose that silently responds to a click is a secret, not an affordance.
-        Text.draw(InferenceNote.affordance, at: NSPoint(x: x, y: y), font: font,
-                  color: Palette.inferred)
-        let underline = NSRect(x: x, y: y - 2,
-                               width: Text.width(InferenceNote.affordance, font: font),
-                               height: 1)
-        Palette.inferred.withAlphaComponent(hovering ? 0.9 : 0.45).setFill()
-        underline.fill()
-    }
-
-    override func accessibilityLabel() -> String? {
-        "About measured and inferred readings"
-    }
-    override func accessibilityHelp() -> String? { InferenceNote.explanation }
-    override func isAccessibilityElement() -> Bool { true }
-    override func accessibilityRole() -> NSAccessibility.Role? { .button }
-    override func accessibilityPerformPress() -> Bool {
-        showExplanation()
-        return true
-    }
-}
-
 final class RootView: NSView, NSSplitViewDelegate {
     let usbList = TrafficListView()
     let netList = TrafficListView()
@@ -311,7 +130,6 @@ final class RootView: NSView, NSSplitViewDelegate {
     let columnsSplit = NSSplitView()
     let outerSplit = NSSplitView()
     private let magnifier = MagnifierView()
-    private let inferenceNote = InferenceNote()
     /// Mirrors the monitor's sampling interval so the chart can state its time span.
     var sampleInterval: TimeInterval = 1
     /// Which row the card is showing, so it can be refreshed on every sample rather
@@ -332,10 +150,12 @@ final class RootView: NSView, NSSplitViewDelegate {
                                          action: nil)
     let intervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let inactiveToggle = NSButton(checkboxWithTitle: "Show all", target: nil, action: nil)
-    /// The colour key, at the top-left corner where a legend is looked for. The line
-    /// along the bottom says the same thing in words; this is the one you can find
-    /// without reading anything.
-    let legendButton = NSButton(title: "\u{2248}", target: nil, action: nil)
+    /// The colour key, at the top-left corner where a legend is looked for, and the
+    /// long explanation behind an information button beside it. Both were once a line
+    /// of prose along the bottom of the window, which spent a row of the interface on
+    /// something most people need to read exactly once.
+    let legendButton = NSButton(title: "\u{2248} Color key", target: nil, action: nil)
+    let infoButton = NSButton(title: "\u{24D8}", target: nil, action: nil)
     /// Re-applies the section orders. "Active first" is held rather than recomputed
     /// every second, so this is how you ask for it to be worked out again. There is
     /// one per section, sitting beside that section's sort control - a single button
@@ -343,9 +163,6 @@ final class RootView: NSView, NSSplitViewDelegate {
     /// unnoticed.
     let storageResort = NSButton(title: "⟳", target: nil, action: nil)
     let networkResort = NSButton(title: "⟳", target: nil, action: nil)
-    /// One per section, each living inside its own column beneath that column's band.
-    let storageSummary = SectionSummary(families: [.storage], inLabel: "READ", outLabel: "WRITE")
-    let networkSummary = SectionSummary(families: [.network], inLabel: "IN", outLabel: "OUT")
 
     private let headerHeight: CGFloat = 46
 
@@ -413,11 +230,6 @@ final class RootView: NSView, NSSplitViewDelegate {
         }
         usbColumn.accessory = Self.orderControls(storageResort, storageSort)
         netColumn.accessory = Self.orderControls(networkResort, networkSort)
-        // Band, then that section's totals, then its rows.
-        usbColumn.headerHeight = SectionSummary.height
-        netColumn.headerHeight = SectionSummary.height
-        usbColumn.header = storageSummary
-        netColumn.header = networkSummary
         inactiveToggle.state = UserDefaults.standard.bool(forKey: Pref.showAll) ? .on : .off
         inactiveToggle.toolTip = "Include things that are not real hardware.\n\n"
             + "Normally the lists show physical devices only. A VPN tunnel or a bridge "
@@ -434,12 +246,25 @@ final class RootView: NSView, NSSplitViewDelegate {
         legendButton.target = self
         legendButton.action = #selector(showLegend)
         legendButton.attributedTitle = NSAttributedString(
-            string: "\u{2248}",
+            string: "\u{2248} Color key",
             attributes: [.foregroundColor: Palette.inferred,
-                         .font: NSFont.systemFont(ofSize: 13, weight: .semibold)])
-        legendButton.toolTip = "What the colours mean.\n\n"
+                         .font: NSFont.systemFont(ofSize: 11, weight: .medium)])
+        legendButton.toolTip = "What the colors mean.\n\n"
             + "Anything marked \u{2248} was worked out from a measurement rather than "
             + "measured, and is drawn in violet."
+
+        infoButton.bezelStyle = .rounded
+        infoButton.controlSize = .small
+        infoButton.refusesFirstResponder = true
+        infoButton.target = self
+        infoButton.action = #selector(showInferenceHelp)
+        // Drawn as a glyph rather than NSImage(named: .infoName): that image is tiny
+        // and pale at this size, and next to a labelled button it read as a smudge.
+        infoButton.attributedTitle = NSAttributedString(
+            string: "\u{24D8}",
+            attributes: [.foregroundColor: NSColor.secondaryLabelColor,
+                         .font: NSFont.systemFont(ofSize: 13, weight: .regular)])
+        infoButton.toolTip = "Which readings are measured and which are worked out."
 
         columnsSplit.dividerStyle = .thin
         columnsSplit.delegate = self
@@ -488,8 +313,8 @@ final class RootView: NSView, NSSplitViewDelegate {
         }
 
         addSubview(outerSplit)
-        addSubview(inferenceNote)
         addSubview(legendButton)
+        addSubview(infoButton)
         addSubview(unitControl)
         addSubview(intervalPopup)
         addSubview(inactiveToggle)
@@ -572,7 +397,9 @@ final class RootView: NSView, NSSplitViewDelegate {
         if let monitor = escapeMonitor { NSEvent.removeMonitor(monitor) }
     }
 
-    @objc func showLegend(_ sender: Any?) { InferenceNote.explain() }
+    @objc func showLegend(_ sender: Any?) { LegendView.showKey() }
+
+    @objc func showInferenceHelp(_ sender: Any?) { LegendView.explain() }
 
     /// Which row's card is being held open, if any.
     ///
@@ -685,8 +512,10 @@ final class RootView: NSView, NSSplitViewDelegate {
             return x - width
         }
 
-        legendButton.frame = NSRect(x: 16, y: top - headerHeight + (headerHeight - 22) / 2,
-                                    width: 34, height: 22)
+        let rowY = top - headerHeight + (headerHeight - 22) / 2
+        let legendWidth = max(88, legendButton.fittingSize.width)
+        legendButton.frame = NSRect(x: 16, y: rowY, width: legendWidth, height: 22)
+        infoButton.frame = NSRect(x: 16 + legendWidth + 6, y: rowY, width: 26, height: 22)
 
         var cursor = bounds.maxX - 16
         let unitSize = unitControl.fittingSize
@@ -696,10 +525,8 @@ final class RootView: NSView, NSSplitViewDelegate {
         _ = place(inactiveToggle, rightOf: cursor,
                   width: toggleSize.width, height: toggleSize.height)
 
-        inferenceNote.frame = NSRect(x: 0, y: 0, width: bounds.width,
-                                     height: InferenceNote.height)
-        outerSplit.frame = NSRect(x: 0, y: InferenceNote.height, width: bounds.width,
-                                  height: max(0, top - headerHeight - 1 - InferenceNote.height))
+        outerSplit.frame = NSRect(x: 0, y: 0, width: bounds.width,
+                                  height: max(0, top - headerHeight - 1))
     }
 }
 
@@ -845,7 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc func showLegend(_ sender: Any?) { InferenceNote.explain() }
+    @objc func showLegend(_ sender: Any?) { LegendView.showKey() }
 
     @objc func showSetup(_ sender: Any?) {
         if setupWindow == nil { setupWindow = SetupWindowController() }
@@ -1038,17 +865,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         root.usbList.unit = unit
         root.netList.unit = unit
-        root.storageSummary.unit = unit
-        root.networkSummary.unit = unit
 
-        root.networkSummary.down = monitor.totalDown
-        root.networkSummary.up = monitor.totalUp
-        root.networkSummary.downHist = monitor.totalDownHist
-        root.networkSummary.upHist = monitor.totalUpHist
-        root.storageSummary.down = monitor.usbTotalDown
-        root.storageSummary.up = monitor.usbTotalUp
-        root.storageSummary.downHist = monitor.usbDownHist
-        root.storageSummary.upHist = monitor.usbUpHist
 
         root.usbList.update(monitor.usbRows)
         root.usbList.emptyMessage = "No storage devices"
@@ -1063,8 +880,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // devices are the thing that actually arrives unannounced.
         growForContent(rowCount: monitor.usbRows.count)
         root.refreshMagnifier(from: monitor.usbRows + monitor.networkRows)
-        root.storageSummary.needsDisplay = true
-        root.networkSummary.needsDisplay = true
         root.needsLayout = true
     }
 }
