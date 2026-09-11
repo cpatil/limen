@@ -43,6 +43,28 @@ enum Fmt {
         scale(value, units: ["B", "KB", "MB", "GB", "TB", "PB"], divisor: 1000)
     }
 
+    /// The filesystem as people name it, not as statfs spells it.
+    ///
+    /// "msdos" becomes FAT rather than FAT32: the kernel reports one name for both
+    /// FAT16 and FAT32, so the version would be a guess dressed as a reading.
+    static func fsName(_ raw: String) -> String {
+        switch raw.lowercased() {
+        case "": return ""
+        case "apfs": return "APFS"
+        case "hfs": return "Mac OS Extended"
+        case "exfat": return "exFAT"
+        case "msdos": return "FAT"
+        case "ntfs": return "NTFS"
+        case "smbfs": return "SMB share"
+        case "nfs": return "NFS share"
+        case "afpfs": return "AFP share"
+        case "webdav": return "WebDAV"
+        case "cd9660": return "ISO 9660"
+        case "udf": return "UDF"
+        default: return raw.uppercased()
+        }
+    }
+
     /// Link capability is conventionally quoted in bits regardless of the rate unit toggle.
     static func linkSpeed(bitsPerSec: UInt64) -> String {
         guard bitsPerSec > 0 else { return "" }

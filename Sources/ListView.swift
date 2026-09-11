@@ -246,6 +246,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if !row.mediumClass.isEmpty {
             parts.append("card type inferred from capacity: " + row.mediumClass)
         }
+        if !Fmt.fsName(row.fsType).isEmpty {
+            parts.append("formatted as " + Fmt.fsName(row.fsType))
+        }
         if !row.volumes.isEmpty { parts.append(row.volumes.joined(separator: ", ")) }
         if row.indexingWorthReporting {
             parts.append(row.indexingDisabled
@@ -914,6 +917,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // comparison: both of those were already full, and this one is empty on most
         // rows. It is drawn separately from the rest so the warning can stay red.
         var footerX = textLeft
+        // What the volume is formatted as. A measurement - statfs reports it - so it
+        // is stated plainly, in the ordinary text colour, with no mark.
+        let format = Fmt.fsName(row.fsType)
+        if !format.isEmpty {
+            Text.draw(format, at: NSPoint(x: footerX, y: rect.minY + 68), font: totalFont,
+                      color: NSColor.secondaryLabelColor)
+            footerX += Text.width(format, font: totalFont) + 10
+        }
         if row.indexingWorthReporting {
             let note = row.indexingDisabled ? "Spotlight off" : "Spotlight not blocked"
             Text.draw(note, at: NSPoint(x: footerX, y: rect.minY + 68), font: totalFont,

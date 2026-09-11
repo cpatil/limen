@@ -179,6 +179,9 @@ final class MagnifierView: NSView {
             identity.append(row.volumes.joined(separator: ", "))
         }
         if identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
+        // What it is formatted as belongs with what it is, not among its rates.
+        let format = Fmt.fsName(row.fsType)
+        if !format.isEmpty { identity.append(format) }
         return identity.joined(separator: "  ·  ")
     }
 

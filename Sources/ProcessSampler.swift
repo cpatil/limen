@@ -210,7 +210,11 @@ enum ProcessSampler {
             let on = withUnsafeBytes(of: &entry.f_mntonname) { raw -> String in
                 String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
             }
-            guard on.hasPrefix("/Volumes") else { continue }
+            // Every mount, not just /Volumes. The filesystem is a fact about any
+            // device Limen shows, and the boot drive - which is mounted at / and
+            // under /System/Volumes - was the one row that could never say what it
+            // was formatted as. Same filter, same mistake, as the one that left the
+            // internal drive with no capacity gauge.
             let fs = withUnsafeBytes(of: &entry.f_fstypename) { raw -> String in
                 String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
             }

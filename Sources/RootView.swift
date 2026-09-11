@@ -372,10 +372,7 @@ final class RootView: NSView, NSSplitViewDelegate {
         legendButton.refusesFirstResponder = true
         legendButton.target = self
         legendButton.action = #selector(showLegend)
-        legendButton.attributedTitle = NSAttributedString(
-            string: "\u{2248} Color key",
-            attributes: [.foregroundColor: Palette.inferred,
-                         .font: NSFont.systemFont(ofSize: 11, weight: .medium)])
+        legendButton.attributedTitle = RootView.legendTitle()
         legendButton.toolTip = "What the colors mean.\n\n"
             + "Anything marked \u{2248} was worked out from a measurement rather than "
             + "measured, and is drawn in violet."
@@ -488,6 +485,15 @@ final class RootView: NSView, NSSplitViewDelegate {
 
     override var isFlipped: Bool { false }
 
+    /// The violet in the button's title is resolved once, when the title is built, so
+    /// switching appearance would otherwise leave the light-mode colour on a dark
+    /// button. Everything else here is drawn each time and adapts on its own.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        legendButton.attributedTitle = RootView.legendTitle()
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         Palette.canvas.setFill()
         dirtyRect.fill()
@@ -521,6 +527,24 @@ final class RootView: NSView, NSSplitViewDelegate {
 
     deinit {
         if let monitor = escapeMonitor { NSEvent.removeMonitor(monitor) }
+    }
+
+    /// The mark in its own colour, the words in the ordinary one.
+    ///
+    /// The whole title was violet, and violet text inside a button bezel reads as a
+    /// disabled control - next to "Show all" in plain white it looked like something
+    /// that could not be clicked. The colour belongs on the mark, which is what the
+    /// button is about; the label is a label.
+    static func legendTitle() -> NSAttributedString {
+        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        let title = NSMutableAttributedString(
+            string: "\u{2248}",
+            attributes: [.foregroundColor: Palette.inferred,
+                         .font: NSFont.systemFont(ofSize: 12, weight: .semibold)])
+        title.append(NSAttributedString(
+            string: " Color key",
+            attributes: [.foregroundColor: NSColor.labelColor, .font: font]))
+        return title
     }
 
     @objc func showLegend(_ sender: Any?) { LegendWindow.show(.colors) }

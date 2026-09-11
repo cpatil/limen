@@ -854,6 +854,28 @@ check("log: and still uses the width it has in a narrow window",
 check("log: never narrower than something can be drawn in",
       HistoryItem.adviceWidth(40) >= 80)
 
+// The filesystem as people name it. "msdos" covers both FAT16 and FAT32 in the
+// kernel's vocabulary, so naming a version would be a guess wearing a reading's
+// clothes - the same habit the whole inference code exists to prevent.
+check("format: apfs is APFS", Fmt.fsName("apfs") == "APFS")
+check("format: hfs is named the way Disk Utility names it",
+      Fmt.fsName("hfs") == "Mac OS Extended")
+check("format: exfat keeps its lower-case e", Fmt.fsName("exfat") == "exFAT")
+check("format: msdos does not claim a version", Fmt.fsName("msdos") == "FAT")
+check("format: a network mount says so", Fmt.fsName("smbfs") == "SMB share")
+check("format: an unknown type is passed through rather than dropped",
+      Fmt.fsName("zfs") == "ZFS")
+check("format: nothing in, nothing out", Fmt.fsName("").isEmpty)
+
+// The boot drive is mounted at / and under /System/Volumes, never under /Volumes,
+// which is why it was the one row that could not say what it was formatted as.
+do {
+    let traits = ProcessSampler.volumeTraits()
+    check("format: the mount table covers the boot volume too",
+          traits["/"] != nil || traits.keys.contains { !$0.hasPrefix("/Volumes") },
+          "\(traits.keys.sorted().prefix(4))")
+}
+
 // A view smaller than the region AppKit asks it to refresh must clip to itself.
 // The card's dismiss button: drawn and hit-tested from one expression, because when
 // those are written out twice they drift and the cross stops being clickable.
@@ -947,6 +969,24 @@ check("palette (\(mode)): warning text reads better than the stock red",
         > contrast(NSColor.systemRed, Palette.canvas),
       String(format: "%.2f:1 vs %.2f:1", contrast(Palette.warning, Palette.canvas),
              contrast(NSColor.systemRed, Palette.canvas)))
+// The log's heading used to be a pale strip across a dark window, which reads as a
+// gap in the interface rather than as the frame around a section. Whatever the
+// appearance, a grey band recedes from the ground rather than standing off it.
+let greyBand = Palette.canvas.blended(
+    withFraction: Palette.headingBand(NSColor.secondaryLabelColor).alphaComponent,
+    of: Palette.headingBand(NSColor.secondaryLabelColor).withAlphaComponent(1)) ?? Palette.canvas
+check("palette (\(mode)): a grey heading band is darker than the ground it sits on",
+      luminance(greyBand) < luminance(Palette.canvas),
+      String(format: "%.3f vs %.3f", luminance(greyBand), luminance(Palette.canvas)))
+if !runningLight {
+    // Deliberately below the stock window background: a monitor is mostly ground
+    // with thin coloured lines over it, and the lines want somewhere dark to be
+    // thin against.
+    check("palette (dark): the ground is darker than the stock window background",
+          luminance(Palette.canvas) < luminance(NSColor.windowBackgroundColor),
+          String(format: "%.3f vs %.3f", luminance(Palette.canvas),
+                 luminance(NSColor.windowBackgroundColor)))
+}
 check("palette (\(mode)): the mark stays legible on its own band",
       contrast(Palette.inferred, band) >= 4.5,
       String(format: "%.2f:1", contrast(Palette.inferred, band)))

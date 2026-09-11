@@ -645,9 +645,14 @@ final class Monitor {
                 row.capacityBytes = combined.capacity
                 row.usedBytes = combined.used
             }
-            if let first = row.mountRoots.first, let t = traits[first] {
+            // Two lookups, because they answer different questions. What a device is
+            // formatted as holds wherever it is mounted; what Spotlight has been told
+            // about it is only reported for the removable volumes under /Volumes.
+            if let first = row.allMounts.first, let t = traits[first] {
                 row.fsType = t.fsType
                 row.journalWrites = t.journalWrites
+            }
+            if let first = row.mountRoots.first, let t = traits[first] {
                 row.spotlight = t.spotlight
                 row.indexingDisabled = t.neverIndex
             }

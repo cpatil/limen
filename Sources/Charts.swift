@@ -32,8 +32,12 @@ enum Palette {
     /// The band behind a section heading.
     static func headingBand(_ tint: NSColor) -> NSColor {
         guard let rgb = tint.usingColorSpace(.sRGB), rgb.saturationComponent > 0.15 else {
-            // A grey band has to be much lighter than a tinted one to weigh the same.
-            return NSColor.labelColor.withAlphaComponent(isLight ? 0.10 : 0.14)
+            // The log's heading is grey, and a grey band cannot borrow weight from a
+            // colour. On a pale ground it darkens; on a dark one it darkens further
+            // rather than lightening - a pale strip across a dark window reads as a
+            // gap in the interface rather than as the frame around a section.
+            return isLight ? NSColor.labelColor.withAlphaComponent(0.10)
+                           : NSColor.black.withAlphaComponent(0.45)
         }
         return tint.withAlphaComponent(isLight ? 0.24 : 0.18)
     }
@@ -54,7 +58,11 @@ enum Palette {
     /// for a window that stays open all day.
     static var canvas: NSColor {
         isLight ? NSColor(srgbRed: 0.902, green: 0.902, blue: 0.914, alpha: 1)
-                : NSColor.windowBackgroundColor
+                // Darker than the stock window background, which sits high enough to
+                // grey out the charts drawn on it. A monitor is mostly ground with
+                // thin coloured lines over it, and the lines want somewhere dark to
+                // be thin against.
+                : NSColor(srgbRed: 0.086, green: 0.086, blue: 0.094, alpha: 1)
     }
 
     /// A row's alternating stripe. On a grey ground it has to be a touch stronger than

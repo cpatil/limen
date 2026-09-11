@@ -65,7 +65,9 @@ final class ColumnView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         Palette.canvas.setFill()
-        dirtyRect.fill()
+        // Its own bounds, not the dirty rect: AppKit hands a subview the window's
+        // whole invalidated region, and this one is a column inside a split view.
+        Palette.paintable(dirty: dirtyRect, bounds: bounds).fill()
 
         // A banded heading with a rule under it, in the section's own colour at full
         // strength. Small grey capitals in the same field as the rows read as another
