@@ -164,7 +164,7 @@ returns byte-identical figures. Finder and `df` get it from APFS directly. For "
 full is this device" that does not matter: the container's used and free are what the
 device holds.
 
-## Transfer sessions
+## Sessions
 
 Finished copies are logged with what was measured and what it might mean. The one
 that prompted the feature, from a single 167-second window:

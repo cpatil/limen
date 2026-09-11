@@ -250,7 +250,7 @@ final class RootView: NSView, NSSplitViewDelegate {
     let historyList = HistoryView()
     private lazy var usbColumn = ColumnView(title: "STORAGE", tint: Palette.down, content: usbList)
     private lazy var netColumn = ColumnView(title: "NETWORK", tint: Palette.up, content: netList)
-    private lazy var historyColumn = ColumnView(title: "TRANSFER SESSIONS",
+    private lazy var historyColumn = ColumnView(title: "SESSIONS",
                                                 tint: NSColor.secondaryLabelColor,
                                                 content: historyList)
     /// USB beside network, with the session log underneath - all three draggable and
