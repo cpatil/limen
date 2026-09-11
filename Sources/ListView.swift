@@ -577,12 +577,37 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     /// under the end of the fill is not a second fact, it is a smudge.
     static func peakMark(in bar: NSRect, peak: Double, denominator: Double,
                          current: Double) -> NSRect? {
-        guard peak > 0, denominator > 0 else { return nil }
-        let fraction = min(1.0, peak / denominator)
+        guard peak > 0, denominator > 0, peak <= denominator else { return nil }
+        let fraction = peak / denominator
         guard fraction > current + 0.03 else { return nil }
         let x = bar.minX + bar.width * CGFloat(fraction)
         return NSRect(x: min(bar.maxX - 2, max(bar.minX, x - 1)), y: bar.minY - 2,
                       width: 2, height: bar.height + 4)
+    }
+
+    /// Whether the best this device has ever done is off the end of this scale.
+    ///
+    /// Worth its own answer rather than a tick clamped to the last pixel. Clamping
+    /// drew the mark exactly where "peaked at precisely the yardstick" would put it,
+    /// so a drive whose best is eight times the scale looked like one that had just
+    /// reached it - the reading was not merely imprecise, it was the wrong statement.
+    static func peakIsBeyond(peak: Double, denominator: Double) -> Bool {
+        peak > 0 && denominator > 0 && peak > denominator
+    }
+
+    /// A chevron at the end of the bar: "further than this scale goes".
+    static func beyondMark(in bar: NSRect) -> NSBezierPath {
+        let path = NSBezierPath()
+        let x = bar.maxX - 1
+        let mid = bar.midY
+        let h = bar.height / 2 + 2.5
+        path.move(to: NSPoint(x: x - 3.5, y: mid - h))
+        path.line(to: NSPoint(x: x + 1, y: mid))
+        path.line(to: NSPoint(x: x - 3.5, y: mid + h))
+        path.lineWidth = 1.6
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        return path
     }
 
     static func capacityGauge(in row: NSRect) -> NSRect {
@@ -863,6 +888,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                                                    current: gauge.fraction) {
                 NSColor.labelColor.withAlphaComponent(0.55).setFill()
                 mark.fill()
+            } else if TrafficListView.peakIsBeyond(peak: row.allTimePeak,
+                                                   denominator: gauge.denominatorBytes) {
+                NSColor.labelColor.withAlphaComponent(0.55).setStroke()
+                TrafficListView.beyondMark(in: bar).stroke()
             }
         }
 

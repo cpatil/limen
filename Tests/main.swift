@@ -189,14 +189,17 @@ do {
         // percentage is of, which "36% of a modern drive" does not unless you already
         // know what a modern drive does.
         check("gauge: the short label carries the figure",
-              g.label.contains("550 MB/s"), g.label)
-        check("gauge: the long one names the yardstick as well",
-              g.longLabel.contains("a modern drive") && g.longLabel.contains("550 MB/s"),
-              g.longLabel)
+              g.label.contains("GB/s"), g.label)
+        // A drive inside the machine is judged against what is inside machines, not
+        // against a mainstream SATA SSD it passes several times over.
+        check("gauge: an internal SSD is measured against an internal drive",
+              g.longLabel.contains("a modern internal drive"), g.longLabel)
+        check("gauge: and that yardstick is an NVMe one, not SATA",
+              !g.longLabel.contains("550 MB/s"), g.longLabel)
         check("gauge: never against the device's own past",
               !g.label.contains("peak"), g.label)
-        check("gauge: 200 of ~550 is about a third",
-              g.fraction > 0.25 && g.fraction < 0.45, String(format: "%.2f", g.fraction))
+        check("gauge: 200 MB/s is a small share of an NVMe yardstick",
+              g.fraction > 0.01 && g.fraction < 0.10, String(format: "%.2f", g.fraction))
     } else {
         check("gauge: a known class produces a bar", false)
     }
@@ -237,6 +240,18 @@ do {
                           peak: 1_390_000, linkBits: 0, linkTrusted: false,
                           families: [.storage], roles: ["card"],
                           hasKnownClass: true) != nil)
+    // The narrowing is for internal media only. A card in a reader is still measured
+    // against cards, and a portable drive on a cable against drives - judging either
+    // against an internal NVMe would be the same category error in the other direction.
+    if let card = bar(45_000_000, link: 0, trusted: false, roles: ["card"]) {
+        check("gauge: a card is judged against a modern card",
+              card.longLabel.contains("a modern card"), card.longLabel)
+        check("gauge: 45 of 90 MB/s is half",
+              card.fraction > 0.45 && card.fraction < 0.55,
+              String(format: "%.2f", card.fraction))
+    } else {
+        check("gauge: a card produces a bar", false)
+    }
     // The whole point of a fixed yardstick: two very different rates on the same kind
     // of device must be judged against the same denominator. A yardstick picked by the
     // rate gave both of them "about 100%" and told you nothing.
@@ -836,12 +851,21 @@ do {
     check("peak mark: but drawn once there is clear space between them",
           TrafficListView.peakMark(in: bar, peak: modernDrive / 2,
                                    denominator: modernDrive, current: 0.40) != nil)
-    // A device that has once exceeded the yardstick pins to the end, not past it.
-    if let mark = TrafficListView.peakMark(in: bar, peak: modernDrive * 4,
-                                           denominator: modernDrive, current: 0) {
-        check("peak mark: stays inside the bar when the peak exceeds the yardstick",
-              mark.maxX <= bar.maxX)
-    }
+    // A peak past the end of the scale gets a chevron, not a tick. Clamping drew the
+    // mark exactly where "peaked at precisely the yardstick" would put it, so a drive
+    // whose best is four times the scale looked like one that had just reached it -
+    // not an imprecise reading but the wrong statement.
+    check("peak mark: no tick for a peak the scale cannot hold",
+          TrafficListView.peakMark(in: bar, peak: modernDrive * 4,
+                                   denominator: modernDrive, current: 0) == nil)
+    check("peak mark: it is reported as beyond the scale instead",
+          TrafficListView.peakIsBeyond(peak: modernDrive * 4, denominator: modernDrive))
+    check("peak mark: a peak inside the scale is not",
+          !TrafficListView.peakIsBeyond(peak: modernDrive / 2, denominator: modernDrive))
+    check("peak mark: and exactly at the scale is still a tick, not a chevron",
+          !TrafficListView.peakIsBeyond(peak: modernDrive, denominator: modernDrive)
+            && TrafficListView.peakMark(in: bar, peak: modernDrive,
+                                        denominator: modernDrive, current: 0) != nil)
 }
 
 // Wrapping a paragraph to the whole window put about 170 characters on a line. The

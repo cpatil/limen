@@ -217,7 +217,16 @@ final class MagnifierView: NSView {
         // From the transfer log, so it outlives the run - and outlives the device
         // being idle all afternoon, which is what made "peak" alone misleading.
         if row.allTimePeak > row.peak {
-            out.append(Stat(label: "BEST EVER", value: Fmt.rate(row.allTimePeak, unit: unit),
+            // How far past the bar's own scale that sits, when it does. The chevron on
+            // the bar says "further than this goes"; the label says how much further.
+            var label = "BEST EVER"
+            if let gauge = usage(row),
+               TrafficListView.peakIsBeyond(peak: row.allTimePeak,
+                                            denominator: gauge.denominatorBytes) {
+                label += String(format: " \u{00B7} %.1f\u{00D7} THE SCALE",
+                                row.allTimePeak / gauge.denominatorBytes)
+            }
+            out.append(Stat(label: label, value: Fmt.rate(row.allTimePeak, unit: unit),
                             colour: NSColor.labelColor))
         }
         return out

@@ -164,7 +164,7 @@ enum Catalogue {
     /// of its headline number before any protocol framing.
     static let builtInJSON = """
     {
-      "version": 8,
+      "version": 9,
       "updated": "2026-09-08",
       "entries": [
         {
@@ -492,8 +492,9 @@ enum Catalogue {
           "family": "storage",
           "role": "disk",
           "upgrade": "NVMe SSD (Gen 5)",
-          "kind": "ssd"
-        },
+          "kind": "ssd",
+      "mainstream": true
+    },
         {
           "name": "NVMe SSD (Gen 5)",
           "line": 128000000000.0,

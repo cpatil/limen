@@ -67,16 +67,41 @@ enum Reference {
     /// obvious thing, and what this used to do - produces a denominator chosen by the
     /// number it is meant to judge, so the answer is always "about 100% of itself" and
     /// the name it reports is whatever the device happened to be doing at the time.
-    static func modern(roles: [String]?, families: [SpeedRef.Family]?) -> SpeedRef? {
+    static func modern(roles: [String]?, families: [SpeedRef.Family]?,
+                       kinds: [String]? = nil, internalMedium: Bool = false) -> SpeedRef? {
         guard let role = roles?.first, let family = families?.first else { return nil }
+        // A drive inside the machine is judged against what is inside machines today.
+        // "A modern drive" meant a mainstream SATA SSD at 550 MB/s, so an internal
+        // NVMe read 0% of a yardstick it passes eight times over, and its best-ever
+        // mark sat pinned to the end of the bar as though it had only just reached it.
+        //
+        // Narrowed only for internal media, and only by what the system reported the
+        // medium to be. A portable drive on a cable is limited by the cable, and
+        // measuring it against an internal NVMe would be the same category error in
+        // the other direction.
+        if internalMedium, let kinds = kinds, !kinds.isEmpty {
+            let inside = ladder(role: role, family: family).filter {
+                kinds.contains($0.kind ?? "") && $0.mount != "external"
+            }
+            // The fastest of the entries flagged mainstream, not the slowest: the
+            // ladder is ordered slowest-first, and inside a machine the slowest thing
+            // still called mainstream is a decade old.
+            if let best = inside.last(where: { $0.mainstream == true }) { return best }
+        }
         return mainstream(role: role, family: family)
     }
 
+    /// True when this row is judged against what is inside machines rather than what
+    /// is sold to plug into them.
+    static func modernIsInternal(kinds: [String]?, internalMedium: Bool) -> Bool {
+        internalMedium && !(kinds ?? []).isEmpty
+    }
+
     /// What to call that yardstick in a sentence.
-    static func modernNoun(role: String?) -> String {
+    static func modernNoun(role: String?, internal isInternal: Bool = false) -> String {
         switch role {
         case "card": return "a modern card"
-        case "disk": return "a modern drive"
+        case "disk": return isInternal ? "a modern internal drive" : "a modern drive"
         default: return "a modern device of this kind"
         }
     }
@@ -325,10 +350,13 @@ enum Reference {
         // it flash in and out once a second, taking the label and the row's layout
         // with it - and an idle device is a reading, not an absence of one.
         guard hasKnownClass,
-              let ref = modern(roles: roles, families: families),
+              let ref = modern(roles: roles, families: families,
+                               kinds: kinds, internalMedium: internalMedium),
               ref.payloadBytes > 0
         else { return nil }
-        let noun = modernNoun(role: roles?.first)
+        let noun = modernNoun(role: roles?.first,
+                              internal: modernIsInternal(kinds: kinds,
+                                                         internalMedium: internalMedium))
         let ratio = current / ref.payloadBytes
         let fraction = min(1.0, ratio)
         let yardstick = Fmt.rate(ref.payloadBytes, unit: .bytes)
