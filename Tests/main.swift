@@ -197,6 +197,50 @@ do {
           ProcessSampler.combinedSpace(of: ["/Volumes/x"], in: odd)?.used == 100)
 }
 
+// ---- small files over a share ----------------------------------------------------
+// The same stop-start pattern costs far more over a network share than locally: each
+// file is an open, a lookup, an attribute exchange and a close, and each of those is a
+// round trip that takes the same time whether the file is 4 KB or 4 MB.
+do {
+    func session(_ id: String, section: String, device: String,
+                 bytes: UInt64, peak: Double, seconds: Double) -> TransferSession {
+        let began = Date(timeIntervalSince1970: 2000)
+        return TransferSession(id: id, device: device, section: section, started: began,
+                               ended: began.addingTimeInterval(seconds),
+                               bytesRead: section == "Network" ? 0 : bytes,
+                               bytesWritten: section == "Network" ? bytes : 0,
+                               peakRate: peak, linkBits: 0, linkTrusted: false,
+                               removable: section != "Network", physical: true,
+                               wireless: false, processes: [], volumes: ["sd-19"],
+                               volumeID: "CARD-1")
+    }
+    // A stop-start card read: 1 GB in 100 s, averaging a fifth of its peak.
+    let card = session("a", section: "USB", device: "Reader",
+                       bytes: 1_000_000_000, peak: 50_000_000, seconds: 100)
+    let wire = session("b", section: "Network", device: "en0",
+                       bytes: 1_000_000_000, peak: 60_000_000, seconds: 100)
+    let routes = Analysis.routes(from: [card, wire])
+    let group = Analysis.Group(key: "k", device: "Reader", section: "USB",
+                               volumes: ["sd-19"], sessions: [card])
+    let note = Analysis.networkSmallFiles(for: group, routes: routes)
+    check("share: a stop-start copy that went over the wire says so",
+          note.contains("en0") && note.contains("round trip per file"), note)
+    check("share: and names the remedy",
+          note.contains("archive or disk image"), note)
+
+    // The same copy with no network counterpart gets the general advice instead.
+    let alone = Analysis.networkSmallFiles(for: group, routes: [:])
+    check("share: a local copy is not blamed on a share", alone.isEmpty)
+
+    // A copy running near its peak has no pattern to explain.
+    let fast = session("c", section: "USB", device: "Reader",
+                       bytes: 5_000_000_000, peak: 52_000_000, seconds: 100)
+    let steadyGroup = Analysis.Group(key: "k", device: "Reader", section: "USB",
+                                     volumes: ["sd-19"], sessions: [fast])
+    check("share: a steady copy is left alone",
+          Analysis.networkSmallFiles(for: steadyGroup, routes: routes).isEmpty)
+}
+
 // ---- what the allocation unit costs ----------------------------------------------
 // Two questions with opposite answers. Space: a 256 KB unit means a 10 KB file
 // occupies 256 KB, and a card of small files loses most of itself to slack. Time: the

@@ -38,9 +38,14 @@ enum HistoryItem {
     /// were barely visible on the log's own background.
     static func advice(for group: Analysis.Group) -> [Advice] {
         var out: [Advice] = []
+        // The network version replaces the general one: both describe the same
+        // stop-start pattern, and saying it twice with one of them more specific reads
+        // as two findings rather than one.
+        let overNetwork = Analysis.networkSmallFiles(for: group, routes: HistoryView.routes)
         for text in [Analysis.recommendation(for: group),
                      Analysis.hostNote(for: group),
-                     Analysis.pattern(for: group)] where !text.isEmpty {
+                     overNetwork.isEmpty ? Analysis.pattern(for: group) : overNetwork]
+                where !text.isEmpty {
             out.append(Advice(text: Palette.marked(text), colour: Palette.inferred))
         }
         // What the format is costing, where the card said what it was formatted with.

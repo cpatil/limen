@@ -488,6 +488,37 @@ enum Analysis {
     }
 
     /// A short note on how the copies themselves behaved, when that is the real story.
+    /// The same small-file pattern, but the copy went over a network share - where it
+    /// costs far more than it does locally.
+    ///
+    /// A share pays for every file separately: an open, a lookup, an attribute
+    /// exchange and a close, each a round trip over the wire, and a round trip takes
+    /// the same time whether the file is 4 KB or 4 MB. Locally that overhead is
+    /// microseconds; over SMB it is milliseconds, and a directory of ten thousand
+    /// small files spends nearly all of its time waiting rather than moving bytes.
+    ///
+    /// Inferred twice over, so it is marked: that the stop-start shape means small
+    /// files, and that the paired network session is this copy's other end rather than
+    /// something that happened to be running at the same time.
+    static func networkSmallFiles(for group: Group, routes: [String: Route]) -> String {
+        let steady = group.sessions.filter { $0.peakRate > 0 }
+            .map { $0.averageRate / $0.peakRate }
+        guard !steady.isEmpty else { return "" }
+        let mean = steady.reduce(0, +) / Double(steady.count)
+        guard mean < 0.45 else { return "" }
+        // Only when at least one of these copies was paired with network traffic.
+        let overNetwork = group.sessions.compactMap { routes[$0.id] }
+        guard let route = overNetwork.first else { return "" }
+        return String(format: "These went over %@, and a share pays a round trip per "
+                      + "file - an open, a lookup, an attribute exchange, a close - "
+                      + "which costs the same whether the file is 4 KB or 4 MB. "
+                      + "Locally that is microseconds; over a share it is "
+                      + "milliseconds, so a tree of small files spends its time "
+                      + "waiting rather than moving bytes. One archive or disk image "
+                      + "copies as a single stream and avoids all of it.",
+                      route.network.device)
+    }
+
     static func pattern(for group: Group) -> String {
         let steady = group.sessions.filter { $0.peakRate > 0 }
             .map { $0.averageRate / $0.peakRate }
