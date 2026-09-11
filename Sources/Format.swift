@@ -43,6 +43,27 @@ enum Fmt {
         scale(value, units: ["B", "KB", "MB", "GB", "TB", "PB"], divisor: 1000)
     }
 
+    /// How long ago, for anything inside a day - or nil, when a clock time is the
+    /// more useful answer.
+    ///
+    /// "10 Sep 21:38" makes you work out what that means relative to now, which for
+    /// something that happened while you were watching is the wrong way round. Past a
+    /// day the reverse is true: "31 h ago" is arithmetic you did not ask for, and the
+    /// date is what you would want to write down.
+    static func relative(_ date: Date, now: Date = Date()) -> String? {
+        let seconds = now.timeIntervalSince(date)
+        // A session stamped slightly in the future - a clock adjustment mid-transfer -
+        // is not "in 3 seconds", it is now.
+        guard seconds < 24 * 3600 else { return nil }
+        guard seconds >= 60 else { return "just now" }
+        let minutes = Int(seconds / 60)
+        if minutes < 60 {
+            return "\(minutes) min ago"
+        }
+        let hours = Int(seconds / 3600)
+        return "\(hours) h ago"
+    }
+
     /// The filesystem as people name it, not as statfs spells it.
     ///
     /// "msdos" becomes FAT rather than FAT32: the kernel reports one name for both

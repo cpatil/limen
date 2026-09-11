@@ -187,7 +187,10 @@ final class HistoryView: NSView {
                     value += ". " + advice
                 }
             case .session(let s):
-                label = HistoryView.clock.string(from: s.started) + ", "
+                // Spoken with both, since "17 min ago" read out of context tells you
+                // nothing about when that was.
+                label = (Fmt.relative(s.started).map { $0 + ", " } ?? "")
+                    + HistoryView.clock.string(from: s.started) + ", "
                     + (s.volumes.first ?? s.device) + ", " + Fmt.bytes(Double(s.total))
                 let verdict = Analysis.verdict(for: s)
                 value = "average \(Fmt.rate(s.averageRate, unit: unit)), "
@@ -414,7 +417,9 @@ final class HistoryView: NSView {
         let bigFont = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .medium)
         let right = rect.maxX - 16
 
-        var line = HistoryView.clock.string(from: s.started) + "  ·  " + duration(s.duration)
+        // Relative while it is still today's business, absolute once it is history.
+        let when = Fmt.relative(s.started) ?? HistoryView.clock.string(from: s.started)
+        var line = when + "  ·  " + duration(s.duration)
         // Repeat the volume here: the group heading scrolls away, and "which card was
         // that" is the first thing you want from a row.
         if !s.volumes.isEmpty { line += "  ·  " + s.volumes.joined(separator: ", ") }

@@ -136,6 +136,28 @@ check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
 
+// ---- when a session happened ---------------------------------------------------
+// A clock time makes you work out what it means relative to now, which for something
+// that happened while you were watching is the wrong way round. Past a day the
+// reverse holds: "31 h ago" is arithmetic nobody asked for.
+do {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    func ago(_ seconds: Double) -> String? {
+        Fmt.relative(now.addingTimeInterval(-seconds), now: now)
+    }
+    check("when: seconds ago is just now", ago(5) == "just now")
+    check("when: under a minute is still just now", ago(59) == "just now")
+    check("when: minutes are counted", ago(17 * 60) == "17 min ago")
+    check("when: an hour is not 60 min", ago(3600) == "1 h ago")
+    check("when: hours are counted", ago(5 * 3600) == "5 h ago")
+    check("when: just inside a day is still relative", ago(23.9 * 3600) != nil)
+    check("when: past a day it hands back to the clock", ago(25 * 3600) == nil)
+    // A session stamped slightly in the future - a clock adjustment mid-transfer -
+    // is not "in three seconds".
+    check("when: a future stamp reads as now",
+          Fmt.relative(now.addingTimeInterval(3), now: now) == "just now")
+}
+
 // ---- what the log keeps --------------------------------------------------------
 // One global cap meant the busiest device evicted every other. On this machine 342
 // of 500 entries were the boot disk and 151 were Wi-Fi, so the card reader - the
