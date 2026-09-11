@@ -149,6 +149,24 @@ check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
 
+// ---- ejecting --------------------------------------------------------------------
+// macOS refuses a busy volume with "it is in use" and does not say by what. This app
+// has been watching which processes hold files open there, so it can finish the
+// sentence - that is the whole value of saying it here rather than in Finder.
+do {
+    let plain = TrafficListView.ejectFailure(name: "sd-19",
+                                             reason: "The disk is in use.", holders: [])
+    check("eject: the failure names the card and repeats what macOS said",
+          plain.contains("sd-19") && plain.contains("in use"), plain)
+    check("eject: with nothing to add when nothing was seen",
+          !plain.contains("last saw"), plain)
+
+    let blamed = TrafficListView.ejectFailure(name: "sd-19", reason: "The disk is in use.",
+                                              holders: ["Finder", "mds_stores"])
+    check("eject: and names who was holding it when it knows",
+          blamed.contains("Finder, mds_stores"), blamed)
+}
+
 // ---- what belongs in the storage list --------------------------------------------
 // The subject is what holds the data. A hub and an empty reader are how it is
 // attached, which the card's own row already says in its badge - listing them as well

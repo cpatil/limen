@@ -408,9 +408,25 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // Out of sight, still counted. Offered on every row, and the same item takes
         // it back - "Show all hidden rows" in the View menu finds them again if the
         // row itself is no longer on screen to right-click.
+        // Ejecting, for the thing this app is mostly pointed at: a card you are about
+        // to pull out. Offered where the card is, rather than sending you to Finder to
+        // find the same volume under a different name.
+        if row.removable, !row.mountRoots.isEmpty {
+            let eject = NSMenuItem(title: "Eject \u{201C}\(row.headline)\u{201D}",
+                                   action: #selector(ejectVolumes(_:)), keyEquivalent: "")
+            eject.target = self
+            eject.representedObject = EjectRequest(name: row.headline,
+                                                   mounts: row.mountRoots,
+                                                   active: row.active,
+                                                   holders: row.actors.map { $0.display })
+            menu.addItem(eject)
+        }
+
         let hidden = Hidden.isHidden(id: row.id)
-        let hideItem = NSMenuItem(title: hidden ? "Show \u{201C}\(row.title)\u{201D} Again"
-                                                : "Hide \u{201C}\(row.title)\u{201D}",
+        // Named for what the row is called on screen. Hiding is still keyed by the
+        // device's identity - the card comes and goes, the reader's row does not.
+        let hideItem = NSMenuItem(title: hidden ? "Show \u{201C}\(row.headline)\u{201D} Again"
+                                                : "Hide \u{201C}\(row.headline)\u{201D}",
                                   action: #selector(toggleHidden(_:)), keyEquivalent: "")
         hideItem.target = self
         hideItem.representedObject = [row.id, row.title]
@@ -445,6 +461,71 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     /// Adds or removes `.metadata_never_index` at the volume root - the durable way to
     /// stop Spotlight indexing a card, and to allow it again. It needs no password,
     /// lives on the volume so it travels to any Mac, and either direction is one click.
+    /// What an eject needs to know, gathered while the row is still in hand.
+    final class EjectRequest: NSObject {
+        let name: String
+        let mounts: [String]
+        /// Moving data right now: worth a question before pulling the floor out.
+        let active: Bool
+        /// Processes Bottleneck saw holding files open here. macOS will refuse a busy
+        /// volume without saying who is holding it; this app already knows.
+        let holders: [String]
+
+        init(name: String, mounts: [String], active: Bool, holders: [String]) {
+            self.name = name
+            self.mounts = mounts
+            self.active = active
+            self.holders = holders
+        }
+    }
+
+    /// What to say when macOS refuses. Its own message is "couldn't be ejected because
+    /// it is in use", with no name attached; the processes we have been watching are
+    /// the missing half of that sentence.
+    static func ejectFailure(name: String, reason: String, holders: [String]) -> String {
+        var text = "macOS would not eject \u{201C}\(name)\u{201D}: " + reason
+        guard !holders.isEmpty else { return text }
+        text += "\n\nBottleneck last saw " + holders.joined(separator: ", ")
+            + (holders.count == 1 ? " reading or writing here." : " reading or writing here.")
+        return text
+    }
+
+    @objc private func ejectVolumes(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? EjectRequest else { return }
+
+        if request.active {
+            // Reversible in the sense that you can put the card back, and not in the
+            // sense that matters: whatever was half-written stays half-written.
+            let warn = NSAlert()
+            warn.messageText = "\u{201C}\(request.name)\u{201D} is moving data right now"
+            warn.informativeText = "Ejecting mid-transfer can leave a file half-written. "
+                + "Waiting for it to go quiet is safer."
+            warn.addButton(withTitle: "Eject Anyway")
+            warn.addButton(withTitle: "Cancel")
+            guard warn.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        var failure: String?
+        for mount in request.mounts {
+            do {
+                try NSWorkspace.shared.unmountAndEjectDevice(at: URL(fileURLWithPath: mount))
+            } catch {
+                failure = error.localizedDescription
+                break
+            }
+        }
+        if let reason = failure {
+            let alert = NSAlert()
+            alert.messageText = "Could not eject"
+            alert.informativeText = TrafficListView.ejectFailure(name: request.name,
+                                                                reason: reason,
+                                                                holders: request.holders)
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+        onVolumeChanged?()
+    }
+
     @objc private func toggleHidden(_ sender: NSMenuItem) {
         guard let pair = sender.representedObject as? [String], pair.count == 2 else { return }
         Hidden.set(id: pair[0], name: pair[1], hidden: !Hidden.isHidden(id: pair[0]))
