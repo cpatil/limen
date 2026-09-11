@@ -164,19 +164,33 @@ enum ProcessSampler {
     /// container's capacity once however many of its volumes are mounted.
     static func combinedSpace(of mounts: [String],
                               in table: [String: VolumeSpace]) -> (capacity: UInt64, used: UInt64)? {
-        // Once per container, for used as well as capacity. Mounting six volumes of
-        // one disk must not report six times its size or six times its contents.
-        var byContainer: [String: VolumeSpace] = [:]
+        // Once per container, for used as well as capacity: mounting six volumes of
+        // one APFS container must not report six times its size or six times its
+        // contents, because every one of them reports the container's figures as its
+        // own - statfs returns byte-identical numbers for all six.
+        //
+        // But "one disk" is not the same thing as "one pool of space". A partitioned
+        // HDD carrying two HFS+ volumes has two filesystems that genuinely add up, and
+        // keeping only the larger reported half the drive and one partition's
+        // contents. What separates the two cases is whether the figures are identical:
+        // shared space reports the same numbers, and separate partitions do not.
+        //
+        // The assumption this rests on: two partitions with exactly equal capacity and
+        // exactly equal bytes used would be taken for one. That is a coincidence to
+        // the byte, and the alternative - trusting the disk number alone - is wrong
+        // every time for a partitioned disk rather than almost never.
+        var seen: [String: Set<String>] = [:]
+        var capacity: UInt64 = 0
+        var used: UInt64 = 0
         for mount in mounts {
             guard let space = table[mount] else { continue }
-            if let existing = byContainer[space.container], existing.capacity >= space.capacity {
-                continue
-            }
-            byContainer[space.container] = space
+            let fingerprint = "\(space.capacity)/\(space.used)"
+            if seen[space.container]?.contains(fingerprint) == true { continue }
+            seen[space.container, default: []].insert(fingerprint)
+            capacity += space.capacity
+            used += space.used
         }
-        guard !byContainer.isEmpty else { return nil }
-        let capacity = byContainer.values.reduce(UInt64(0)) { $0 + $1.capacity }
-        let used = byContainer.values.reduce(UInt64(0)) { $0 + $1.used }
+        guard !seen.isEmpty else { return nil }
         return (capacity, min(used, capacity))
     }
 

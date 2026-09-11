@@ -165,6 +165,38 @@ do {
           drive.headline == "APPLE SSD AP1024Z" && drive.holder.isEmpty)
 }
 
+// ---- a disk with more than one volume on it --------------------------------------
+// Two shapes that look alike and are not. Several APFS volumes in one container share
+// one pool of space and each reports the whole pool as its own, so they count once. A
+// partitioned disk carrying two independent filesystems has two pools that add up.
+do {
+    func space(_ capacity: UInt64, _ used: UInt64, _ container: String)
+        -> ProcessSampler.VolumeSpace {
+        ProcessSampler.VolumeSpace(capacity: capacity, used: used, container: container)
+    }
+    // APFS: byte-identical figures, one container.
+    let apfs = ["/Volumes/a": space(1_000, 400, "disk4"),
+                "/Volumes/b": space(1_000, 400, "disk4"),
+                "/Volumes/c": space(1_000, 400, "disk4")]
+    let shared = ProcessSampler.combinedSpace(of: Array(apfs.keys), in: apfs)
+    check("space: volumes sharing a container are counted once",
+          shared?.capacity == 1_000 && shared?.used == 400,
+          "\(shared?.capacity ?? 0) / \(shared?.used ?? 0)")
+
+    // A partitioned HDD: same disk, different filesystems, different figures.
+    let split = ["/Volumes/one": space(600, 100, "disk4"),
+                 "/Volumes/two": space(400, 350, "disk4")]
+    let summed = ProcessSampler.combinedSpace(of: Array(split.keys), in: split)
+    check("space: separate partitions on one disk add up",
+          summed?.capacity == 1_000 && summed?.used == 450,
+          "\(summed?.capacity ?? 0) / \(summed?.used ?? 0)")
+
+    // And used never exceeds capacity, whatever the arithmetic.
+    let odd = ["/Volumes/x": space(100, 900, "disk9")]
+    check("space: used is never more than capacity",
+          ProcessSampler.combinedSpace(of: ["/Volumes/x"], in: odd)?.used == 100)
+}
+
 // ---- which mounts are volumes --------------------------------------------------
 // "/Volumes/..." is the obvious spelling and not the only one: with the sealed system
 // volume macOS also reports the same place under /System/Volumes/Data/Volumes. Testing
