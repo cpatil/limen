@@ -136,6 +136,32 @@ check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
 
+// ---- what a row is called --------------------------------------------------------
+// A reader is a holder; the subject is the card in it. But the log, the records and
+// the hidden list are all keyed by the device's own name, so renaming the identity
+// would split a device's history in two - presentation and identity are separate.
+do {
+    var reader = Row(id: "usb:2", title: "USB3.0 Card Reader", subtitle: "Generic", badge: "")
+    check("name: with no card, a reader is called what it is",
+          reader.headline == "USB3.0 Card Reader" && reader.holder.isEmpty)
+
+    reader.mediumClass = "SDXC 128 GB"
+    reader.volumes = ["sd-21"]
+    check("name: with a card in it, the card is the subject", reader.headline == "sd-21")
+    check("name: and the reader becomes the holder",
+          reader.holder == "USB3.0 Card Reader")
+    check("name: the identity everything is keyed by does not move",
+          reader.title == "USB3.0 Card Reader")
+
+    // A card that has not been named yet still beats naming the holder.
+    reader.volumes = []
+    check("name: an unnamed card is called by its family", reader.headline == "SDXC")
+
+    let drive = Row(id: "usb:1", title: "APPLE SSD AP1024Z", subtitle: "internal SSD", badge: "")
+    check("name: a drive is its own subject",
+          drive.headline == "APPLE SSD AP1024Z" && drive.holder.isEmpty)
+}
+
 // ---- which mounts are volumes --------------------------------------------------
 // "/Volumes/..." is the obvious spelling and not the only one: with the sealed system
 // volume macOS also reports the same place under /System/Volumes/Data/Volumes. Testing

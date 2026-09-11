@@ -240,7 +240,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     override func accessibilityRows() -> [Any]? { accessibilityChildren() }
 
     private func accessibilityName(for row: Row) -> String {
-        var parts = [row.title]
+        var parts = [row.headline]
+        if !row.holder.isEmpty { parts.append("in " + row.holder) }
         // Spelled out rather than left to the glyph: VoiceOver reads "almost equal
         // to", which is not what the mark means here.
         if !row.mediumClass.isEmpty {
@@ -351,7 +352,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     /// it presents. This is what the row clips and what hovering should reveal - not
     /// the live measurements, which are already legible beside it.
     func identity(for row: Row) -> String {
-        var parts = [row.title]
+        var parts = [row.headline]
+        if !row.holder.isEmpty { parts.append("in " + row.holder) }
         if !row.vendor.isEmpty, row.vendor != row.title { parts.append(row.vendor) }
         if !row.deviceID.isEmpty { parts.append(row.deviceID) }
         if !row.volumes.isEmpty { parts.append(row.volumes.joined(separator: ", ")) }
@@ -738,7 +740,10 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                    color: Palette.secondary.withAlphaComponent(row.active ? 0.9 : 0.45))
 
         let textLeft = TrafficListView.textLeft
-        let title = Text.clip(row.title, font: titleFont, maxWidth: textLimit - textLeft)
+        // The card, where there is one: the reader is how it is attached, and appears
+        // on the line below as "in ...". row.title stays the identity everything else
+        // is keyed by - the log, the records, the hidden list.
+        let title = Text.clip(row.headline, font: titleFont, maxWidth: textLimit - textLeft)
         Text.draw(title,
                   at: NSPoint(x: textLeft, y: rect.minY + 16),
                   font: titleFont,
@@ -772,7 +777,11 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // The card leads. When you look at a reader the question is what is in it, not
         // what it is plugged into - so its type, capacity and name come first, in their
         // own colour and at full strength.
-        let card = Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
+        // Without the card's name when that is already the row's name: a badge
+        // repeating the title says nothing twice.
+        let card = row.headline == row.volumes.first
+            ? row.mediumClass
+            : Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
         if !card.isEmpty, TrafficListView.roomFor(cursorX: cursorX, limit: textLimit) > 0 {
             // Marked, because the leading word is a deduction: a reader presents
             // itself as USB mass storage and never reports which standard the card in
@@ -808,7 +817,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // tooltip both carry it in full.
         let subtitleRoom = textLimit - cursorX
         if subtitleRoom >= 60 {
-            Text.draw(Text.clip(row.subtitle, font: subtitleFont, maxWidth: subtitleRoom),
+            Text.draw(Text.clip(row.holder.isEmpty ? row.subtitle : "in " + row.holder,
+                                font: subtitleFont, maxWidth: subtitleRoom),
                       at: NSPoint(x: cursorX, y: secondLineY + 1),
                       font: subtitleFont,
                       color: Palette.secondary)

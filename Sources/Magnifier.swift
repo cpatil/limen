@@ -357,11 +357,7 @@ final class MagnifierView: NSView {
     /// itself is how the card is attached, which is what the connection panel is for;
     /// leading with "USB3.0 Card Reader" put the holder where the contents belong and
     /// left the card as a footnote to its own row.
-    func headline(_ row: Row) -> String {
-        guard !row.mediumClass.isEmpty else { return row.title }
-        if let volume = row.volumes.first, !volume.isEmpty { return volume }
-        return row.mediumClass.split(separator: " ").first.map(String.init) ?? row.title
-    }
+    func headline(_ row: Row) -> String { row.headline }
 
     /// What to call the first panel. A reader is a holder for something else, so its
     /// panel is about the card; everything else is about itself.

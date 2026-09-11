@@ -53,6 +53,21 @@ struct Row {
     /// device is one that reads cards. Empty otherwise.
     var mediumClass: String = ""
 
+    /// What to call this row on screen, which is not always what it is filed under.
+    ///
+    /// A card reader is a holder: the subject is the card in it. The title stays the
+    /// device's own name because the session log, the records and the hidden list are
+    /// all keyed by it - renaming the identity would split a device's history in two -
+    /// so presentation and identity are separate things.
+    var headline: String {
+        guard !mediumClass.isEmpty else { return title }
+        if let volume = volumes.first, !volume.isEmpty { return volume }
+        return mediumClass.split(separator: " ").first.map(String.init) ?? title
+    }
+
+    /// The holder, named for a row whose subject is what is inside it.
+    var holder: String { mediumClass.isEmpty ? "" : title }
+
     /// Type, capacity and name in one label - "SDXC 256 GB · sd-14". Composed in one
     /// place so the row, the hover card and the tooltip cannot drift apart.
     static func cardLabel(class mediumClass: String, volumes: [String]) -> String {
