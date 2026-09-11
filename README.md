@@ -34,6 +34,11 @@ shasum -a 256 Bottleneck-universal.zip     # compare with the release notes
 xattr -dr com.apple.quarantine Bottleneck.app
 ```
 
+Without the Terminal: double-click the app, let macOS block it, then **System Settings
+▸ Privacy & Security ▸ Security ▸ Open Anyway**. The button only appears after a
+blocked attempt and is withdrawn again after a while, so open the app first.
+Control-clicking and choosing Open no longer works — macOS Sequoia removed that route.
+
 The build is reproducible: a clean checkout produces a byte-identical executable, so
 you can confirm the download matches the source rather than taking my word for it.
 

@@ -109,13 +109,22 @@ final class SetupWindowController: NSWindowController {
                  body: "Bottleneck is signed ad-hoc rather than notarised, so a downloaded "
                      + "copy carries a quarantine flag and macOS will refuse to open "
                      + "it. Building from source avoids this entirely.\n\n"
-                     + "If you did download it, the flag is cleared with:\n"
+                     + "Without the Terminal: double-click the app, let macOS block "
+                     + "it, then open System Settings \u{25B8} Privacy & Security, "
+                     + "scroll to Security, and press Open Anyway beside Bottleneck. "
+                     + "The button only appears after a blocked attempt, and not "
+                     + "indefinitely afterwards. Control-clicking the app and choosing "
+                     + "Open no longer works: macOS Sequoia removed that route.\n\n"
+                     + "Or in the Terminal, which clears the flag outright:\n"
                      + "    xattr -dr com.apple.quarantine Bottleneck.app",
                  status: {
                      Setup.isQuarantined
                          ? .problem("This copy is still quarantined.")
                          : .good("No quarantine flag on this copy.")
-                 }),
+                 },
+                 action: ("Open Privacy & Security", { _ in
+                     Setup.openSecuritySettings()
+                 })),
 
             Page(title: "Removable volumes (optional)",
                  body: "Everything Bottleneck measures works without any permission at all.\n\n"
@@ -241,6 +250,10 @@ final class SetupWindowController: NSWindowController {
     }
 
     // ---- paging ----------------------------------------------------------
+
+    /// Jumps to one page. Exposed so a page can be rendered on its own and checked
+    /// for fit without clicking through the window.
+    func goToPageForRendering(_ number: Int) { show(page: number) }
 
     private func show(page number: Int) {
         index = min(max(0, number), pages.count - 1)

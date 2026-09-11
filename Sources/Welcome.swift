@@ -89,6 +89,20 @@ enum Setup {
         if let url = URL(string: plain) { NSWorkspace.shared.open(url) }
     }
 
+    /// Opens Privacy & Security at the top, where the "Open Anyway" button appears
+    /// after macOS has blocked something.
+    ///
+    /// A different anchor from the removable-volumes one: that button lives in the
+    /// Security section of the same pane, and only after a blocked launch - macOS
+    /// shows it for about an hour afterwards and then withdraws it, which is why the
+    /// instruction has to say "try to open it first".
+    static func openSecuritySettings() {
+        let anchored = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension"
+        let plain = "x-apple.systempreferences:com.apple.preference.security"
+        if let url = URL(string: anchored), NSWorkspace.shared.open(url) { return }
+        if let url = URL(string: plain) { NSWorkspace.shared.open(url) }
+    }
+
     /// Copies the app into /Applications and restarts from there.
     static func installToApplications() -> String? {
         let source = Bundle.main.bundlePath
