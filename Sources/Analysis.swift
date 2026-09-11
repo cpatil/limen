@@ -252,10 +252,16 @@ enum Analysis {
     /// history with a slow half and a fast half - which is the comparison worth having.
     /// Everything else is filed under the device and the volumes it presented.
     static func groupKey(for session: TransferSession) -> String {
-        if session.removable == true, let id = session.volumeID, !id.isEmpty {
-            return "volume:" + id
-        }
-        return session.device + "|" + session.volumes.joined(separator: ",")
+        groupKey(device: session.device, volumes: session.volumes,
+                 volumeID: session.volumeID, removable: session.removable == true)
+    }
+
+    /// The same key from the parts, so a device on screen can be matched against the
+    /// history it does or does not have.
+    static func groupKey(device: String, volumes: [String], volumeID: String?,
+                         removable: Bool) -> String {
+        if removable, let id = volumeID, !id.isEmpty { return "volume:" + id }
+        return device + "|" + volumes.joined(separator: ",")
     }
 
     static func groups(from sessions: [TransferSession],

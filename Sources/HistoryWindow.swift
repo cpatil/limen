@@ -5,6 +5,13 @@ import Cocoa
 enum HistoryItem {
     case group(Analysis.Group, collapsed: Bool)
     case session(TransferSession)
+    /// A device that is attached right now and has no history at all.
+    ///
+    /// Its absence from this list looks exactly like a bug - the card is in the reader
+    /// and named at the top of the window, and the log does not mention it - when in
+    /// fact nothing it has done has been big enough to record. Saying so is cheaper
+    /// than being asked.
+    case waiting(name: String, note: String)
 
     struct Advice {
         let text: String
@@ -83,6 +90,7 @@ enum HistoryItem {
                 h += Text.wrappedHeight(note.text, font: font, width: textWidth) + 8
             }
             return max(60, h + 8)
+        case .waiting: return 44
         case .session(let s):
             // One more line when this session has a counterpart, so the route can be
             // stated on the row rather than left to be worked out by comparing
@@ -101,6 +109,9 @@ final class HistoryView: NSView {
     /// Which groups contain sessions from more than one device, so a session can say
     /// which reader it came through only where that varies.
     static var spanningGroups: [String: Bool] = [:]
+    /// Devices on screen right now, so the log can account for the ones it has
+    /// nothing to say about yet.
+    var attached: [Row] = []
 
     static let rowHeight: CGFloat = 66
     /// Most recent sessions shown per device; the header states the true total.
@@ -126,6 +137,24 @@ final class HistoryView: NSView {
         HistoryView.routes = Analysis.routes(from: sessions)
         HistoryView.spanningGroups = Dictionary(
             uniqueKeysWithValues: Analysis.groups(from: sessions).map { ($0.key, $0.spansDevices) })
+        // Anything attached with no history at all gets a line saying so. Its absence
+        // reads as a bug: the card is in the reader, named at the top of the window,
+        // and the log does not mention it.
+        let known = Set(sessions.map { Analysis.groupKey(for: $0) })
+        let floor = Fmt.bytes(Double(TransferLog.minimumSize))
+        let waiting: [HistoryItem] = attached.compactMap { row in
+            guard row.section != "Network", !row.volumes.isEmpty || row.removable else {
+                return nil
+            }
+            let key = Analysis.groupKey(device: row.title, volumes: row.volumes,
+                                        volumeID: row.volumeID.isEmpty ? nil : row.volumeID,
+                                        removable: row.removable)
+            guard !known.contains(key) else { return nil }
+            let name = row.holder.isEmpty ? row.headline : row.headline + "  ·  " + row.holder
+            return .waiting(name: name,
+                            note: "nothing recorded yet — transfers under \(floor) are not logged")
+        }
+
         items = Hidden.sink(Analysis.groups(from: sessions,
                                             records: TransferLog.shared.bestPeaks()),
                             name: { $0.device })
@@ -135,6 +164,8 @@ final class HistoryView: NSView {
                 + (folded ? []
                           : group.sessions.prefix(HistoryView.sessionsPerGroup).map { HistoryItem.session($0) })
         }
+        // At the end: what has happened outranks what has not.
+        items += waiting
         let width = enclosingScrollView?.contentView.bounds.width ?? frame.width
         let height = max(items.reduce(0) { $0 + $1.height(width: width) },
                          enclosingScrollView?.contentView.bounds.height ?? 0)
@@ -203,6 +234,9 @@ final class HistoryView: NSView {
                         where !advice.isEmpty {
                     value += ". " + advice
                 }
+            case .waiting(let name, let note):
+                label = name
+                value = note
             case .session(let s):
                 // Spoken with both, since "17 min ago" read out of context tells you
                 // nothing about when that was.
@@ -340,6 +374,7 @@ final class HistoryView: NSView {
                 case .group(let group, let folded):
                     draw(group: group, in: rect, collapsed: folded)
                 case .session(let session): draw(session: session, in: rect)
+                case .waiting(let name, let note): draw(waiting: name, note: note, in: rect)
                 }
             }
             y += item.height(width: bounds.width)
@@ -436,6 +471,17 @@ final class HistoryView: NSView {
             Palette.hairline.setFill()
             NSRect(x: 40, y: top + 1, width: 2, height: y - top - 9).fill()
         }
+    }
+
+    private func draw(waiting name: String, note: String, in rect: NSRect) {
+        Palette.hairline.setFill()
+        NSRect(x: 0, y: rect.minY, width: rect.width, height: 1).fill()
+        let nameFont = NSFont.systemFont(ofSize: 13, weight: .medium)
+        let metaFont = NSFont.systemFont(ofSize: 11)
+        Text.draw(name, at: NSPoint(x: 44, y: rect.minY + 8), font: nameFont,
+                  color: Palette.secondary)
+        Text.draw(note, at: NSPoint(x: 0, y: rect.minY + 10), font: metaFont,
+                  color: Palette.faint, alignRight: rect.maxX - 16)
     }
 
     private func draw(session s: TransferSession, in rect: NSRect) {

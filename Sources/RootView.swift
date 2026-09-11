@@ -1111,6 +1111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         root.netList.update(monitor.networkRows)
         root.netList.emptyMessage = "No active interfaces"
 
+        root.historyList.attached = monitor.usbRows
         root.historyList.unit = unit
         // Running sessions first, so the pane is useful while a copy is happening.
         root.historyList.sessions = TransferLog.shared.inFlight + TransferLog.shared.sessions
