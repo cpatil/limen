@@ -264,7 +264,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if let gauge = Reference.gauge(down: row.down, up: row.up,
                                        peakDirectional: row.peakDirectional, peak: row.peak,
                                        linkBits: row.linkBits, linkTrusted: row.linkTrusted) {
-            parts.append(gauge.isInferred ? "estimated " + gauge.label : gauge.label)
+            parts.append(gauge.isInferred ? "estimated " + gauge.longLabel : gauge.label)
         }
         if !row.hint.isEmpty { parts.append("inferred: " + row.hint) }
         if !row.note.isEmpty { parts.append(row.note) }
@@ -894,8 +894,13 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                                                     : Palette.faint,
                       alignRight: rightEdge)
         } else if let gauge = gauge {
-            Text.draw(Palette.marked(gauge.label),
-                      at: NSPoint(x: 0, y: rect.minY + 65),
+            // The long form where it fits, the short one where it does not. Both
+            // carry the figure; only the long one can afford to name it as well.
+            let room = rightEdge - chartRight - 4
+            let long = Palette.marked(gauge.longLabel)
+            let text = Text.width(long, font: totalFont) <= room
+                ? long : Palette.marked(gauge.label)
+            Text.draw(text, at: NSPoint(x: 0, y: rect.minY + 65),
                       font: totalFont, color: Palette.inferred, alignRight: rightEdge)
         } else if row.allTimePeak > 0 {
             Text.draw("best ever " + Fmt.rate(row.allTimePeak, unit: unit),

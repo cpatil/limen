@@ -184,8 +184,15 @@ do {
                    kinds: ["ssd"], internalMedium: true, peak: 1_090_000_000) {
         check("gauge: without a link it measures against what the class manages",
               !g.ofLink)
-        check("gauge: and names the yardstick it used",
-              g.label.contains("a modern drive"), g.label)
+        // The row has about a hundred points for this, so the short form spends them
+        // on the figure rather than the noun: "36% of 550 MB/s" tells you what the
+        // percentage is of, which "36% of a modern drive" does not unless you already
+        // know what a modern drive does.
+        check("gauge: the short label carries the figure",
+              g.label.contains("550 MB/s"), g.label)
+        check("gauge: the long one names the yardstick as well",
+              g.longLabel.contains("a modern drive") && g.longLabel.contains("550 MB/s"),
+              g.longLabel)
         check("gauge: never against the device's own past",
               !g.label.contains("peak"), g.label)
         check("gauge: 200 of ~550 is about a third",

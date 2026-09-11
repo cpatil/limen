@@ -280,6 +280,13 @@ enum Text {
         return result + "…"
     }
 
+    /// How wide `drawBadge` will make that pill. Exposed so a layout can decide
+    /// whether the line still has room before it starts drawing on it.
+    static func badgeWidth(_ string: String, font: NSFont) -> CGFloat {
+        guard !string.isEmpty else { return 0 }
+        return width(string, font: font) + 12
+    }
+
     /// A pill for the thing a row is most often read for - which standard this is.
     /// It was drawn on a hairline fill in secondary text and was the faintest element
     /// on screen despite being the most useful.

@@ -278,6 +278,11 @@ enum Reference {
         /// card read "compares this with a modern drive is around 550 MB/s. This
         /// device is not being identified. - what this class typically manages".
         let basis: String?
+        /// The same reading with the yardstick spelled out - "13% of a modern card
+        /// (90 MB/s)". `label` is the short form for a row that has about a hundred
+        /// points to spend; this is what anywhere with room should show, because a
+        /// percentage of an unstated number is not a fact the reader can use.
+        let longLabel: String
         /// What the percentage is a percentage of, in bytes per second. Lets anything
         /// else on the bar - an all-time peak, say - be placed on the same scale.
         let denominatorBytes: Double
@@ -298,9 +303,11 @@ enum Reference {
            linkRateIsCredible(observedBytesPerSec: max(current, peakDirectional),
                               linkBits: linkBits),
            let used = utilization(down: down, up: up, linkBits: linkBits) {
-            return Gauge(fraction: used,
-                         label: String(format: "%.0f%% link utilization", used * 100),
-                         ofLink: true, basis: nil,
+            let text = String(format: "%.0f%% link utilization", used * 100)
+            return Gauge(fraction: used, label: text, ofLink: true, basis: nil,
+                         // The link's own figure is already on the row, in the badge
+                         // beside the device's name, so there is nothing to add here.
+                         longLabel: text,
                          denominatorBytes: ceiling(forLinkBits: linkBits)?.bytes ?? 0)
         }
 
@@ -324,14 +331,22 @@ enum Reference {
         let noun = modernNoun(role: roles?.first)
         let ratio = current / ref.payloadBytes
         let fraction = min(1.0, ratio)
+        let yardstick = Fmt.rate(ref.payloadBytes, unit: .bytes)
         // Above the yardstick the percentage stops meaning anything useful - it is
         // pinned at full and says nothing about how far past it the device is.
+        //
+        // Both forms carry the figure. "13% of a modern card" reads as a fact and is
+        // not one unless you already know what a modern card does; the number is the
+        // part that lets someone disagree with the comparison.
         let label = ratio >= 1
-            ? "at or above " + noun
-            : String(format: "%.0f%% of %@", fraction * 100, noun)
+            ? "at or above " + yardstick
+            : String(format: "%.0f%% of %@", fraction * 100, yardstick)
+        let longLabel = ratio >= 1
+            ? "at or above " + noun + " (" + yardstick + ")"
+            : String(format: "%.0f%% of %@ (%@)", fraction * 100, noun, yardstick)
         return Gauge(fraction: fraction, label: label, ofLink: false,
-                     basis: noun + ", around " + Fmt.rate(ref.payloadBytes, unit: .bytes)
-                          + " (" + ref.name + ")",
+                     basis: noun + ", around " + yardstick + " (" + ref.name + ")",
+                     longLabel: longLabel,
                      denominatorBytes: ref.payloadBytes)
     }
 

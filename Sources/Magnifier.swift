@@ -269,6 +269,33 @@ final class MagnifierView: NSView {
         Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
     }
 
+    static let rawTag = "raw signalling"
+
+    /// The practical ceiling for this row's link, marked, or nil when there is none.
+    private func practicalText(_ row: Row) -> String? {
+        guard row.linkTrusted, row.linkBits > 0,
+              let ceiling = Reference.ceiling(forLinkBits: row.linkBits,
+                                              family: row.compareFamilies.contains(.network)
+                                                   ? .network : .usb),
+              ceiling.bytes > 0
+        else { return nil }
+        return Palette.marked(Fmt.rate(ceiling.bytes, unit: .bytes) + " in practice")
+    }
+
+    /// Whether the link row needs a second line. Asked by both the height calculation
+    /// and the drawing, so the card cannot be sized for one layout and drawn in the
+    /// other - which is how text ends up under the rounded corner.
+    private func linkRowWraps(_ row: Row) -> Bool {
+        guard let practical = practicalText(row) else { return false }
+        var x: CGFloat = 0
+        if !row.badge.isEmpty {
+            x += Text.badgeWidth(row.badge, font: badgeFont) + 8
+        }
+        x += Text.width(Fmt.linkSpeed(bitsPerSec: row.linkBits), font: bodyFont) + 6
+        x += Text.width(MagnifierView.rawTag, font: smallFont) + 8
+        return x + Text.width(practical, font: smallFont) > contentWidth
+    }
+
     private func hasLinkRow(_ row: Row) -> Bool {
         !row.badge.isEmpty || (row.linkTrusted && row.linkBits > 0) || !row.appleName.isEmpty
     }
@@ -282,7 +309,7 @@ final class MagnifierView: NSView {
         for block in blocks(for: row) {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
         }
-        if hasLinkRow(row) { height += 26 }
+        if hasLinkRow(row) { height += linkRowWraps(row) ? 44 : 26 }
         if usage(row) != nil { height += 28 }
         height += 10 + 14 + MagnifierView.chartHeight + 12       // scale labels + chart
         height += 46                                             // the two big rates
@@ -376,17 +403,18 @@ final class MagnifierView: NSView {
                 Text.draw(primary, at: NSPoint(x: x, y: y + 4), font: bodyFont,
                           color: NSColor.labelColor)
                 x += Text.width(primary, font: bodyFont) + 6
-                Text.draw("raw signalling", at: NSPoint(x: x, y: y + 5), font: smallFont,
-                          color: Palette.faint)
-                x += Text.width("raw signalling", font: smallFont) + 8
+                Text.draw(MagnifierView.rawTag, at: NSPoint(x: x, y: y + 5),
+                          font: smallFont, color: Palette.faint)
+                x += Text.width(MagnifierView.rawTag, font: smallFont) + 8
                 // What the catalogue says that standard actually sustains. An estimate,
-                // so it is marked like every other estimate.
-                if let ceiling = Reference.ceiling(forLinkBits: row.linkBits,
-                                                   family: row.compareFamilies.contains(.network)
-                                                        ? .network : .usb),
-                   ceiling.bytes > 0 {
-                    let practical = Palette.marked(Fmt.rate(ceiling.bytes, unit: .bytes)
-                                                   + " in practice")
+                // so it is marked like every other estimate - and moved to its own line
+                // when what is left of the card cannot hold it, rather than being drawn
+                // over the edge and clipped by the corner radius.
+                if let practical = practicalText(row) {
+                    if x + Text.width(practical, font: smallFont) > left + width {
+                        y += 18
+                        x = left
+                    }
                     Text.draw(practical, at: NSPoint(x: x, y: y + 5), font: smallFont,
                               color: Palette.inferred)
                 }
@@ -457,7 +485,7 @@ final class MagnifierView: NSView {
                 NSColor.labelColor.withAlphaComponent(0.6).setFill()
                 mark.fill()
             }
-            Text.draw(gauge.isInferred ? Palette.marked(gauge.label) : gauge.label,
+            Text.draw(gauge.isInferred ? Palette.marked(gauge.longLabel) : gauge.label,
                       at: NSPoint(x: bar.maxX + 10, y: y),
                       font: smallFont,
                       color: gauge.isInferred ? Palette.inferred

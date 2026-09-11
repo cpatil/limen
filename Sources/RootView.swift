@@ -63,12 +63,14 @@ final class LegendView: NSView {
                            + "says the medium is removable. The card's bus interface "
                            + "and speed class \u{2014} UHS-I, V30 \u{2014} are not "
                            + "exposed through a normal reader at all."),
-            Statement(inferred: true, claim: "\u{201C}13% of a modern card\u{201D}",
+            Statement(inferred: true, claim: "\u{201C}13% of 90 MB/s\u{201D}",
                       basis: "Measured against a fixed catalogue entry for that kind "
                            + "of device \u{2014} a mainstream card is around 90 MB/s, "
-                           + "a mainstream drive 550 MB/s. Deliberately not the entry "
-                           + "nearest this device's own rate: a yardstick chosen by "
-                           + "the measurement always reports about 100%."),
+                           + "a mainstream drive 550 MB/s. The figure is always shown "
+                           + "rather than only the percentage, because a percentage of "
+                           + "an unstated number cannot be checked. Deliberately not "
+                           + "the entry nearest this device's own rate: a yardstick "
+                           + "chosen by the measurement always reports about 100%."),
             Statement(inferred: true, claim: "\u{201C}slower than a modern card manages\u{201D}",
                       basis: "Only after half a gigabyte has actually moved, and it "
                            + "names the peak and the volume it saw. A fast card "
