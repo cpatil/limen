@@ -61,6 +61,33 @@ enum Reference {
         all.first { $0.name == name }
     }
 
+    /// Where a rate sits on a logarithmic axis running from `floor` to `ceiling`.
+    ///
+    /// Storage spans four decades between "a document is being saved" and "this drive
+    /// is at full tilt", and a linear bar gives the first three of them the leftmost
+    /// pixel. Anything at or under the floor sits at zero, anything at or over the
+    /// ceiling at one, and each tenfold increase in between covers the same distance.
+    static func logPosition(rate: Double, ceiling: Double,
+                            floor: Double = 64 * 1024) -> Double {
+        guard rate > floor, ceiling > floor else { return rate >= ceiling ? 1 : 0 }
+        guard rate < ceiling else { return 1 }
+        return log(rate / floor) / log(ceiling / floor)
+    }
+
+    /// The decade marks between floor and ceiling, as positions on that axis, so the
+    /// bar can show that it is logarithmic rather than leaving it to be misread.
+    static func logDecades(ceiling: Double, floor: Double = 64 * 1024) -> [Double] {
+        guard ceiling > floor else { return [] }
+        var marks: [Double] = []
+        var value = 1_000_000.0        // 1 MB/s, then 10, 100, 1 GB/s...
+        while value < ceiling {
+            if value > floor { marks.append(logPosition(rate: value, ceiling: ceiling,
+                                                        floor: floor)) }
+            value *= 10
+        }
+        return marks
+    }
+
     /// The yardstick for a kind of device: what a buyer would get today.
     ///
     /// Fixed on purpose. Picking the catalogue entry nearest the observed rate - the
@@ -358,7 +385,14 @@ enum Reference {
                               internal: modernIsInternal(kinds: kinds,
                                                          internalMedium: internalMedium))
         let ratio = current / ref.payloadBytes
-        let fraction = min(1.0, ratio)
+        // Positioned on a logarithmic axis, not a linear one.
+        //
+        // A modern internal drive is 7 GB/s, and copying a document is 600 KB/s. On a
+        // linear bar that is four ten-thousandths of the width: the fill never left
+        // the left-hand cap and the label read "0%" for everything anyone actually
+        // does, which is a bar that cannot be watched. Decades are what this spans -
+        // KB/s to GB/s - so decades are what it should show, with ticks to say so.
+        let fraction = logPosition(rate: current, ceiling: ref.payloadBytes)
         let yardstick = Fmt.rate(ref.payloadBytes, unit: .bytes)
         // Above the yardstick the percentage stops meaning anything useful - it is
         // pinned at full and says nothing about how far past it the device is.
@@ -366,12 +400,15 @@ enum Reference {
         // Both forms carry the figure. "13% of a modern card" reads as a fact and is
         // not one unless you already know what a modern card does; the number is the
         // part that lets someone disagree with the comparison.
+        // The rate itself, not a percentage of it. A percentage of a figure four
+        // decades away is zero however the bar is drawn, and "0%" told you nothing
+        // about a drive that was busy.
         let label = ratio >= 1
             ? "at or above " + yardstick
-            : String(format: "%.0f%% of %@", fraction * 100, yardstick)
+            : Fmt.rate(current, unit: .bytes) + " of " + yardstick
         let longLabel = ratio >= 1
             ? "at or above " + noun + " (" + yardstick + ")"
-            : String(format: "%.0f%% of %@ (%@)", fraction * 100, noun, yardstick)
+            : Fmt.rate(current, unit: .bytes) + " of " + noun + " (" + yardstick + ")"
         return Gauge(fraction: fraction, label: label, ofLink: false,
                      basis: noun + ", around " + yardstick + " (" + ref.name + ")",
                      longLabel: longLabel,

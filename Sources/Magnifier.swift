@@ -143,10 +143,11 @@ final class MagnifierView: NSView {
         // What the bar was measured against, when it was not measured against a link.
         // The percentage on its own says nothing about how good the yardstick is.
         if let gauge = usage(row), let basis = gauge.basis {
-            out.append((Palette.marked("The bar measures this against " + basis
-                        + " - what that class of device typically manages today. It is "
-                        + "not a reading of what this device is, and not a ceiling it "
-                        + "reported."),
+            out.append((Palette.marked("The bar runs to " + basis
+                        + " - what that class of device typically manages today, not a "
+                        + "ceiling this one reported. Its scale is logarithmic, marked "
+                        + "at each tenfold step, because storage rates span four "
+                        + "decades and a linear bar gives three of them one pixel."),
                         smallFont, Palette.inferred))
         }
         if !row.hint.isEmpty {
@@ -553,6 +554,11 @@ final class MagnifierView: NSView {
                      : (used >= 0.40 ? Palette.down : Palette.up)
             } else {
                 fill = Palette.inferredFill
+                NSColor.labelColor.withAlphaComponent(0.18).setFill()
+                for mark in Reference.logDecades(ceiling: gauge.denominatorBytes) {
+                    let x = bar.minX + barWidth * CGFloat(mark)
+                    NSRect(x: x, y: bar.minY, width: 1, height: bar.height).fill()
+                }
             }
             fill.setFill()
             NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY,

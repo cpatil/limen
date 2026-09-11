@@ -136,6 +136,39 @@ check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
 
+// ---- the logarithmic axis ------------------------------------------------------
+// Storage spans four decades between "a document is being saved" and "this drive is
+// flat out". A linear bar gives the first three of them one pixel, which is why the
+// label read 0% for everything anyone actually does.
+do {
+    let ceiling = 7.0 * 1_000_000_000        // a modern internal drive
+    check("axis: idle sits at the start",
+          Reference.logPosition(rate: 0, ceiling: ceiling) == 0)
+    check("axis: at the ceiling it is full",
+          Reference.logPosition(rate: ceiling, ceiling: ceiling) == 1)
+    check("axis: past the ceiling it stays full",
+          Reference.logPosition(rate: ceiling * 10, ceiling: ceiling) == 1)
+    check("axis: it only ever climbs",
+          Reference.logPosition(rate: 1_000_000, ceiling: ceiling)
+            < Reference.logPosition(rate: 10_000_000, ceiling: ceiling))
+    // The case that started this: 582 KB/s on a 7 GB/s scale.
+    let everyday = Reference.logPosition(rate: 582_000, ceiling: ceiling)
+    check("axis: an everyday rate is visible rather than rounded away",
+          everyday > 0.1, String(format: "%.3f", everyday))
+    check("axis: and is still plainly not a busy drive",
+          everyday < Reference.logPosition(rate: 200_000_000, ceiling: ceiling))
+    // Each tenfold step covers the same distance - that is what makes it readable as
+    // a scale rather than a mystery.
+    let decades = Reference.logDecades(ceiling: ceiling)
+    check("axis: it is marked in decades", decades.count >= 3, "\(decades.count)")
+    if decades.count >= 3 {
+        let first = decades[1] - decades[0]
+        let second = decades[2] - decades[1]
+        check("axis: the decade marks are evenly spaced", abs(first - second) < 0.01,
+              String(format: "%.3f vs %.3f", first, second))
+    }
+}
+
 // ---- advice ------------------------------------------------------------------
 // "Slow for a modern card" was being said after 22 MB had moved. A card reading a
 // directory tree at 12 MB/s looks exactly like a slow card reading one large file,
@@ -198,8 +231,10 @@ do {
               !g.longLabel.contains("550 MB/s"), g.longLabel)
         check("gauge: never against the device's own past",
               !g.label.contains("peak"), g.label)
-        check("gauge: 200 MB/s is a small share of an NVMe yardstick",
-              g.fraction > 0.01 && g.fraction < 0.10, String(format: "%.2f", g.fraction))
+        // On a linear bar 200 MB/s of 7 GB/s is 3% - three pixels of a hundred, and
+        // indistinguishable from idle. The axis is logarithmic, so it is visible.
+        check("gauge: a busy drive is visibly along the bar",
+              g.fraction > 0.5 && g.fraction < 0.9, String(format: "%.2f", g.fraction))
     } else {
         check("gauge: a known class produces a bar", false)
     }
@@ -209,8 +244,9 @@ do {
     if let idle = bar(0, link: 0, trusted: false, roles: ["disk"], kinds: ["ssd"],
                       internalMedium: true, peak: 1_090_000_000) {
         check("gauge: an idle device keeps its bar", idle.fraction == 0)
-        check("gauge: and reads as zero rather than vanishing",
-              idle.label.contains("0%"), idle.label)
+        check("gauge: and says the rate rather than a percentage of a distant figure",
+              idle.label.contains("0 B/s") && idle.label.contains("7.00 GB/s"),
+              idle.label)
     } else {
         check("gauge: an idle device keeps its bar", false)
     }
@@ -246,8 +282,8 @@ do {
     if let card = bar(45_000_000, link: 0, trusted: false, roles: ["card"]) {
         check("gauge: a card is judged against a modern card",
               card.longLabel.contains("a modern card"), card.longLabel)
-        check("gauge: 45 of 90 MB/s is half",
-              card.fraction > 0.45 && card.fraction < 0.55,
+        check("gauge: a card near its class's rate is near the end of the bar",
+              card.fraction > 0.8 && card.fraction <= 1.0,
               String(format: "%.2f", card.fraction))
     } else {
         check("gauge: a card produces a bar", false)
@@ -260,7 +296,7 @@ do {
        let fast = bar(400_000_000, link: 0, trusted: false, roles: ["disk"],
                       kinds: ["ssd"], internalMedium: true, peak: 400_000_000) {
         check("gauge: a slow device and a fast one are not both at 100%",
-              fast.fraction > slow.fraction * 3,
+              fast.fraction > slow.fraction + 0.1,
               String(format: "%.2f vs %.2f", slow.fraction, fast.fraction))
         check("gauge: and both were measured against the same thing",
               slow.basis == fast.basis)

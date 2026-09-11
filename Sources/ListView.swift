@@ -882,6 +882,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                      : (gauge.fraction >= 0.40 ? Palette.down : Palette.up)
             } else {
                 fill = Palette.inferredFill
+                // Decade marks, so a bar that spans four of them is visibly a scale
+                // and not a percentage. Drawn under the fill, faintly - they are the
+                // graph paper, not the reading.
+                NSColor.labelColor.withAlphaComponent(0.18).setFill()
+                for mark in Reference.logDecades(ceiling: gauge.denominatorBytes) {
+                    let x = bar.minX + bar.width * CGFloat(mark)
+                    NSRect(x: x, y: bar.minY, width: 1, height: bar.height).fill()
+                }
             }
             fill.setFill()
             NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY,
