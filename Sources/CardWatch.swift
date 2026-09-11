@@ -1,10 +1,10 @@
 import Cocoa
 
-/// What Limen does by itself when a memory card is inserted.
+/// What Bottleneck does by itself when a memory card is inserted.
 ///
 /// Both jobs are off until asked for. They are carried out by a small LaunchAgent
 /// watching `/Volumes`, because the interesting moment is when a card arrives, which
-/// is usually before Limen is running - an app cannot notice an event it was not
+/// is usually before Bottleneck is running - an app cannot notice an event it was not
 /// there for.
 ///
 /// The agent is installed the first time either switch is turned on and removed when
@@ -20,7 +20,7 @@ enum CardWatch {
         var title: String {
             switch self {
             case .neverIndex: return "Stop Spotlight Indexing New Cards"
-            case .launchOnInsert: return "Open Limen When a Card Is Inserted"
+            case .launchOnInsert: return "Open Bottleneck When a Card Is Inserted"
             }
         }
 
@@ -31,11 +31,11 @@ enum CardWatch {
                     + "so Spotlight leaves it alone. Indexing a card you only import "
                     + "from costs wear and competes with the transfer.\n\n"
                     + "macOS withholds removable volumes until an app is granted them, "
-                    + "so this may need Limen to be allowed under Privacy & Security."
+                    + "so this may need Bottleneck to be allowed under Privacy & Security."
             case .launchOnInsert:
-                return "Opens Limen as a card mounts, so the transfer is recorded from "
+                return "Opens Bottleneck as a card mounts, so the transfer is recorded from "
                     + "the first byte rather than from whenever you think to look.\n\n"
-                    + "If Limen is already running it simply comes forward - it allows "
+                    + "If Bottleneck is already running it simply comes forward - it allows "
                     + "one instance at a time."
             }
         }
@@ -59,7 +59,7 @@ enum CardWatch {
         }
     }
 
-    /// Records where this copy of Limen lives, so the agent can open the same one
+    /// Records where this copy of Bottleneck lives, so the agent can open the same one
     /// rather than guessing at /Applications.
     static func rememberAppLocation() {
         UserDefaults.standard.set(Bundle.main.bundlePath, forKey: "AppPath")
@@ -68,11 +68,11 @@ enum CardWatch {
 
     // ---- the agent -------------------------------------------------------
 
-    static let label = "local.limen.card-watch"
+    static let label = "local.bottleneck.card-watch"
 
     private static var supportDirectory: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Limen", isDirectory: true)
+            .appendingPathComponent("Bottleneck", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -132,7 +132,7 @@ enum CardWatch {
     enum Failure: LocalizedError {
         case missingScript
         var errorDescription: String? {
-            "This copy of Limen is missing card-watch.sh, so the watcher cannot be "
+            "This copy of Bottleneck is missing card-watch.sh, so the watcher cannot be "
                 + "installed. Rebuilding from source restores it."
         }
     }

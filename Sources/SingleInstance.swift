@@ -1,7 +1,7 @@
 import Cocoa
 import Darwin
 
-/// Keeps one Limen running at a time.
+/// Keeps one Bottleneck running at a time.
 ///
 /// This is not tidiness. Two instances both write `history.json`, and neither knows
 /// about the other's sessions, so whichever saves last silently discards the other's
@@ -16,7 +16,7 @@ import Darwin
 ///
 /// An advisory `flock` covers all three cases, because it is about the file rather
 /// than the bundle. The lock is released by the kernel when the process dies, so a
-/// crash cannot leave Limen permanently unable to start.
+/// crash cannot leave Bottleneck permanently unable to start.
 enum SingleInstance {
 
     /// Held for the lifetime of the process. Closing this descriptor drops the lock,
@@ -25,7 +25,7 @@ enum SingleInstance {
 
     private static var lockURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Limen", isDirectory: true)
+            .appendingPathComponent("Bottleneck", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("instance.lock")
     }

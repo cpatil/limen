@@ -143,7 +143,7 @@ final class HistoryView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// Act on the first click even when Limen is not the active app. This is a window
+    /// Act on the first click even when Bottleneck is not the active app. This is a window
     /// you glance at while working in something else; spending a click just to focus
     /// it before you can fold a group or drag a row is a click too many.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

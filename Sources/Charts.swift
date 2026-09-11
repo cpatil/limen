@@ -114,7 +114,7 @@ enum Palette {
     static var headerBand: NSColor {
         NSColor.textColor.withAlphaComponent(0.07)
     }
-    /// A figure Limen worked out rather than read from the system.
+    /// A figure Bottleneck worked out rather than read from the system.
     ///
     /// Every other colour in this app is already spoken for by something measured:
     /// green and blue are the two directions, orange is a link at its ceiling, red is

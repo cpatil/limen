@@ -1,8 +1,8 @@
 #!/bin/bash
-# Runs whenever a volume appears or disappears, and does whatever Limen has been
+# Runs whenever a volume appears or disappears, and does whatever Bottleneck has been
 # asked to do about memory cards.
 #
-# Two independent jobs, each switched on from Limen's Cards menu:
+# Two independent jobs, each switched on from Bottleneck's Cards menu:
 #
 #   NeverIndexCards      write .metadata_never_index so Spotlight leaves the card
 #                        alone. Spotlight indexes a card the moment it mounts and
@@ -10,29 +10,29 @@
 #                        the import you actually want - one measured session took
 #                        579 MB of writes while serving 474 MB of reads.
 #
-#   LaunchOnCardInsert   open Limen, so the card's transfer is recorded from the
+#   LaunchOnCardInsert   open Bottleneck, so the card's transfer is recorded from the
 #                        first byte rather than from whenever you remember to look.
 #
 # Cards only. "Removable" on its own is far too broad: a mounted disk image reports
 # itself as removable media, and was being marked on sight.
 set -u
 
-DOMAIN="local.limen"
+DOMAIN="local.bottleneck"
 
 pref() {  # pref <key> -> "1" when on
     /usr/bin/defaults read "$DOMAIN" "$1" 2>/dev/null | /usr/bin/tr -d '[:space:]'
 }
 
-log() { /usr/bin/logger -t limen-card-watch "$1"; }
+log() { /usr/bin/logger -t bottleneck-card-watch "$1"; }
 
 MARK=$(pref NeverIndexCards)
 LAUNCH=$(pref LaunchOnCardInsert)
 [ "$MARK" = "1" ] || [ "$LAUNCH" = "1" ] || exit 0
 
-# Where Limen is. Recorded by the app itself each time it runs, because the agent
+# Where Bottleneck is. Recorded by the app itself each time it runs, because the agent
 # cannot know whether it lives in /Applications, in a home folder, or somewhere else.
 APP=$(/usr/bin/defaults read "$DOMAIN" AppPath 2>/dev/null)
-[ -d "$APP" ] || APP="/Applications/Limen.app"
+[ -d "$APP" ] || APP="/Applications/Bottleneck.app"
 
 /usr/bin/find /Volumes -maxdepth 1 -mindepth 1 -type d -print 2>/dev/null |
 while IFS= read -r volume; do
@@ -65,8 +65,8 @@ while IFS= read -r volume; do
     fi
 
     if [ "$LAUNCH" = "1" ]; then
-        # Harmless when it is already up: Limen allows one instance, so this brings
+        # Harmless when it is already up: Bottleneck allows one instance, so this brings
         # the running copy forward instead of starting a second.
-        /usr/bin/open "$APP" 2>/dev/null && log "opened Limen for $volume"
+        /usr/bin/open "$APP" 2>/dev/null && log "opened Bottleneck for $volume"
     fi
 done

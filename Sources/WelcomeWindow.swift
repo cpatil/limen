@@ -62,7 +62,7 @@ final class SetupWindowController: NSWindowController {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 380),
                               styleMask: [.titled, .closable],
                               backing: .buffered, defer: false)
-        window.title = "Limen Setup"
+        window.title = "Bottleneck Setup"
         window.center()
         self.init(window: window)
         buildPages()
@@ -74,7 +74,7 @@ final class SetupWindowController: NSWindowController {
 
     private func buildPages() {
         pages = [
-            Page(title: "What Limen shows you",
+            Page(title: "What Bottleneck shows you",
                  body: "Live read and write rates for every storage device and network "
                      + "interface, and a log of finished transfers with a note about "
                      + "what limited each one.\n\n"
@@ -82,7 +82,7 @@ final class SetupWindowController: NSWindowController {
                      + "catalogue it compares against ships inside the app and is only "
                      + "updated when you ask it to."),
 
-            Page(title: "Where Limen is installed",
+            Page(title: "Where Bottleneck is installed",
                  body: "macOS restricts an app that is still sitting in Downloads, and "
                      + "refuses one running from a disk image outright. Moving it to "
                      + "Applications avoids both.",
@@ -106,11 +106,11 @@ final class SetupWindowController: NSWindowController {
                  })),
 
             Page(title: "Gatekeeper",
-                 body: "Limen is signed ad-hoc rather than notarised, so a downloaded "
+                 body: "Bottleneck is signed ad-hoc rather than notarised, so a downloaded "
                      + "copy carries a quarantine flag and macOS will refuse to open "
                      + "it. Building from source avoids this entirely.\n\n"
                      + "If you did download it, the flag is cleared with:\n"
-                     + "    xattr -dr com.apple.quarantine Limen.app",
+                     + "    xattr -dr com.apple.quarantine Bottleneck.app",
                  status: {
                      Setup.isQuarantined
                          ? .problem("This copy is still quarantined.")
@@ -118,19 +118,19 @@ final class SetupWindowController: NSWindowController {
                  }),
 
             Page(title: "Removable volumes (optional)",
-                 body: "Everything Limen measures works without any permission at all.\n\n"
+                 body: "Everything Bottleneck measures works without any permission at all.\n\n"
                      + "One feature needs this one: turning off Spotlight indexing for "
                      + "a card, which writes a small marker file to it. macOS asks "
                      + "before an app may touch a removable volume. If you grant it "
-                     + "while Limen is running, restart Limen afterwards - some "
+                     + "while Bottleneck is running, restart Bottleneck afterwards - some "
                      + "privileges only reach a freshly launched process.",
                  status: {
                      switch Setup.removableAccess {
                      case .granted:
-                         return .good("Limen can read the card that is attached.")
+                         return .good("Bottleneck can read the card that is attached.")
                      case .denied:
                          return .problem("Access is being refused. Grant it below, "
-                                         + "then restart Limen.")
+                                         + "then restart Bottleneck.")
                      case .untested:
                          return .unknown("No card or removable drive attached, so this "
                                          + "could not be checked. Attach one and press "

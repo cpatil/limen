@@ -1,4 +1,4 @@
-// Draws Limen's app icon and writes Resources/Limen.icns.
+// Draws Bottleneck's app icon and writes Resources/Bottleneck.icns.
 //
 //   swift tools/make-icon.swift        (build.sh does this for you)
 //
@@ -98,7 +98,7 @@ func icon(_ size: Int) -> NSBitmapImageRep {
 }
 
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-let iconset = root.appendingPathComponent("build/Limen.iconset")
+let iconset = root.appendingPathComponent("build/Bottleneck.iconset")
 try? FileManager.default.removeItem(at: iconset)
 try! FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 

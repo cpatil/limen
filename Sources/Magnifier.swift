@@ -77,7 +77,7 @@ final class MagnifierView: NSView {
         // the evidence, so it can be disagreed with.
         if !row.mediumClass.isEmpty {
             // Deliberately hedged twice over. The family follows from the capacity
-            // only once the medium is known to be an SD card, which Limen takes from
+            // only once the medium is known to be an SD card, which Bottleneck takes from
             // the reader's own description rather than from the capacity; and the
             // reason the rest is unavailable is what readers usually do, not a law -
             // a vendor-specific reader and driver can expose more.
@@ -87,7 +87,7 @@ final class MagnifierView: NSView {
             let family = row.mediumClass.split(separator: " ").first.map(String.init) ?? ""
             out.append((Palette.marked("Likely \(family), based on \(capacity). Most USB "
                         + "card readers expose the card to macOS as generic storage, "
-                        + "without its SD-specific metadata, so Limen cannot tell which "
+                        + "without its SD-specific metadata, so Bottleneck cannot tell which "
                         + "bus interface (UHS-I, say) or rated speed class (V30) the "
                         + "card supports from what is available here."),
                         smallFont, Palette.inferred))
@@ -115,8 +115,8 @@ final class MagnifierView: NSView {
         if !row.appleName.isEmpty {
             // Its own line. Squeezed onto the link row beside the badge and the speed
             // it had nowhere to go and was being cut mid-word.
-            // Not something Limen was told. macOS reports a numeric device-speed
-            // code; this name comes from Limen's own catalogue entry for it, so it is
+            // Not something Bottleneck was told. macOS reports a numeric device-speed
+            // code; this name comes from Bottleneck's own catalogue entry for it, so it is
             // "also known as", not "Apple calls this".
             let names = [row.alsoKnown, row.appleName].filter { !$0.isEmpty }
             out.append(("Also known as " + names.joined(separator: "  ·  "),

@@ -8,7 +8,7 @@ before submitting.
 
 Suggested title — describes only what the app unquestionably does:
 
-    Show HN: Limen – per-device storage and network rates for macOS
+    Show HN: Bottleneck – per-device storage and network rates for macOS
 
 Let the diagnosis feature earn attention in the body, with its caveats.
 

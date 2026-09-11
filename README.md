@@ -1,18 +1,19 @@
-# Limen
+# Bottleneck
 
-Per-device storage and network rates for macOS, with a transfer history and
-best-effort hints about what limited a copy.
+Your transfers' throughput, and what's limiting it. Per-device storage and network
+rates for macOS, with a session history and evidence-backed readings of what held
+each copy back.
 
-![Limen](docs/limen.png)
+![Bottleneck](docs/bottleneck.png)
 
-`iostat -w 1 disk0 disk2` will give you per-disk throughput already. Limen maps those
+`iostat -w 1 disk0 disk2` will give you per-disk throughput already. Bottleneck maps those
 devices back to product names and mounted volumes, separates reads from writes, puts
 storage and interfaces on one screen, keeps a history of finished transfers, and shows
 the evidence behind each hint.
 
 ## Download
 
-[**Limen-universal.zip**](https://github.com/cpatil/limen/releases/latest/download/Limen-universal.zip)
+[**Bottleneck-universal.zip**](https://github.com/cpatil/bottleneck/releases/latest/download/Bottleneck-universal.zip)
 — one build for Intel and Apple Silicon.
 
 It is ad-hoc signed and **not notarised**, so Gatekeeper will refuse it. That means you
@@ -21,16 +22,16 @@ enumerates processes and open file descriptors. Building from source is the bett
 path, and takes about ten seconds:
 
 ```bash
-./build.sh          # -> build/Limen.app
-open build/Limen.app
+./build.sh          # -> build/Bottleneck.app
+open build/Bottleneck.app
 ```
 
 If you do want the download, verify it against the checksum published in the
-[release notes](https://github.com/cpatil/limen/releases/latest) first, then:
+[release notes](https://github.com/cpatil/bottleneck/releases/latest) first, then:
 
 ```bash
-shasum -a 256 Limen-universal.zip     # compare with the release notes
-xattr -dr com.apple.quarantine Limen.app
+shasum -a 256 Bottleneck-universal.zip     # compare with the release notes
+xattr -dr com.apple.quarantine Bottleneck.app
 ```
 
 The build is reproducible: a clean checkout produces a byte-identical executable, so
@@ -56,7 +57,7 @@ Only hardware interfaces are listed. A VPN tunnel or a bridge carries traffic th
 screen twice and summing them reports roughly double. **Show all** brings back tunnels,
 bridges, loopback and the long tail of virtual interfaces.
 
-Byte counters are the part Limen is confident about. Everything downstream of them —
+Byte counters are the part Bottleneck is confident about. Everything downstream of them —
 which component was the bottleneck, which process moved which bytes, why a card took
 writes — is inference, and the interface tries to say which is which.
 
@@ -72,7 +73,7 @@ writes — is inference, and the interface tries to say which is which.
   owned by other users need root, so they are missing entirely.
 - Wi-Fi's reported link rate is not usable as a ceiling — mine claimed 304 Mbit/s
   while sustaining 30.2, and logged a peak above its own stated rate. Those rows show
-  the session's best instead, and Limen does not try to name a Wi-Fi generation from
+  the session's best instead, and Bottleneck does not try to name a Wi-Fi generation from
   throughput, because throughput cannot identify one.
 - Port generation is not claimed on Intel Macs. IOKit exposes Thunderbolt controllers
   but not their version, and a 2015 15" MacBook Pro has Thunderbolt 2 at 20 Gbit/s,
@@ -99,7 +100,7 @@ its headline number before framing, so "5 Gbit/s" is treated as ~450 MB/s.
 
 Each section sorts independently, chosen from the popup in its heading.
 
-**Active first is held, not recomputed.** It is worked out when Limen starts and then
+**Active first is held, not recomputed.** It is worked out when Bottleneck starts and then
 left alone, because re-running it every second means rows swap places while you are
 reading them — which is the thing that sort was supposed to avoid. **Re-sort** in the
 toolbar (or ⌘R) asks for it to be reconsidered. Devices that appear afterwards are
@@ -119,7 +120,7 @@ Capacity class for a card is exact, because the SD spec draws SDHC/SDXC strictly
 size. Speed class is *not* — a USB reader presents the card as generic mass storage,
 so a plateau near a known ceiling is reported as consistent with that class, not as
 proof of it. The reader, the destination, the filesystem and the workload are all
-alternative explanations Limen cannot rule out.
+alternative explanations Bottleneck cannot rule out.
 
 ## Spotlight
 
@@ -136,10 +137,10 @@ searchable; flagging it would be advice nobody should take.
 
 ## The Cards menu
 
-Two things Limen can do by itself when a memory card is inserted, both off until you
+Two things Bottleneck can do by itself when a memory card is inserted, both off until you
 turn them on:
 
-- **Open Limen When a Card Is Inserted** — so a transfer is recorded from the first
+- **Open Bottleneck When a Card Is Inserted** — so a transfer is recorded from the first
   byte rather than from whenever you think to look.
 - **Stop Spotlight Indexing New Cards** — writes the marker as the card mounts.
 
@@ -178,10 +179,10 @@ six sessions with that card: 30.2 GB read, 6.13 GB written. Spotlight was indexi
 and the volume was journalled and mounted without `noatime`. After disabling indexing,
 the same card's best recorded peak was 96.5 MB/s.
 
-Limen reports the byte counts as fact and the causes as things to check, because it
+Bottleneck reports the byte counts as fact and the causes as things to check, because it
 observes that writes happened, not who issued them.
 
-Sessions are kept in `~/Library/Application Support/Limen/history.json` — up to 500
+Sessions are kept in `~/Library/Application Support/Bottleneck/history.json` — up to 500
 entries, unencrypted, holding device and volume names, process names, timestamps, byte
 counts and rates. Nothing leaves the machine, but it is worth knowing the file exists
 before sharing diagnostics. Right-click the log to clear a device or the lot.
@@ -194,12 +195,12 @@ what it found — where the app is installed, whether the copy is still quaranti
 whether removable-volume access is actually working — with a button to fix it and one
 to check again.
 
-Limen needs no permission for anything it measures. The single optional one is
+Bottleneck needs no permission for anything it measures. The single optional one is
 removable volumes, and only for writing the marker that stops Spotlight indexing a card.
 
 ## Anything it does can be undone
 
-A guiding principle rather than a feature list. Every change Limen makes outside itself
+A guiding principle rather than a feature list. Every change Bottleneck makes outside itself
 has a way back, offered where the change was made:
 
 | What it does | How to undo it |
@@ -226,7 +227,7 @@ string is clipped anywhere with no way to see it whole, that is a bug.
 Byte counters are measured. Almost everything else on screen is a reading of them, and
 the interface tries to keep the difference visible.
 
-Anything Limen worked out rather than read carries **≈** and is drawn in violet: the SD
+Anything Bottleneck worked out rather than read carries **≈** and is drawn in violet: the SD
 family of a card, a rate compared against what that class of device typically manages,
 what limited a transfer, what would help. Violet is the only hue not already spoken for
 by something measured — green and blue are the two directions, orange is a link at its
@@ -242,7 +243,7 @@ with a cross to dismiss it, or Escape — so it can be read and copied from with
 pointer having to stay still.
 
 A marker file on a card is a fact, so `Spotlight off` is stated plainly. Its absence
-only means nothing is stopping Spotlight, so that reads `Spotlight not blocked` — Limen
+only means nothing is stopping Spotlight, so that reads `Spotlight not blocked` — Bottleneck
 does not check whether indexing is actually running. A rate near a known ceiling is
 `consistent with` that ceiling, not proof of it; the reader, the destination, the
 filesystem and the workload are alternatives it cannot rule out. A check that could not

@@ -1,21 +1,21 @@
 #!/bin/bash
-# Builds and installs Limen.app on a remote Mac over SSH, then launches it.
+# Builds and installs Bottleneck.app on a remote Mac over SSH, then launches it.
 # Usage: ./deploy.sh <ssh-host>
 set -euo pipefail
 cd "$(dirname "$0")"
 
 HOST="${1:-}"
 [ -n "$HOST" ] || { echo "usage: ./deploy.sh <ssh-host>" >&2; exit 2; }
-APP_NAME="Limen"
+APP_NAME="Bottleneck"
 
 ./build.sh
 
 echo "==> Packaging"
-TARBALL="$(mktemp -t limen).tgz"
+TARBALL="$(mktemp -t bottleneck).tgz"
 tar czf "$TARBALL" -C build "$APP_NAME.app"
 
 echo "==> Copying to $HOST"
-scp -q "$TARBALL" "$HOST:/tmp/limen.tgz"
+scp -q "$TARBALL" "$HOST:/tmp/bottleneck.tgz"
 rm -f "$TARBALL"
 
 # Install to /Applications so the app shows up where people actually look for it.
@@ -39,8 +39,8 @@ ssh "$HOST" "
         \"\$LSREG\" -u \"\$OLD\" 2>/dev/null || true
         rm -rf \"\$OLD\"
     done
-    tar xzf /tmp/limen.tgz -C \"\$DEST\"
-    rm -f /tmp/limen.tgz
+    tar xzf /tmp/bottleneck.tgz -C \"\$DEST\"
+    rm -f /tmp/bottleneck.tgz
     xattr -dr com.apple.quarantine \"\$DEST/$APP_NAME.app\" 2>/dev/null || true
     \"\$LSREG\" -f -R \"\$DEST/$APP_NAME.app\" 2>/dev/null || true
     sleep 1

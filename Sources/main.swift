@@ -165,7 +165,7 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
     helpMenu.addItem(keyItem)
     helpMenuItem.submenu = helpMenu
 
-    // Things Limen does by itself when a card turns up. Off until asked for.
+    // Things Bottleneck does by itself when a card turns up. Off until asked for.
     let cardsMenuItem = NSMenuItem()
     let cardsMenu = NSMenu(title: "Cards")
     for job in CardWatch.Job.allCases {

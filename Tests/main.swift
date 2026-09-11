@@ -368,16 +368,16 @@ check("labels: a network interface does not", !sess("Network").isStorageLike)
 // Two copies both write history.json and neither knows about the other's sessions,
 // so whichever saves last discards the other's transfers.
 do {
-    let path = NSTemporaryDirectory() + "limen-test-\(UUID().uuidString).lock"
+    let path = NSTemporaryDirectory() + "bottleneck-test-\(UUID().uuidString).lock"
     defer { try? FileManager.default.removeItem(atPath: path) }
     check("instance: the first claim succeeds", SingleInstance.claim(at: path))
     check("instance: a second claim on the same lock is refused",
           !SingleInstance.claim(at: path))
-    let other = NSTemporaryDirectory() + "limen-test-\(UUID().uuidString).lock"
+    let other = NSTemporaryDirectory() + "bottleneck-test-\(UUID().uuidString).lock"
     defer { try? FileManager.default.removeItem(atPath: other) }
     check("instance: a different lock file is independent", SingleInstance.claim(at: other))
     check("instance: an unwritable location does not block startup",
-          SingleInstance.claim(at: "/this/path/cannot/exist/limen.lock"))
+          SingleInstance.claim(at: "/this/path/cannot/exist/bottleneck.lock"))
 }
 
 
@@ -955,6 +955,21 @@ do {
           Hidden.visible(rows, id: { $0.id }).count == 3 && !Hidden.isHidden(id: "net:utun5"))
     Hidden.revealAll()
 }
+
+// ---- the rename ---------------------------------------------------------------
+// Everything the app remembers was filed under its old name: the session log, the
+// downloaded catalogue, every setting, and a LaunchAgent still watching /Volumes.
+// None of it is recoverable by hand afterwards - the files just sit in a folder
+// nothing reads - so the rename has to carry them, exactly once, and never over live
+// data.
+check("rename: a file only the old folder has is carried across",
+      Migration.shouldCarry(fileExistsInOld: true, fileExistsInNew: false))
+check("rename: and never over one the new app has already written",
+      !Migration.shouldCarry(fileExistsInOld: true, fileExistsInNew: true))
+check("rename: nothing to do on a machine that never had the old app",
+      !Migration.shouldCarry(fileExistsInOld: false, fileExistsInNew: false))
+check("rename: nor once it has already run",
+      !Migration.shouldCarry(fileExistsInOld: false, fileExistsInNew: true))
 
 // A view smaller than the region AppKit asks it to refresh must clip to itself.
 // The card's dismiss button: drawn and hit-tested from one expression, because when
