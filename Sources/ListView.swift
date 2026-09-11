@@ -745,14 +745,24 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // brackets - the eight-times relationship is the confusing part.
         // The selected unit goes in the pill; the other follows in lighter text, so
         // switching units visibly changes the row instead of only reordering it.
-        var badgeText = row.badge
+        // "via", because this badge is the cable, not the thing on the end of it. A
+        // reader's card badge and its link badge sat side by side reading as two facts
+        // about one object - so a card that manages 90 MB/s appeared to be a 625 MB/s
+        // card. The link is what carries the card's bytes; it is not their source.
+        var badgeText = row.badge.isEmpty ? "" : (row.removable ? "via " : "") + row.badge
         var alternate = ""
         if row.linkTrusted, row.linkBits > 0 {
-            let primary = Fmt.speed(bitsPerSec: row.linkBits, unit: unit)
+            // The practical figure, not the signalling rate divided by eight. On a row
+            // this number sits inches from the device's actual rate and invites
+            // comparison, and 625 MB/s is not a number this port will ever carry.
+            let ceiling = Reference.ceiling(forLinkBits: row.linkBits,
+                                            family: row.compareFamilies.contains(.network)
+                                                 ? .network : .usb)
+            let primary = ceiling.map { Palette.mark + Fmt.rate($0.bytes, unit: .bytes) }
+                ?? Fmt.speed(bitsPerSec: row.linkBits, unit: unit)
             badgeText = badgeText.isEmpty ? primary : badgeText + " · " + primary
-            // The same speed restated in the other unit: useful once, noise on every
-            // row forever. Hovering still shows both.
-            if verbose { alternate = "= " + Fmt.alternateSpeed(bitsPerSec: row.linkBits, unit: unit) }
+            // The signalling rate, restated where there is room for it.
+            if verbose { alternate = "= " + Fmt.linkSpeed(bitsPerSec: row.linkBits) }
         }
         // The card leads. When you look at a reader the question is what is in it, not
         // what it is plugged into - so its type, capacity and name come first, in their

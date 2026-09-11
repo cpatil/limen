@@ -324,7 +324,8 @@ final class MagnifierView: NSView {
         guard let practical = practicalText(row) else { return false }
         var x: CGFloat = 0
         if !row.badge.isEmpty {
-            x += Text.badgeWidth(row.badge, font: badgeFont) + 8
+            x += Text.badgeWidth((row.removable ? "via " : "") + row.badge,
+                                 font: badgeFont) + 8
         }
         x += Text.width(Fmt.linkSpeed(bitsPerSec: row.linkBits), font: bodyFont) + 6
         x += Text.width(MagnifierView.rawTag, font: smallFont) + 8
@@ -353,7 +354,7 @@ final class MagnifierView: NSView {
         for block in blocks(for: row) {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
         }
-        if hasLinkRow(row) { height += linkRowWraps(row) ? 44 : 26 }
+        if hasLinkRow(row) { height += (linkRowWraps(row) ? 44 : 26) + 14 }
         if let gauge = usage(row) { height += gaugeLabelWraps(gauge) ? 46 : 28 }
         height += 10 + 14 + MagnifierView.chartHeight + 12       // scale labels + chart
         height += 46                                             // the two big rates
@@ -448,9 +449,20 @@ final class MagnifierView: NSView {
         // The standard is what a row is most often read for, so it gets a badge and
         // full-strength text rather than being the faintest thing on the card.
         if hasLinkRow(row) {
+            // Named, because this line is about the connection and the badge above it
+            // is about the card - and side by side, unlabelled, they read as two facts
+            // about one device.
+            Text.draw(row.removable ? "HOW IT IS CONNECTED" : "CONNECTION",
+                      at: NSPoint(x: left, y: y),
+                      font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+                      color: Palette.faint, tracking: 0.7)
+            // Advance past it rather than drawing above the cursor: written above, it
+            // landed on top of whatever block ended there.
+            y += 14
             var x = left
             if !row.badge.isEmpty {
-                x += Text.drawBadge(row.badge, at: NSPoint(x: x, y: y + 2),
+                x += Text.drawBadge((row.removable ? "via " : "") + row.badge,
+                                    at: NSPoint(x: x, y: y + 2),
                                     font: badgeFont, prominent: true) + 8
             }
             if row.linkTrusted, row.linkBits > 0 {
@@ -469,7 +481,9 @@ final class MagnifierView: NSView {
                 // so it is marked like every other estimate - and moved to its own line
                 // when what is left of the card cannot hold it, rather than being drawn
                 // over the edge and clipped by the corner radius.
-                if let practical = practicalText(row) {
+                if let practical = practicalText(row).map({
+                    row.removable ? $0 + " \u{2014} the reader's link, not the card" : $0
+                }) {
                     if x + Text.width(practical, font: smallFont) > left + width {
                         y += 18
                         x = left

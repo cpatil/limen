@@ -89,6 +89,18 @@ enum Setup {
         if let url = URL(string: plain) { NSWorkspace.shared.open(url) }
     }
 
+    /// Asks macOS for removable-volume access by doing the thing that needs it.
+    ///
+    /// There is no API that means "please show the permission prompt". The prompt is
+    /// raised by the first attempt to read a removable volume, and the attempt blocks
+    /// until the answer comes back - so this both asks and reports. With nothing
+    /// attached there is nothing to ask about, which is why the page says to insert a
+    /// card first rather than offering a button that would silently do nothing.
+    ///
+    /// macOS asks once per app. If the answer was no, it is not asked again, and the
+    /// only way back is System Settings - which is why that route stays on the page.
+    static func requestRemovableAccess() -> RemovableAccess { removableAccess }
+
     /// Opens Privacy & Security at the top, where the "Open Anyway" button appears
     /// after macOS has blocked something.
     ///

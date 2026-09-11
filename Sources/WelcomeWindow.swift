@@ -1,5 +1,20 @@
 import Cocoa
 
+/// Carries a closure for a button, since NSButton takes a selector and these are
+/// built from data rather than wired up one by one.
+final class ButtonAction: NSObject {
+    static let shared = ButtonAction()
+    private var actions: [ObjectIdentifier: () -> Void] = [:]
+
+    func attach(_ run: @escaping () -> Void, to button: NSButton) {
+        actions[ObjectIdentifier(button)] = run
+    }
+
+    @objc func fire(_ sender: NSButton) {
+        actions[ObjectIdentifier(sender)]?()
+    }
+}
+
 /// The setup and tour window.
 ///
 /// One window, a handful of pages, and every page that asks you to do something also
@@ -37,10 +52,24 @@ final class SetupWindowController: NSWindowController {
         var settled: Bool { if case .good = self { return true }; return false }
     }
 
+    /// One instruction, and where possible the button that carries it out.
+    ///
+    /// Prose was telling people to go and do four things in order - open the app, let
+    /// it be refused, find a pane in System Settings, scroll to a section - and a
+    /// paragraph is the wrong shape for that. A numbered list says how many steps
+    /// there are and where you have got to, and any step the app can perform itself
+    /// should be a button rather than a description of one.
+    struct Step {
+        let text: String
+        var button: (title: String, run: () -> Void)?
+    }
+
     private struct Page {
         let title: String
         let body: String
-        /// Shown under the body when there is something to report about the machine.
+        /// Numbered instructions, shown under the body.
+        var steps: [Step] = []
+        /// Shown under the steps when there is something to report about the machine.
         var status: (() -> Finding)?
         /// A button that does the thing the page is about.
         var action: (title: String, run: (SetupWindowController) -> Void)?
@@ -57,9 +86,10 @@ final class SetupWindowController: NSWindowController {
     private let backButton = NSButton(title: "Back", target: nil, action: nil)
     private let nextButton = NSButton(title: "Next", target: nil, action: nil)
     private let stepLabel = NSTextField(labelWithString: "")
+    private let stepsStack = NSStackView()
 
     convenience init() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 380),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 430),
                               styleMask: [.titled, .closable],
                               backing: .buffered, defer: false)
         window.title = "Bottleneck Setup"
@@ -72,28 +102,31 @@ final class SetupWindowController: NSWindowController {
 
     // ---- content ---------------------------------------------------------
 
+    /// Five pages, not eight.
+    ///
+    /// Three of them check something that looks exactly like the app being broken - a
+    /// copy left in Downloads, a quarantine flag, a permission never granted - and can
+    /// fix it. One says what the app is, one explains the mark, and that is the lot.
+    /// The pages this replaced described how to sort a list and drag a row, which is
+    /// a manual rather than a setup, and is discoverable by doing it.
     private func buildPages() {
         pages = [
             Page(title: "What Bottleneck shows you",
-                 body: "Live read and write rates for every storage device and network "
-                     + "interface, and a log of finished transfers with a note about "
-                     + "what limited each one.\n\n"
-                     + "It makes no network connections of any kind. The speed "
-                     + "catalogue it compares against ships inside the app and is only "
-                     + "updated when you ask it to."),
+                 body: "Read and write rates per device, and a session history with a "
+                     + "reading of what limited each transfer.\n\n"
+                     + "It makes no network connections. The speed catalogue it "
+                     + "compares against ships inside the app."),
 
             Page(title: "Where Bottleneck is installed",
-                 body: "macOS restricts an app that is still sitting in Downloads, and "
-                     + "refuses one running from a disk image outright. Moving it to "
-                     + "Applications avoids both.",
+                 body: "macOS restricts an app still sitting in Downloads, and refuses "
+                     + "one running from a disk image.",
                  status: {
                      switch Setup.installState {
                      case .installed:
                          return .good("Installed in Applications.")
                      case .translocated:
                          return .problem("Running from a read-only or quarantined copy. "
-                                         + "Settings and permissions will not stick "
-                                         + "until this is moved.")
+                                         + "Settings will not stick until it is moved.")
                      case .elsewhere(let where_):
                          return .unknown("Running from \(where_). This works, but "
                                          + "Applications is the safer home.")
@@ -106,90 +139,72 @@ final class SetupWindowController: NSWindowController {
                  })),
 
             Page(title: "Gatekeeper",
-                 body: "Bottleneck is signed ad-hoc rather than notarised, so a downloaded "
-                     + "copy carries a quarantine flag and macOS will refuse to open "
-                     + "it. Building from source avoids this entirely.\n\n"
-                     + "Without the Terminal: double-click the app, let macOS block "
-                     + "it, then open System Settings \u{25B8} Privacy & Security, "
-                     + "scroll to Security, and press Open Anyway beside Bottleneck. "
-                     + "The button only appears after a blocked attempt, and not "
-                     + "indefinitely afterwards. Control-clicking the app and choosing "
-                     + "Open no longer works: macOS Sequoia removed that route.\n\n"
-                     + "Or in the Terminal, which clears the flag outright:\n"
-                     + "    xattr -dr com.apple.quarantine Bottleneck.app",
+                 body: "Bottleneck is signed ad-hoc, not notarised, so a downloaded "
+                     + "copy is refused by macOS. A build from source is not.",
+                 steps: [
+                    Step(text: "Open Bottleneck and let macOS refuse it."),
+                    Step(text: "Go to Privacy & Security, then Security.",
+                         button: ("Open Privacy & Security", { Setup.openSecuritySettings() })),
+                    Step(text: "Press \u{201C}Open Anyway\u{201D}. It is withdrawn after a "
+                             + "while - if it is missing, open the app again."),
+                    Step(text: "Or clear the flag in Terminal. Control-click \u{25B8} Open "
+                             + "no longer works.",
+                         button: ("Copy Terminal command", {
+                             NSPasteboard.general.clearContents()
+                             NSPasteboard.general.setString(
+                                "xattr -dr com.apple.quarantine Bottleneck.app",
+                                forType: .string)
+                         })),
+                 ],
                  status: {
                      Setup.isQuarantined
                          ? .problem("This copy is still quarantined.")
                          : .good("No quarantine flag on this copy.")
-                 },
-                 action: ("Open Privacy & Security", { _ in
-                     Setup.openSecuritySettings()
-                 })),
+                 }),
 
             Page(title: "Removable volumes (optional)",
-                 body: "Everything Bottleneck measures works without any permission at all.\n\n"
-                     + "One feature needs this one: turning off Spotlight indexing for "
-                     + "a card, which writes a small marker file to it. macOS asks "
-                     + "before an app may touch a removable volume. If you grant it "
-                     + "while Bottleneck is running, restart Bottleneck afterwards - some "
-                     + "privileges only reach a freshly launched process.",
+                 body: "Only one feature needs this: stopping Spotlight indexing a "
+                     + "card, which writes a marker file to it. Everything else works "
+                     + "without it.",
+                 steps: [
+                    Step(text: "Attach a card. With nothing attached there is nothing "
+                             + "to ask about."),
+                    Step(text: "Answer Allow to the macOS prompt.",
+                         button: ("Ask macOS Now", {
+                             SetupWindowController.askForRemovableAccess()
+                         })),
+                    Step(text: "Refused before? macOS will not ask twice.",
+                         button: ("Open Privacy Settings", {
+                             Setup.openRemovablePrivacySettings()
+                         })),
+                    Step(text: "Granted while running? Restart Bottleneck."),
+                 ],
                  status: {
                      switch Setup.removableAccess {
                      case .granted:
-                         return .good("Bottleneck can read the card that is attached.")
+                         return .good("Bottleneck can read the attached card.")
                      case .denied:
-                         return .problem("Access is being refused. Grant it below, "
-                                         + "then restart Bottleneck.")
+                         return .problem("Access refused. Grant it, then restart.")
                      case .untested:
-                         return .unknown("No card or removable drive attached, so this "
-                                         + "could not be checked. Attach one and press "
-                                         + "Check again, or grant it in advance below.")
+                         return .unknown("Nothing removable attached, so this could "
+                                         + "not be checked.")
                      }
-                 },
-                 action: ("Open Privacy Settings", { _ in
-                     Setup.openRemovablePrivacySettings()
-                 })),
-
-            Page(title: "Reading a row",
-                 body: "Each row is one device.\n\n"
-                     + "The badges name what it is - the card in a reader, then the "
-                     + "link it is reached over. The bar under the chart is how much of "
-                     + "that link is in use, or of the device's own best where the link "
-                     + "cannot be trusted.\n\n"
-                     + "Hover anything to enlarge it. The card that appears carries the "
-                     + "full text of whatever the row had to shorten."),
+                 }),
 
             Page(title: "Measured, and worked out",
-                 body: "Two kinds of statement share this window, and they are not "
-                     + "equally certain.\n\n"
-                     + "Most of it is measured: bytes moved, how full a volume is, the "
-                     + "rate a link negotiated, which processes hold a file open.\n\n"
-                     + "The rest is worked out by comparing those measurements against "
-                     + "a catalogue of what hardware normally does - what kind of card "
-                     + "is in the reader, what held a transfer back, what would help. "
-                     + "Those carry a \u{2248} and are drawn in violet. Hovering a row "
-                     + "brings up its card, which says what each one was concluded "
-                     + "from; clicking a row keeps that card open until you close it. "
-                     + "A match is not a proof, and the mark is there so you can weigh "
-                     + "it yourself.\n\n"
-                     + "Color key in the toolbar opens the key itself - what each "
-                     + "color means, and which statements are not measurements."),
-
-            Page(title: "Arranging the lists",
-                 body: "Each section sorts on its own, from the popup in its heading.\n\n"
-                     + "Active first is worked out once and then held, so rows do not "
-                     + "swap places while you are reading them. The ⟳ beside the popup "
-                     + "asks for it to be reconsidered.\n\n"
-                     + "Drag a row by the handle on its left to put the lists in "
-                     + "whatever order you like. That order is remembered."),
-
-            Page(title: "The transfer log",
-                 body: "Finished copies are collected under the device that made them, "
-                     + "with what was measured and what might explain it.\n\n"
-                     + "Click a heading to fold it away. Right-click for options, "
-                     + "including forgetting one device or clearing the log.\n\n"
-                     + "The log lives in your Application Support folder and never "
-                     + "leaves the machine."),
+                 body: "Most of this window is measured: bytes moved, how full a volume "
+                     + "is, the rate a link negotiated.\n\n"
+                     + "The rest is worked out by comparing those against a catalogue "
+                     + "of what hardware normally does. It carries \u{2248} and is drawn "
+                     + "in violet. A match is not a proof.",
+                 steps: [
+                    Step(text: "Hover a row: the card says what each conclusion was "
+                             + "drawn from."),
+                    Step(text: "Click a row to keep that card open."),
+                    Step(text: "The key lists every color, and every reading that is "
+                             + "not a measurement.",
+                         button: ("Open Color Key", { LegendWindow.show(.colors) })),
+                 ]),
         ]
     }
 
@@ -215,8 +230,12 @@ final class SetupWindowController: NSWindowController {
         nextButton.action = #selector(goNext)
         nextButton.keyEquivalent = "\r"
 
+        stepsStack.orientation = .vertical
+        stepsStack.alignment = .leading
+        stepsStack.spacing = 10
+
         for view in [titleLabel, bodyLabel, statusLabel, actionButton,
-                     recheckButton, backButton, nextButton, stepLabel] {
+                     recheckButton, backButton, nextButton, stepLabel, stepsStack] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
@@ -231,9 +250,13 @@ final class SetupWindowController: NSWindowController {
             bodyLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
             bodyLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 14),
 
+            stepsStack.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            stepsStack.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            stepsStack.topAnchor.constraint(equalTo: bodyLabel.bottomAnchor, constant: 14),
+
             statusLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             statusLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            statusLabel.topAnchor.constraint(equalTo: bodyLabel.bottomAnchor, constant: 18),
+            statusLabel.topAnchor.constraint(equalTo: stepsStack.bottomAnchor, constant: 16),
 
             actionButton.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             actionButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 14),
@@ -264,6 +287,8 @@ final class SetupWindowController: NSWindowController {
         backButton.isHidden = index == 0
         nextButton.title = index == pages.count - 1 ? "Done" : "Next"
 
+        rebuildSteps(page.steps)
+
         if let action = page.action {
             actionButton.title = action.title
             actionButton.isHidden = false
@@ -272,6 +297,90 @@ final class SetupWindowController: NSWindowController {
         }
         recheckButton.isHidden = page.status == nil
         refreshStatus()
+    }
+
+    /// Triggers macOS's own permission prompt by attempting the thing it guards, and
+    /// says plainly what came back - including the case where nothing is attached, in
+    /// which case macOS has nothing to ask about and stays silent.
+    static func askForRemovableAccess() {
+        let alert = NSAlert()
+        switch Setup.requestRemovableAccess() {
+        case .granted:
+            alert.messageText = "Access granted"
+            alert.informativeText = "Bottleneck can read the attached removable volume."
+        case .denied:
+            alert.messageText = "macOS refused"
+            alert.informativeText = "Either the prompt was answered with Don\u{2019}t "
+                + "Allow, or it was answered that way before. macOS will not ask twice: "
+                + "turn Bottleneck on under Privacy & Security \u{25B8} Files and "
+                + "Folders \u{25B8} Removable Volumes, then restart Bottleneck."
+        case .untested:
+            alert.messageText = "Nothing attached to ask about"
+            alert.informativeText = "Insert a card or plug in a removable drive, then "
+                + "press Ask macOS Now again. The prompt only appears when there is a "
+                + "volume for it to be about."
+        }
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    /// One row per step: a numbered chip, the instruction, and the button that does
+    /// it where there is one.
+    private func rebuildSteps(_ steps: [Step]) {
+        for view in stepsStack.arrangedSubviews {
+            stepsStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        stepsStack.isHidden = steps.isEmpty
+        for (number, step) in steps.enumerated() {
+            stepsStack.addArrangedSubview(SetupWindowController.stepRow(number: number + 1,
+                                                                        step: step))
+        }
+    }
+
+    private static func stepRow(number: Int, step: Step) -> NSView {
+        let chip = NSTextField(labelWithString: "\(number)")
+        chip.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .bold)
+        chip.alignment = .center
+        chip.textColor = .white
+        chip.wantsLayer = true
+        chip.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        chip.layer?.cornerRadius = 9
+        chip.translatesAutoresizingMaskIntoConstraints = false
+        chip.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        chip.heightAnchor.constraint(equalToConstant: 18).isActive = true
+
+        let label = NSTextField(wrappingLabelWithString: step.text)
+        label.font = NSFont.systemFont(ofSize: 13)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let row = NSStackView(views: [chip, label])
+        row.orientation = .horizontal
+        row.alignment = .firstBaseline
+        row.spacing = 8
+
+        guard let button = step.button else { return row }
+        // The button sits under its own step rather than beside it: at this width a
+        // button on the same line pushed the text into two or three ragged lines.
+        let action = NSButton(title: button.title, target: nil, action: nil)
+        action.bezelStyle = .rounded
+        action.controlSize = .small
+        action.target = ButtonAction.shared
+        action.action = #selector(ButtonAction.fire(_:))
+        ButtonAction.shared.attach(button.run, to: action)
+
+        let indent = NSView()
+        indent.translatesAutoresizingMaskIntoConstraints = false
+        indent.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        let buttonRow = NSStackView(views: [indent, action])
+        buttonRow.orientation = .horizontal
+        buttonRow.spacing = 0
+
+        let group = NSStackView(views: [row, buttonRow])
+        group.orientation = .vertical
+        group.alignment = .leading
+        group.spacing = 6
+        return group
     }
 
     @objc private func refreshStatus() {
