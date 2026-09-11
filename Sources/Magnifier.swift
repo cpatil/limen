@@ -17,7 +17,7 @@ final class MagnifierView: NSView {
     var sampleInterval: TimeInterval = 1
 
     static let width: CGFloat = 400
-    private static let pad: CGFloat = 18
+    private static let pad: CGFloat = 14
     private static let fullChartHeight: CGFloat = 58
     private static let compactChartHeight: CGFloat = 34
 
@@ -372,7 +372,7 @@ final class MagnifierView: NSView {
         if let gauge = usage(row) { h += gaugeLabelWraps(gauge) ? 46 : 28 }
         let statCount = stats(for: row).count
         if statCount > 0 {
-            h += CGFloat(MagnifierView.statRows(statCount)) * MagnifierView.statRowHeight + 26
+            h += CGFloat(MagnifierView.statRows(statCount)) * MagnifierView.statRowHeight + 24
         }
         return h + MagnifierView.panelPad * 2
     }
@@ -500,7 +500,7 @@ final class MagnifierView: NSView {
     var fittingHeight: CGFloat {
         guard let row = row else { return 120 }
         let pad = MagnifierView.pad
-        var height = pad + 26                                    // icon + title
+        var height = pad + 24                                    // icon + title
         let cardHeight = cardPanelHeight(row)
         if cardHeight > 0 {
             height += cardHeight + 8
@@ -520,7 +520,9 @@ final class MagnifierView: NSView {
         }
         let linkHeight = linkPanelHeight(row)
         if linkHeight > 0 { height += linkHeight + 8 }
-        if let gauge = usage(row) { height += gaugeLabelWraps(gauge) ? 46 : 28 }
+        // The bar belongs to the live panel and is measured there. Counting it here as
+        // well reserved 28 points the drawing never used, which is the empty strip at
+        // the bottom of every card.
         height += livePanelHeight(row) + 8
 
         for block in footerBlocks(for: row) {
