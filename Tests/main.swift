@@ -1007,6 +1007,26 @@ check("rename: nothing to do on a machine that never had the old app",
 check("rename: nor once it has already run",
       !Migration.shouldCarry(fileExistsInOld: false, fileExistsInNew: true))
 
+// Badges are laid out left to right along a column, so each one has to be measured
+// against what is left of that column rather than against the whole of it. Clipping
+// the second badge to the full width let it start near the end and run on into the
+// chart, which is what put a graph line through the middle of it.
+do {
+    let limit: CGFloat = 230          // the text column in a narrow pane
+    check("badges: a fresh line has room",
+          TrafficListView.roomFor(cursorX: 66, limit: limit) > 100)
+    check("badges: the room left shrinks as the line fills",
+          TrafficListView.roomFor(cursorX: 150, limit: limit)
+            < TrafficListView.roomFor(cursorX: 66, limit: limit))
+    check("badges: none is offered past the end of the column",
+          TrafficListView.roomFor(cursorX: 240, limit: limit) == 0)
+    // A pill containing "S..." says nothing and looks broken; the hover card has it.
+    check("badges: nor when what is left is too little to say anything",
+          TrafficListView.roomFor(cursorX: 200, limit: limit) == 0)
+    check("badges: what is offered always fits inside the column",
+          TrafficListView.roomFor(cursorX: 66, limit: limit) <= limit - 66)
+}
+
 // A view smaller than the region AppKit asks it to refresh must clip to itself.
 // The card's dismiss button: drawn and hit-tested from one expression, because when
 // those are written out twice they drift and the cross stops being clickable.

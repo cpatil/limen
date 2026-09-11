@@ -361,9 +361,6 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // What it is formatted as. This is the text the tooltip shows and the Copy
         // item puts on the pasteboard, so anything the row states has to be here too
         // - a fact you can see but not copy is a fact you have to retype.
-        // What it is formatted as. This is the text the tooltip shows and the Copy
-        // item puts on the pasteboard, so anything the row states has to be here too
-        // - a fact you can see but not copy is a fact you have to retype.
         let format = Fmt.fsName(row.fsType)
         if !format.isEmpty { parts.append(format) }
         if row.capacityBytes > 0 {
@@ -641,6 +638,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     }
 
     /// Where the chart column starts, for a row of this width.
+    /// How much of the text column is left at this point on the line, allowing for a
+    /// badge's own padding. Zero when there is not enough for a badge worth drawing -
+    /// "≈ S…" in a pill says nothing, and the hover card carries the full text.
+    static func roomFor(cursorX: CGFloat, limit: CGFloat, minimum: CGFloat = 46) -> CGFloat {
+        let room = limit - cursorX - 12
+        return room >= minimum ? room : 0
+    }
+
     static func chartLeftEdge(rowWidth: CGFloat) -> CGFloat {
         let rightEdge = rowWidth - 16
         let chartWidth = min(130, max(54, rowWidth * 0.22))
@@ -768,7 +773,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // what it is plugged into - so its type, capacity and name come first, in their
         // own colour and at full strength.
         let card = Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
-        if !card.isEmpty {
+        if !card.isEmpty, TrafficListView.roomFor(cursorX: cursorX, limit: textLimit) > 0 {
             // Marked, because the leading word is a deduction: a reader presents
             // itself as USB mass storage and never reports which standard the card in
             // it follows, so "SDXC" is read off the capacity. The mark rides inside
@@ -776,14 +781,20 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             // already owns a colour, which means "this is the card, not the port", and
             // two colour codes in one pill would collide. The mark alone carries it.
             cursorX += Text.drawBadge(Text.clip(Palette.mark + card, font: cardFont,
-                                                maxWidth: textLimit - 24),
+                                                maxWidth: TrafficListView.roomFor(
+                                                    cursorX: cursorX, limit: textLimit)),
                                       at: NSPoint(x: cursorX, y: secondLineY),
                                       font: cardFont,
                                       fill: Palette.cardBadge,
                                       textColor: NSColor.labelColor) + 6
         }
-        if !badgeText.isEmpty {
-            let badge = Text.clip(badgeText, font: badgeFont, maxWidth: textLimit - 24)
+        // Measured against what is left of the line, not against the whole of it. The
+        // card badge goes first and can be long, so clipping the link badge to the
+        // full column width let it start near the end of the column and run on into
+        // the chart - which is what put a graph line through the middle of it.
+        let badgeRoom = TrafficListView.roomFor(cursorX: cursorX, limit: textLimit)
+        if !badgeText.isEmpty, badgeRoom > 0 {
+            let badge = Text.clip(badgeText, font: badgeFont, maxWidth: badgeRoom)
             cursorX += Text.drawBadge(badge, at: NSPoint(x: cursorX, y: secondLineY),
                                       font: badgeFont, prominent: true) + 6
         }
