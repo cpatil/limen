@@ -73,16 +73,6 @@ final class MagnifierView: NSView {
     private func blocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
         var out: [(String, NSFont, NSColor)] = []
 
-        var identity: [String] = []
-        if !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
-        if !row.deviceID.isEmpty { identity.append(row.deviceID) }
-        if !row.volumes.isEmpty, row.mediumClass.isEmpty {
-            identity.append(row.volumes.joined(separator: ", "))
-        }
-        if identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
-        if !identity.isEmpty {
-            out.append((identity.joined(separator: "  ·  "), bodyFont, NSColor.labelColor))
-        }
         // The card badge above carries the mark. This is what the mark stands for -
         // the evidence, so it can be disagreed with.
         if !row.mediumClass.isEmpty {
@@ -177,6 +167,35 @@ final class MagnifierView: NSView {
         let colour: NSColor
     }
 
+    /// What this thing is: vendor, identifier, the volumes it presents. Drawn on its
+    /// own rather than as the first of the wrapped blocks, because how full it is
+    /// belongs directly underneath it - a device's capacity is part of what it is,
+    /// not one more figure among its rates.
+    func identityLine(_ row: Row) -> String {
+        var identity: [String] = []
+        if !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
+        if !row.deviceID.isEmpty { identity.append(row.deviceID) }
+        if !row.volumes.isEmpty, row.mediumClass.isEmpty {
+            identity.append(row.volumes.joined(separator: ", "))
+        }
+        if identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
+        return identity.joined(separator: "  ·  ")
+    }
+
+    /// How full the device is, as the pair that used to sit at the bottom of the grid.
+    func capacityStats(for row: Row) -> [Stat] {
+        guard row.capacityBytes > 0 else { return [] }
+        // Counted once per container: several volumes of one disk share its space,
+        // and each of them reports the whole disk's figures as its own.
+        let used = Double(row.usedBytes)
+        return [
+            Stat(label: "USED", value: Fmt.bytes(used),
+                 colour: TrafficListView.capacityColour(fraction: row.fullness ?? 0)),
+            Stat(label: "FREE", value: Fmt.bytes(Double(row.capacityBytes) - used),
+                 colour: NSColor.labelColor),
+        ]
+    }
+
     func stats(for row: Row) -> [Stat] {
         var out: [Stat] = []
         // The device's own counters, not this session's - said once, under the grid,
@@ -196,16 +215,6 @@ final class MagnifierView: NSView {
         // being idle all afternoon, which is what made "peak" alone misleading.
         if row.allTimePeak > row.peak {
             out.append(Stat(label: "BEST EVER", value: Fmt.rate(row.allTimePeak, unit: unit),
-                            colour: NSColor.labelColor))
-        }
-        if row.capacityBytes > 0 {
-            // Counted once per container: several volumes of one disk share its space,
-            // and each of them reports the whole disk's figures as its own.
-            let used = Double(row.usedBytes)
-            out.append(Stat(label: "USED", value: Fmt.bytes(used),
-                            colour: TrafficListView.capacityColour(fraction: row.fullness ?? 0)))
-            out.append(Stat(label: "FREE",
-                            value: Fmt.bytes(Double(row.capacityBytes) - used),
                             colour: NSColor.labelColor))
         }
         return out
@@ -306,6 +315,15 @@ final class MagnifierView: NSView {
         let pad = MagnifierView.pad
         var height = pad + 26                                    // icon + title
         if !cardText(row).isEmpty { height += 28 }               // the card badge
+        let identity = identityLine(row)
+        if !identity.isEmpty {
+            height += Text.wrappedHeight(identity, font: bodyFont, width: contentWidth) + 5
+        }
+        let capacity = capacityStats(for: row)
+        if !capacity.isEmpty {
+            height += CGFloat(MagnifierView.statRows(capacity.count))
+                * MagnifierView.statRowHeight + 4
+        }
         for block in blocks(for: row) {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
         }
@@ -376,6 +394,21 @@ final class MagnifierView: NSView {
                                fill: Palette.cardBadge,
                                textColor: NSColor.labelColor)
             y += 28
+        }
+
+        let identity = identityLine(row)
+        if !identity.isEmpty {
+            let h = Text.wrappedHeight(identity, font: bodyFont, width: width)
+            Text.drawWrapped(identity, in: NSRect(x: left, y: y, width: width, height: h),
+                             font: bodyFont, color: NSColor.labelColor)
+            y += h + 5
+        }
+
+        // Directly under what the device is, because that is the question it answers.
+        let capacity = capacityStats(for: row)
+        if !capacity.isEmpty {
+            y = drawStats(capacity, at: NSPoint(x: left, y: y + 2), width: width)
+            y += 2
         }
 
         for block in blocks(for: row) {
