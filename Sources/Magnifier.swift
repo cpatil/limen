@@ -363,6 +363,20 @@ final class MagnifierView: NSView {
 
     /// What to call the first panel. A reader is a holder for something else, so its
     /// panel is about the card; everything else is about itself.
+    /// The live half: history, the rates now, the bar, and the running totals.
+    ///
+    /// Measured here so it can be given a panel like the other two, and so the card
+    /// reads as three grouped blocks rather than two boxes and a loose tail.
+    func livePanelHeight(_ row: Row) -> CGFloat {
+        var h: CGFloat = 8 + 12 + chartHeight + 8 + 36
+        if let gauge = usage(row) { h += gaugeLabelWraps(gauge) ? 46 : 28 }
+        let statCount = stats(for: row).count
+        if statCount > 0 {
+            h += CGFloat(MagnifierView.statRows(statCount)) * MagnifierView.statRowHeight + 26
+        }
+        return h + MagnifierView.panelPad * 2
+    }
+
     /// The stripe beside it: the card's own green where there is a card, and a quiet
     /// grey where there is not. A drive has no badge to borrow a colour from, and
     /// green and blue already mean read and write on this card.
@@ -507,14 +521,8 @@ final class MagnifierView: NSView {
         let linkHeight = linkPanelHeight(row)
         if linkHeight > 0 { height += linkHeight + 8 }
         if let gauge = usage(row) { height += gaugeLabelWraps(gauge) ? 46 : 28 }
-        height += 8 + 12 + chartHeight + 8        // scale labels + chart
-        height += 36                                             // the two rates
-        // The grid, then the one line saying where its counters come from.
-        let statCount = stats(for: row).count
-        if statCount > 0 {
-            height += CGFloat(MagnifierView.statRows(statCount)) * MagnifierView.statRowHeight
-            height += 26
-        }
+        height += livePanelHeight(row) + 8
+
         for block in footerBlocks(for: row) {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 4
         }
@@ -723,6 +731,17 @@ final class MagnifierView: NSView {
             y += MagnifierView.panelPad + 8
         }
 
+        // ---- the live half, grouped like the other two ----------------------
+        let liveHeight = livePanelHeight(row)
+        drawPanel(NSRect(x: left, y: y, width: width, height: liveHeight),
+                  stripe: NSColor.labelColor.withAlphaComponent(0.35))
+        // Shadowed rather than rewritten at fifteen call sites: everything below draws
+        // inside the panel, and the names it draws with should mean the panel.
+        do {
+            let left = left + panelInset
+            let width = panelWidth
+            y += MagnifierView.panelPad
+
         // ---- history, labelled with its own scale ---------------------------
         y += 8
         let scale = Chart.peak(down: row.downHist, up: row.upHist)
@@ -817,6 +836,9 @@ final class MagnifierView: NSView {
                       at: NSPoint(x: left, y: y), font: tickFont, color: Palette.faint)
             y += 20
         }
+
+        }
+        y += MagnifierView.panelPad + 8
 
         for block in footerBlocks(for: row) {
             let h = Text.wrappedHeight(block.text, font: block.font, width: width)
