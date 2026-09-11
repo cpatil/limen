@@ -876,6 +876,62 @@ do {
           "\(traits.keys.sorted().prefix(4))")
 }
 
+// Whatever a row states, the tooltip and the Copy item have to carry - a fact you
+// can see but not copy is a fact you have to retype. The format was on the row and
+// in the spoken description, and missing from the one path that exists to be pasted.
+do {
+    let list = TrafficListView(frame: NSRect(x: 0, y: 0, width: 600, height: 200))
+    var row = Row(id: "usb:1", title: "USB3.0 Card Reader", subtitle: "Generic", badge: "")
+    row.fsType = "exfat"
+    row.volumes = ["Untitled"]
+    row.mediumClass = "SDXC 128 GB"
+    row.capacityBytes = 128_000_000_000
+    row.usedBytes = 1_000_000_000
+    let copied = list.identity(for: row)
+    check("copy: the format is on the pasteboard too", copied.contains("exFAT"), copied)
+    check("copy: along with what the row shows about the card",
+          copied.contains("SDXC 128 GB") && copied.contains("Untitled"))
+}
+
+// ---- hiding a row -------------------------------------------------------------
+// Hiding is about attention, not measurement. A hidden row leaves the lists, keeps
+// being sampled and logged, and its history sinks to the bottom of the log rather
+// than being bumped to the top every time the device twitches.
+do {
+    struct Fake { let id: String; let device: String }
+    let rows = [Fake(id: "net:en0", device: "en0"),
+                Fake(id: "net:utun5", device: "utun5"),
+                Fake(id: "net:lo0", device: "lo0")]
+    Hidden.revealAll()
+    check("hide: nothing is hidden to begin with",
+          Hidden.visible(rows, id: { $0.id }).count == 3)
+
+    Hidden.set(id: "net:utun5", name: "utun5", hidden: true)
+    let visible = Hidden.visible(rows, id: { $0.id })
+    check("hide: the hidden row leaves the list", visible.count == 2)
+    check("hide: and it is the right one", !visible.contains { $0.id == "net:utun5" })
+    check("hide: the store knows it by name as well, which is how the log finds it",
+          Hidden.isHidden(name: "utun5"))
+
+    // Sunk, not dropped: the sessions happened.
+    let sunk = Hidden.sink(rows, name: { $0.device })
+    check("log: a hidden device keeps its history", sunk.count == 3)
+    check("log: but stops being bumped up", sunk.last?.device == "utun5")
+    check("log: and everything else keeps its order",
+          sunk.map { $0.device }.prefix(2) == ["en0", "lo0"])
+
+    // While tidying up you need to see what you hid without unhiding it first.
+    Hidden.revealing = true
+    check("hide: revealing shows them again without unhiding them",
+          Hidden.visible(rows, id: { $0.id }).count == 3 && Hidden.isHidden(id: "net:utun5"))
+    Hidden.revealing = false
+
+    Hidden.set(id: "net:utun5", name: "utun5", hidden: false)
+    check("hide: and the same call takes it back",
+          Hidden.visible(rows, id: { $0.id }).count == 3 && !Hidden.isHidden(id: "net:utun5"))
+    Hidden.revealAll()
+}
+
 // A view smaller than the region AppKit asks it to refresh must clip to itself.
 // The card's dismiss button: drawn and hit-tested from one expression, because when
 // those are written out twice they drift and the cross stops being clickable.
@@ -941,18 +997,6 @@ check("palette (\(mode)): nor for a link at its ceiling",
 check("palette (\(mode)): nor for the quiet grey everything else uses",
       separation(Palette.inferred, Palette.faint) > 0.25,
       String(format: "%.2f", separation(Palette.inferred, Palette.faint)))
-// The tint behind the footer is a background, not text. Two things have to hold at
-// once: it has to be visibly different from the canvas, or the line it marks is just
-// more grey; and text on it has to stay readable, or highlighting the line costs the
-// sentence. The band as actually painted is the tint composited over the canvas.
-let band = Palette.canvas.blended(withFraction: Palette.inferredBadge.alphaComponent,
-                                  of: Palette.inferred) ?? Palette.canvas
-check("palette (\(mode)): the footer band is visibly not the canvas",
-      separation(band, Palette.canvas) > 0.02,
-      String(format: "%.3f", separation(band, Palette.canvas)))
-check("palette (\(mode)): and does not swamp the sentence on it",
-      contrast(NSColor.labelColor.withAlphaComponent(0.70), band) >= 4.0,
-      String(format: "%.2f:1", contrast(NSColor.labelColor.withAlphaComponent(0.70), band)))
 // The transfer log's advice was drawn in four system colours, two of which - yellow
 // and orange - sat at about 1.5:1 on the log's own background. Whatever colour these
 // notes take, they have to be readable in both appearances.
@@ -987,9 +1031,6 @@ if !runningLight {
           String(format: "%.3f vs %.3f", luminance(Palette.canvas),
                  luminance(NSColor.windowBackgroundColor)))
 }
-check("palette (\(mode)): the mark stays legible on its own band",
-      contrast(Palette.inferred, band) >= 4.5,
-      String(format: "%.2f:1", contrast(Palette.inferred, band)))
 }
 
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")

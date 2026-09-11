@@ -11,6 +11,16 @@ enum HistoryItem {
         let colour: NSColor
     }
 
+    /// The heading strip: the device's name and totals, and nothing else.
+    ///
+    /// The raised tone used to cover the whole group - heading and every note under
+    /// it - so a device with three paragraphs of advice became a large pale block and
+    /// a device with none stayed a thin line. The shading then looked like a state
+    /// (open? closed? selected?) rather than what it is, which is "this line names a
+    /// device". Only the strip is raised now; the notes sit on the ground with the
+    /// sessions they belong to.
+    static let headingHeight: CGFloat = 34
+
     /// A readable measure, not the width of the window.
     ///
     /// These paragraphs were being wrapped to whatever the window happened to be -
@@ -54,9 +64,11 @@ enum HistoryItem {
             // away with the sessions, because the point of folding is to get a dozen
             // devices onto one screen.
             if collapsed { return 44 }
-            var h: CGFloat = 34
-            for advice in HistoryItem.advice(for: g) {
-                h += Text.wrappedHeight(advice.text, font: font, width: textWidth) + 8
+            var h = HistoryItem.headingHeight
+            let advice = HistoryItem.advice(for: g)
+            if !advice.isEmpty { h += 6 }
+            for note in advice {
+                h += Text.wrappedHeight(note.text, font: font, width: textWidth) + 8
             }
             return max(60, h + 8)
         case .session:
@@ -85,7 +97,11 @@ final class HistoryView: NSView {
         // Cap the rows per group. One busy interface can accumulate dozens of
         // short sessions, and without a limit it pushes every other device off
         // the bottom - which is how a card reader's log became unreachable.
-        items = Analysis.groups(from: sessions).flatMap { group -> [HistoryItem] in
+        // Hidden devices sink to the bottom rather than disappearing: their sessions
+        // happened, and the point of hiding a chatty tunnel is that it stops being
+        // bumped to the top every time it twitches, not that its history is lost.
+        items = Hidden.sink(Analysis.groups(from: sessions), name: { $0.device })
+            .flatMap { group -> [HistoryItem] in
             let folded = collapsed.contains(group.key)
             return [.group(group, collapsed: folded)]
                 + (folded ? []
@@ -297,8 +313,11 @@ final class HistoryView: NSView {
     }
 
     private func draw(group: Analysis.Group, in rect: NSRect, collapsed: Bool) {
+        // The strip only, not the whole group. Flipped coordinates, so this is the top.
+        let band = NSRect(x: 0, y: rect.minY, width: rect.width,
+                          height: min(HistoryItem.headingHeight, rect.height))
         NSColor.textColor.withAlphaComponent(0.05).setFill()
-        rect.fill()
+        band.fill()
         Palette.hairline.setFill()
         NSRect(x: 0, y: rect.minY, width: rect.width, height: 1).fill()
 
@@ -329,7 +348,14 @@ final class HistoryView: NSView {
                    color: NSColor.secondaryLabelColor)
 
         var title = group.device
-        if !group.volumes.isEmpty { title += "  ·  " + group.volumes.joined(separator: ", ") }
+        // Named where it is known. Where it is not, say so rather than showing the
+        // device alone, which reads as "the reader itself" and is indistinguishable
+        // from a group whose name simply did not fit.
+        if !group.volumes.isEmpty {
+            title += "  ·  " + group.volumes.joined(separator: ", ")
+        } else if group.removable {
+            title += "  ·  no volume recorded"
+        }
         Text.draw(Text.clip(title, font: nameFont, maxWidth: rect.width - 300),
                   at: NSPoint(x: 44, y: rect.minY + 9), font: nameFont, color: NSColor.labelColor)
 
@@ -347,7 +373,7 @@ final class HistoryView: NSView {
         guard !collapsed else { return }
 
         let textWidth = HistoryItem.adviceWidth(rect.width)
-        var y = rect.minY + 30
+        var y = rect.minY + HistoryItem.headingHeight + 6
         let top = y
         for advice in HistoryItem.advice(for: group) {
             let h = Text.wrappedHeight(advice.text, font: adviceFont, width: textWidth)

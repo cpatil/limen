@@ -244,6 +244,9 @@ final class Monitor {
 
     private(set) var networkRows: [Row] = []
     private(set) var usbRows: [Row] = []
+    /// Everything, including what has been hidden - this is what the log is fed.
+    private(set) var recordableNetworkRows: [Row] = []
+    private(set) var recordableUSBRows: [Row] = []
     // Histories start pre-filled with zeros so graphs render at full width from the first
     // sample instead of creeping in as a sliver at the right edge.
     private(set) var totalDownHist: [Double] = Array(repeating: 0, count: Monitor.historyLength)
@@ -352,7 +355,7 @@ final class Monitor {
         updateNetwork(net, elapsed: elapsed)
         updateUSB(net, previousNet: previousNet, elapsed: elapsed)
         // Fold this sample into the transfer history.
-        TransferLog.shared.record(rows: networkRows + usbRows)
+        TransferLog.shared.record(rows: recordableNetworkRows + recordableUSBRows)
 
         // Then read back out of it what this device has ever managed. Done here, once
         // for all rows, rather than per row while drawing: it is a fold over the whole
@@ -365,6 +368,16 @@ final class Monitor {
         for index in usbRows.indices {
             usbRows[index].allTimePeak = max(usbRows[index].peak,
                                              best[usbRows[index].title] ?? 0)
+        }
+        for index in recordableNetworkRows.indices {
+            recordableNetworkRows[index].allTimePeak =
+                max(recordableNetworkRows[index].peak,
+                    best[recordableNetworkRows[index].title] ?? 0)
+        }
+        for index in recordableUSBRows.indices {
+            recordableUSBRows[index].allTimePeak =
+                max(recordableUSBRows[index].peak,
+                    best[recordableUSBRows[index].title] ?? 0)
         }
 
         allDown = totalDown + usbTotalDown
@@ -510,7 +523,11 @@ final class Monitor {
         // put the same bytes on screen twice, once as utun and once as en0. "Show all"
         // brings them back, along with loopback and the long tail of virtual
         // interfaces that have merely seen a byte since boot.
-        networkRows = showInactive ? rows : rows.filter { $0.isPhysical }
+        // Recorded before hiding is applied: hiding is about attention, not about
+        // measurement, and a row you have put out of sight is still moving bytes you
+        // will want to find in the log afterwards.
+        recordableNetworkRows = showInactive ? rows : rows.filter { $0.isPhysical }
+        networkRows = Hidden.visible(recordableNetworkRows) { $0.id }
         if networkSort == .activeFirst, networkPinned.isEmpty, !networkRows.isEmpty {
             networkPinned = networkRows.map { $0.id }
         }
@@ -667,7 +684,8 @@ final class Monitor {
         rows = Monitor.ordered(rows, by: storageSort, manual: storageOrder,
                                pinned: storagePinned)
 
-        usbRows = rows
+        recordableUSBRows = rows
+        usbRows = Hidden.visible(rows) { $0.id }
         if storageSort == .activeFirst, storagePinned.isEmpty, !usbRows.isEmpty {
             storagePinned = usbRows.map { $0.id }
         }

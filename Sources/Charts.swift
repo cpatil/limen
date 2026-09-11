@@ -57,7 +57,7 @@ enum Palette {
     /// rather than something inherited, and a soft grey is easier to sit in front of
     /// for a window that stays open all day.
     static var canvas: NSColor {
-        isLight ? NSColor(srgbRed: 0.902, green: 0.902, blue: 0.914, alpha: 1)
+        isLight ? NSColor(srgbRed: 0.858, green: 0.858, blue: 0.872, alpha: 1)
                 // Darker than the stock window background, which sits high enough to
                 // grey out the charts drawn on it. A monitor is mostly ground with
                 // thin coloured lines over it, and the lines want somewhere dark to
@@ -120,9 +120,6 @@ enum Palette {
     /// The same colour as a fill, where it sits under text rather than being text.
     static var inferredFill: NSColor {
         inferred.withAlphaComponent(isLight ? 0.80 : 0.70)
-    }
-    static var inferredBadge: NSColor {
-        inferred.withAlphaComponent(isLight ? 0.20 : 0.18)
     }
     /// Prefixed to anything drawn in that colour. Read aloud as "about".
     static let mark = "\u{2248} "

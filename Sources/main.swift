@@ -98,6 +98,22 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
     viewMenu.addItem(resortItem)
     viewMenu.addItem(NSMenuItem.separator())
 
+    // Hiding is per row, from that row's own menu. These two are how you find what
+    // you hid when the row is no longer on screen to right-click.
+    let revealItem = NSMenuItem(title: "Show Hidden Rows",
+                                action: #selector(AppDelegate.toggleRevealHidden(_:)),
+                                keyEquivalent: "")
+    revealItem.target = target
+    revealItem.state = Hidden.revealing ? .on : .off
+    viewMenu.addItem(revealItem)
+    let unhideItem = NSMenuItem(title: "Show All Hidden Rows Again",
+                                action: #selector(AppDelegate.revealAllHidden(_:)),
+                                keyEquivalent: "")
+    unhideItem.target = target
+    unhideItem.isEnabled = Hidden.count > 0
+    viewMenu.addItem(unhideItem)
+    viewMenu.addItem(NSMenuItem.separator())
+
     let hoverItem = NSMenuItem(title: "Magnify on Hover",
                                action: #selector(AppDelegate.toggleHover(_:)),
                                keyEquivalent: "")

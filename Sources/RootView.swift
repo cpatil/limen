@@ -827,6 +827,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showInferenceHelp(_ sender: Any?) { LegendWindow.show(.inference) }
 
+    /// Reveals hidden rows so they can be put back, without unhiding them.
+    @objc func toggleRevealHidden(_ sender: NSMenuItem) {
+        Hidden.revealing.toggle()
+        sender.state = Hidden.revealing ? .on : .off
+        refresh()
+    }
+
+    @objc func revealAllHidden(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Show every hidden row again?"
+        alert.informativeText = "\(Hidden.count) row\(Hidden.count == 1 ? "" : "s") "
+            + "will come back to the lists. Nothing was lost while they were hidden - "
+            + "they were measured and logged the whole time."
+        alert.addButton(withTitle: "Show All")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Hidden.revealAll()
+        refresh()
+    }
+
     @objc func showSetup(_ sender: Any?) {
         if setupWindow == nil { setupWindow = SetupWindowController() }
         setupWindow?.showWindow(nil)

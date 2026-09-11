@@ -101,7 +101,7 @@ final class MagnifierView: NSView {
             // row.note is a fact about the interface and "best this session" is a
             // measurement; anything else on this line names a standard from a rate,
             // which is a comparison against the catalogue.
-            let inferred = row.note.isEmpty && !(row.wireless && !row.linkTrusted)
+            let inferred = row.note.isEmpty && row.hasKnownMediumClass
             out.append((inferred ? Palette.marked(context) : context, bodyFont,
                         inferred ? Palette.inferred : NSColor.secondaryLabelColor))
         }
@@ -267,7 +267,9 @@ final class MagnifierView: NSView {
     /// the only text in the interface with no way to read it whole.
     private func contextText(_ row: Row) -> String {
         if !row.note.isEmpty { return row.note }
-        if row.wireless && !row.linkTrusted {
+        // Same rule as the row: a rate cannot say what something is. Without a class
+        // to compare against, report what was seen.
+        if !row.hasKnownMediumClass {
             return row.peak > 0 ? "best this session " + Fmt.rate(row.peak, unit: unit) : ""
         }
         return Reference.context(current: row.down + row.up, peak: row.peak, unit: unit,

@@ -179,6 +179,21 @@ final class TransferLog {
                 for actor in row.actors where !session.processes.contains(actor.display) {
                     session.processes.append(actor.display)
                 }
+                // Facts that were not knowable when the session opened, filled in as
+                // soon as they are. A card inserted and immediately read starts moving
+                // bytes before its volume appears in the mount table, and these were
+                // captured once at the start and never revisited - so the largest
+                // import in this log, 132 GB, is filed under no volume at all, with no
+                // filesystem and no processes. Only ever filled in, never overwritten:
+                // a volume that has since been ejected should not blank what it was.
+                if session.volumes.isEmpty, !row.volumes.isEmpty {
+                    session.volumes = row.volumes
+                }
+                if (session.fsType ?? "").isEmpty, !row.fsType.isEmpty {
+                    session.fsType = row.fsType
+                }
+                if session.journalWrites != true { session.journalWrites = row.journalWrites }
+                if session.spotlight != true { session.spotlight = row.spotlight }
                 open[key] = session
             } else {
                 // Counters are cumulative; remember where the session started so the

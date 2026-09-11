@@ -358,6 +358,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if parts.count == 1, !row.subtitle.isEmpty { parts.append(row.subtitle) }
         let card = Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
         if !card.isEmpty { parts.append(Palette.mark + card) }
+        // What it is formatted as. This is the text the tooltip shows and the Copy
+        // item puts on the pasteboard, so anything the row states has to be here too
+        // - a fact you can see but not copy is a fact you have to retype.
+        // What it is formatted as. This is the text the tooltip shows and the Copy
+        // item puts on the pasteboard, so anything the row states has to be here too
+        // - a fact you can see but not copy is a fact you have to retype.
+        let format = Fmt.fsName(row.fsType)
+        if !format.isEmpty { parts.append(format) }
         if row.capacityBytes > 0 {
             parts.append(Fmt.bytes(Double(row.capacityBytes - row.usedBytes)) + " free of "
                          + Fmt.bytes(Double(row.capacityBytes)))
@@ -366,7 +374,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if row.linkTrusted, row.linkBits > 0 {
             parts.append(Fmt.dualSpeed(bitsPerSec: row.linkBits, unit: unit))
         }
-        if !row.appleName.isEmpty { parts.append("Apple: " + row.appleName) }
+        for name in [row.alsoKnown, row.appleName] where !name.isEmpty {
+            parts.append("Also known as " + name)
+        }
         return parts.joined(separator: "\n")
     }
 
@@ -388,6 +398,21 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // is writing an index onto a card you are only reading from. A LaunchAgent
         // cannot do this - touching a removable volume needs consent macOS only grants
         // to an app the user runs - so it belongs here, where the prompt makes sense.
+        // Out of sight, still counted. Offered on every row, and the same item takes
+        // it back - "Show all hidden rows" in the View menu finds them again if the
+        // row itself is no longer on screen to right-click.
+        let hidden = Hidden.isHidden(id: row.id)
+        let hideItem = NSMenuItem(title: hidden ? "Show \u{201C}\(row.title)\u{201D} Again"
+                                                : "Hide \u{201C}\(row.title)\u{201D}",
+                                  action: #selector(toggleHidden(_:)), keyEquivalent: "")
+        hideItem.target = self
+        hideItem.representedObject = [row.id, row.title]
+        hideItem.toolTip = "Hidden rows keep being measured and keep being logged. "
+            + "They leave the list, and their transfers stop being bumped to the top "
+            + "of the session log."
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(hideItem)
+
         if row.removable, !row.mountRoots.isEmpty {
             let already = row.mountRoots.allSatisfy {
                 FileManager.default.fileExists(atPath: $0 + "/.metadata_never_index")
@@ -413,6 +438,12 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     /// Adds or removes `.metadata_never_index` at the volume root - the durable way to
     /// stop Spotlight indexing a card, and to allow it again. It needs no password,
     /// lives on the volume so it travels to any Mac, and either direction is one click.
+    @objc private func toggleHidden(_ sender: NSMenuItem) {
+        guard let pair = sender.representedObject as? [String], pair.count == 2 else { return }
+        Hidden.set(id: pair[0], name: pair[1], hidden: !Hidden.isHidden(id: pair[0]))
+        onVolumeChanged?()
+    }
+
     @objc private func toggleIndexing(_ sender: NSMenuItem) {
         guard let roots = sender.representedObject as? [String] else { return }
         let marker = "/.metadata_never_index"
@@ -758,13 +789,15 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // measurement; naming a standard from a rate is neither.
         var contextInferred = false
         if context.isEmpty, combined > 0 || row.peak > 0 {
-            if row.wireless && !row.linkTrusted {
-                // Throughput cannot identify a Wi-Fi generation, and the reported link
-                // rate is not usable either, so this says what was seen rather than
-                // naming a standard it cannot establish.
+            if !row.hasKnownMediumClass {
+                // Throughput cannot identify what something is. It could not name a
+                // Wi-Fi generation, and it cannot name anything else either: loopback
+                // and a VPN tunnel were both being announced as "10 Mbit Ethernet",
+                // because that was the catalogue entry nearest the rate they happened
+                // to be carrying. Say what was seen instead.
                 context = row.peak > 0 ? "best this session " + Fmt.rate(row.peak, unit: unit) : ""
             } else {
-                contextInferred = gauge == nil
+                contextInferred = gauge == nil && row.hasKnownMediumClass
                 context = gauge != nil ? "" : Reference.context(current: combined, peak: row.peak, unit: unit,
                                             families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
                                             roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
