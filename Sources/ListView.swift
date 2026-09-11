@@ -25,6 +25,9 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
 
     /// Reports what the pointer is over, so the window can magnify it.
     var onHover: ((Row?, MagnifierView.Zone, String, NSPoint) -> Void)?
+    /// A click that turned out not to be a drag. The card for that row is then held
+    /// open until it is dismissed, so it can be read and copied from.
+    var onPin: ((Row, MagnifierView.Zone, String, NSPoint) -> Void)?
     /// Emitted when rows have been dragged into a new arrangement, with the row ids in
     /// their new order. The window persists it and switches this list to custom order.
     var onReorder: (([String]) -> Void)?
@@ -323,7 +326,16 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             refreshAccessibilityRows()
             needsDisplay = true
         }
-        guard dragArmed else { return }
+        guard dragArmed else {
+            // Not a drag after all, so it was a click on the row: hold its card open.
+            // The handle's gutter is excluded by hit(), the same rule hovering uses -
+            // reaching for the grip should not open anything.
+            let local = convert(event.locationInWindow, from: nil)
+            if let (row, zone) = hit(local) {
+                onPin?(row, zone, identity(for: row), convert(local, to: nil))
+            }
+            return
+        }
         NSCursor.pop()
         onReorder?(rows.map { $0.id })
     }

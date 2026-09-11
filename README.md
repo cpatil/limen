@@ -210,6 +210,7 @@ has a way back, offered where the change was made:
 | Downloads a newer speed catalogue | **Use the Built-in Speed Catalogue** |
 | Remembers layout, sorting, units | **Reset Settings…** — leaves your log and your cards alone |
 | Anything the Cards menu switched on | Switch it off; the watcher is removed with the last one |
+| Pins a hover card open | The cross on the card, Escape, or clicking the same row again |
 
 Where something is genuinely irreversible it asks first, rather than succeeding quietly.
 
@@ -232,8 +233,13 @@ by something measured — green and blue are the two directions, orange is a lin
 ceiling, red is a warning, and the capacity level runs green through amber to red — so
 it cannot be mistaken for a rate. The mark, not the colour, is what carries the meaning:
 it survives greyscale, colour blindness and the accessibility description, where the
-colour does not. A line along the bottom of the window says so, and clicking it explains
-the difference. Hovering anything marked ≈ shows what the conclusion was drawn from.
+colour does not.
+
+Three ways to the key: the ≈ at the top left, the line along the bottom of the window,
+and Help ▸ What the Colours Mean. Hovering a row brings up its card, which says what
+each conclusion on that row was drawn from; clicking a row keeps that card open —
+with a cross to dismiss it, or Escape — so it can be read and copied from without the
+pointer having to stay still.
 
 A marker file on a card is a fact, so `Spotlight off` is stated plainly. Its absence
 only means nothing is stopping Spotlight, so that reads `Spotlight not blocked` — Limen

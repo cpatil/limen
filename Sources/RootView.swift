@@ -94,6 +94,80 @@ final class SectionSummary: NSView {
     }
 }
 
+/// The colour key, as a chart rather than a paragraph.
+///
+/// Shown from the mark in the toolbar and from the line along the bottom. A legend
+/// that only exists in prose is one most people never read; the point of a code is
+/// that it can be looked up in a second.
+final class LegendView: NSView {
+    struct Entry {
+        let swatches: [NSColor]
+        let mark: String
+        let title: String
+        let detail: String
+    }
+
+    static var entries: [Entry] {
+        [
+            Entry(swatches: [Palette.inferred], mark: "\u{2248}",
+                  title: "Worked out, not measured",
+                  detail: "Matched against a catalogue of what hardware normally does"),
+            Entry(swatches: [Palette.down], mark: "",
+                  title: "Read, and traffic in",
+                  detail: "Counted by the kernel and the storage stack"),
+            Entry(swatches: [Palette.up], mark: "",
+                  title: "Written, and traffic out",
+                  detail: "Counted the same way"),
+            Entry(swatches: [NSColor.systemOrange], mark: "",
+                  title: "At the link's ceiling",
+                  detail: "85% or more of a rate the system itself reported"),
+            Entry(swatches: [NSColor.systemRed], mark: "",
+                  title: "Costing you something",
+                  detail: "Nothing is stopping Spotlight indexing this volume"),
+            Entry(swatches: [NSColor.systemGreen, NSColor.systemYellow, NSColor.systemRed],
+                  mark: "",
+                  title: "How full the device is",
+                  detail: "The level beside the icon: amber past 70%, red past 90%"),
+        ]
+    }
+
+    private static let rowHeight: CGFloat = 38
+    static var fittingSize: NSSize {
+        NSSize(width: 460, height: CGFloat(entries.count) * rowHeight + 8)
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let titleFont = NSFont.systemFont(ofSize: 12.5, weight: .medium)
+        let detailFont = NSFont.systemFont(ofSize: 11.5)
+        let markFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        var y: CGFloat = 4
+
+        for entry in LegendView.entries {
+            // One swatch, or three stacked left to right where the colour is a scale
+            // rather than a state.
+            var x: CGFloat = 4
+            for colour in entry.swatches {
+                colour.setFill()
+                let width: CGFloat = entry.swatches.count > 1 ? 8 : 24
+                NSBezierPath(roundedRect: NSRect(x: x, y: y + 8, width: width, height: 16),
+                             xRadius: 3, yRadius: 3).fill()
+                x += width + 2
+            }
+            if !entry.mark.isEmpty {
+                Text.draw(entry.mark, at: NSPoint(x: 36, y: y + 8),
+                          font: markFont, color: Palette.inferred)
+            }
+            Text.draw(entry.title, at: NSPoint(x: 58, y: y + 4),
+                      font: titleFont, color: NSColor.labelColor)
+            Text.draw(entry.detail, at: NSPoint(x: 58, y: y + 20),
+                      font: detailFont, color: Palette.faint)
+            y += LegendView.rowHeight
+        }
+    }
+}
+
 /// The line along the bottom of the window that says the interface is not all
 /// measurement.
 ///
@@ -121,8 +195,8 @@ final class InferenceNote: NSView {
         + "a proof: a rate near an SDXC card's ceiling is equally consistent with a "
         + "slow reader, a busy machine at the other end, a tree of small files, or a "
         + "device that has got hot.\n\n"
-        + "Hovering anything marked \u{2248} shows what the conclusion was drawn from, "
-        + "so you can disagree with it."
+        + "Hovering a row brings up its card, which spells out every conclusion on that "
+        + "row and what each was drawn from - so you can disagree with it."
 
     private var hovering = false
     private var tracking: NSTrackingArea?
@@ -144,10 +218,14 @@ final class InferenceNote: NSView {
 
     override func mouseDown(with event: NSEvent) { showExplanation() }
 
-    func showExplanation() {
+    func showExplanation() { InferenceNote.explain() }
+
+    static func explain() {
         let alert = NSAlert()
         alert.messageText = "Measured, and worked out"
         alert.informativeText = InferenceNote.explanation
+        let legend = LegendView(frame: NSRect(origin: .zero, size: LegendView.fittingSize))
+        alert.accessoryView = legend
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
@@ -169,25 +247,42 @@ final class InferenceNote: NSView {
         dirty.intersection(bounds)
     }
 
+    static let sentence = "marks a reading Limen worked out rather than measured. "
+        + "Hovering a row explains each one it carries."
+    static let affordance = "Colour key"
+
     override func draw(_ dirtyRect: NSRect) {
-        Palette.canvas.setFill()
+        // A tint rather than the plain canvas. This line is the key to a code used
+        // all over the window, and drawn in the same grey as everything else it read
+        // as a status bar - something to ignore.
+        Palette.inferredBadge.setFill()
         InferenceNote.paintable(dirty: dirtyRect, bounds: bounds).fill()
         Palette.hairline.setFill()
         NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
 
         let font = NSFont.systemFont(ofSize: 10.5)
+        let markFont = NSFont.systemFont(ofSize: 11.5, weight: .semibold)
         var x: CGFloat = 16
         let y = bounds.minY + 5
 
         // The mark drawn in its own colour, immediately before the sentence that
         // explains it: the legend and the thing it stands for cannot then drift apart.
-        Text.draw(Palette.mark, at: NSPoint(x: x, y: y), font: font, color: Palette.inferred)
-        x += Text.width(Palette.mark, font: font)
+        Text.draw(Palette.mark, at: NSPoint(x: x, y: y - 1), font: markFont,
+                  color: Palette.inferred)
+        x += Text.width(Palette.mark, font: markFont)
+        Text.draw(InferenceNote.sentence, at: NSPoint(x: x, y: y), font: font,
+                  color: NSColor.labelColor.withAlphaComponent(hovering ? 0.95 : 0.70))
+        x += Text.width(InferenceNote.sentence, font: font) + 10
 
-        let sentence = "marks a reading Limen worked out rather than measured. "
-            + "Hover one to see what from."
-        Text.draw(sentence, at: NSPoint(x: x, y: y), font: font,
-                  color: hovering ? NSColor.labelColor : Palette.faint)
+        // Saying what happens if you click, because nothing else here does. A line of
+        // prose that silently responds to a click is a secret, not an affordance.
+        Text.draw(InferenceNote.affordance, at: NSPoint(x: x, y: y), font: font,
+                  color: Palette.inferred)
+        let underline = NSRect(x: x, y: y - 2,
+                               width: Text.width(InferenceNote.affordance, font: font),
+                               height: 1)
+        Palette.inferred.withAlphaComponent(hovering ? 0.9 : 0.45).setFill()
+        underline.fill()
     }
 
     override func accessibilityLabel() -> String? {
@@ -237,6 +332,10 @@ final class RootView: NSView, NSSplitViewDelegate {
                                          action: nil)
     let intervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let inactiveToggle = NSButton(checkboxWithTitle: "Show all", target: nil, action: nil)
+    /// The colour key, at the top-left corner where a legend is looked for. The line
+    /// along the bottom says the same thing in words; this is the one you can find
+    /// without reading anything.
+    let legendButton = NSButton(title: "\u{2248}", target: nil, action: nil)
     /// Re-applies the section orders. "Active first" is held rather than recomputed
     /// every second, so this is how you ask for it to be worked out again. There is
     /// one per section, sitting beside that section's sort control - a single button
@@ -327,6 +426,21 @@ final class RootView: NSView, NSSplitViewDelegate {
             + "Turning this on reveals tunnels, bridges, loopback and other virtual "
             + "interfaces, and USB hubs with nothing attached."
 
+        legendButton.bezelStyle = .rounded
+        legendButton.controlSize = .small
+        // Otherwise it takes first responder on launch and wears the focus ring, which
+        // makes a legend look like the thing you are being asked to press.
+        legendButton.refusesFirstResponder = true
+        legendButton.target = self
+        legendButton.action = #selector(showLegend)
+        legendButton.attributedTitle = NSAttributedString(
+            string: "\u{2248}",
+            attributes: [.foregroundColor: Palette.inferred,
+                         .font: NSFont.systemFont(ofSize: 13, weight: .semibold)])
+        legendButton.toolTip = "What the colours mean.\n\n"
+            + "Anything marked \u{2248} was worked out from a measurement rather than "
+            + "measured, and is drawn in violet."
+
         columnsSplit.dividerStyle = .thin
         columnsSplit.delegate = self
         applyPaneLayout()
@@ -350,7 +464,11 @@ final class RootView: NSView, NSSplitViewDelegate {
             list.onHover = { [weak self] row, zone, details, windowPoint in
                 self?.showMagnifier(row: row, zone: zone, details: details, at: windowPoint)
             }
+            list.onPin = { [weak self] row, zone, details, windowPoint in
+                self?.pinMagnifier(row: row, zone: zone, details: details, at: windowPoint)
+            }
         }
+        magnifier.onClose = { [weak self] in self?.unpinMagnifier() }
         // Dragging a row is only meaningful if the arrangement then survives the next
         // sample, so a drag selects custom order for that list and saves it.
         usbList.onReorder = { [weak self] ids in self?.onReorder?(ids, true) }
@@ -359,8 +477,19 @@ final class RootView: NSView, NSSplitViewDelegate {
             list.onVolumeChanged = { [weak self] in self?.onVolumeChanged?() }
         }
 
+        // Escape puts a pinned card away. The cross is the discoverable way; this is
+        // the one people's hands already know.
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, self.pinnedRowID != nil, event.keyCode == 53 else {
+                return event
+            }
+            self.unpinMagnifier()
+            return nil
+        }
+
         addSubview(outerSplit)
         addSubview(inferenceNote)
+        addSubview(legendButton)
         addSubview(unitControl)
         addSubview(intervalPopup)
         addSubview(inactiveToggle)
@@ -439,9 +568,50 @@ final class RootView: NSView, NSSplitViewDelegate {
         UserDefaults.standard.object(forKey: hoverKey) as? Bool ?? true
     }
 
+    deinit {
+        if let monitor = escapeMonitor { NSEvent.removeMonitor(monitor) }
+    }
+
+    @objc func showLegend(_ sender: Any?) { InferenceNote.explain() }
+
+    /// Which row's card is being held open, if any.
+    ///
+    /// A card that only exists while the pointer is on the row cannot be read from
+    /// top to bottom without the pointer drifting off it, and cannot be copied from
+    /// at all. Clicking a row pins its card until it is dismissed.
+    private var pinnedRowID: String?
+    private var escapeMonitor: Any?
+
+    func pinMagnifier(row: Row, zone: MagnifierView.Zone,
+                      details: String, at windowPoint: NSPoint) {
+        // Clicking the pinned row again puts it away: the same gesture that opened it.
+        if pinnedRowID == row.id {
+            unpinMagnifier()
+            return
+        }
+        pinnedRowID = nil
+        showMagnifier(row: row, zone: zone, details: details, at: windowPoint, force: true)
+        guard !magnifier.isHidden else { return }
+        pinnedRowID = row.id
+        magnifier.isPinned = true
+        magnifier.needsDisplay = true
+    }
+
+    func unpinMagnifier() {
+        pinnedRowID = nil
+        magnifier.isPinned = false
+        magnifier.isHidden = true
+        magnifiedRowID = nil
+    }
+
+    /// `force` is a click rather than the pointer passing over: it opens the card
+    /// even for someone who has turned hover off, because they asked for this one.
     private func showMagnifier(row: Row?, zone: MagnifierView.Zone,
-                               details: String, at windowPoint: NSPoint) {
-        guard RootView.hoverEnabled else {
+                               details: String, at windowPoint: NSPoint,
+                               force: Bool = false) {
+        // A pinned card ignores the pointer entirely - that is what pinning is.
+        if pinnedRowID != nil, !force { return }
+        guard force || RootView.hoverEnabled else {
             magnifier.isHidden = true
             magnifiedRowID = nil
             return
@@ -484,8 +654,14 @@ final class RootView: NSView, NSSplitViewDelegate {
     /// whatever the values were when the pointer last moved, which reads as broken
     /// when the row beside it is still counting.
     func refreshMagnifier(from rows: [Row]) {
-        guard !magnifier.isHidden, let id = magnifiedRowID,
-              let updated = rows.first(where: { $0.id == id }) else { return }
+        guard !magnifier.isHidden, let id = magnifiedRowID else { return }
+        guard let updated = rows.first(where: { $0.id == id }) else {
+            // The device is gone - unplugged, or a tunnel that went away. A pinned
+            // card would otherwise sit there describing something that no longer
+            // exists, with no pointer movement coming to correct it.
+            if pinnedRowID != nil { unpinMagnifier() }
+            return
+        }
         magnifier.row = updated
         magnifier.unit = usbList.unit
         // Content can change height as processes and hints come and go.
@@ -508,6 +684,9 @@ final class RootView: NSView, NSSplitViewDelegate {
                                 width: width, height: height)
             return x - width
         }
+
+        legendButton.frame = NSRect(x: 16, y: top - headerHeight + (headerHeight - 22) / 2,
+                                    width: 34, height: 22)
 
         var cursor = bounds.maxX - 16
         let unitSize = unitControl.fittingSize
@@ -665,6 +844,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.runModal()
         }
     }
+
+    @objc func showLegend(_ sender: Any?) { InferenceNote.explain() }
 
     @objc func showSetup(_ sender: Any?) {
         if setupWindow == nil { setupWindow = SetupWindowController() }

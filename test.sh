@@ -11,5 +11,12 @@ echo "==> Building tests"
 swiftc -O -framework Cocoa -framework IOKit -framework SystemConfiguration \
     $SOURCES Tests/main.swift -o "$OUT/tests"
 
-echo "==> Running"
-"$OUT/tests"
+# Twice: the palette differs between appearances, and a colour that works on one
+# ground can be unreadable on the other. A single pass could only ever check half of
+# what ships.
+status=0
+for appearance in light dark; do
+    echo "==> Running ($appearance)"
+    LIMEN_APPEARANCE="$appearance" "$OUT/tests" || status=1
+done
+exit $status

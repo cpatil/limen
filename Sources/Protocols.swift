@@ -164,7 +164,7 @@ enum Catalogue {
     /// of its headline number before any protocol framing.
     static let builtInJSON = """
     {
-      "version": 7,
+      "version": 8,
       "updated": "2026-09-08",
       "entries": [
         {
@@ -192,7 +192,7 @@ enum Catalogue {
           "role": "bus",
           "upgrade": "USB 3.2 Gen 2",
           "appleName": "USB 3.0 SuperSpeed",
-          "alias": "USB 3.0 / USB 3.1 Gen 1"
+          "alias": "USB 5Gbps · USB 3.0 / USB 3.1 Gen 1"
         },
         {
           "name": "USB 3.2 Gen 2",
@@ -202,7 +202,7 @@ enum Catalogue {
           "role": "bus",
           "upgrade": "USB 3.2 Gen 2x2",
           "appleName": "USB 3.1 SuperSpeed+",
-          "alias": "USB 3.1 Gen 2"
+          "alias": "USB 10Gbps · USB 3.1 Gen 2"
         },
         {
           "name": "USB 3.2 Gen 2x2",

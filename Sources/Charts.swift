@@ -8,8 +8,12 @@ enum Palette {
     /// colour, but over white it becomes a pastel wash, and the saturated text drawn on
     /// it loses most of its contrast. Anything tuned by eye in one appearance has to be
     /// checked in the other, which is what these exist for.
+    /// Set by the tests, which have no running application to ask. nil in the app.
+    static var forcedAppearance: Bool?
+
     static var isLight: Bool {
-        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+        if let forced = forcedAppearance { return forced }
+        return NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
     }
 
     /// A section colour as heading text. Darkened on light backgrounds, where the
@@ -103,14 +107,14 @@ enum Palette {
     /// itself; the colour only makes it findable at a glance.
     static var inferred: NSColor {
         isLight ? NSColor(srgbRed: 0.42, green: 0.23, blue: 0.66, alpha: 1)
-                : NSColor(srgbRed: 0.74, green: 0.60, blue: 0.99, alpha: 1)
+                : NSColor(srgbRed: 0.84, green: 0.75, blue: 1.00, alpha: 1)
     }
     /// The same colour as a fill, where it sits under text rather than being text.
     static var inferredFill: NSColor {
         inferred.withAlphaComponent(isLight ? 0.80 : 0.70)
     }
     static var inferredBadge: NSColor {
-        inferred.withAlphaComponent(isLight ? 0.20 : 0.26)
+        inferred.withAlphaComponent(isLight ? 0.20 : 0.18)
     }
     /// Prefixed to anything drawn in that colour. Read aloud as "about".
     static let mark = "\u{2248} "

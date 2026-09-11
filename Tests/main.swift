@@ -1,4 +1,27 @@
 import Foundation
+import Cocoa
+
+// Light and dark are not two skins over one design - several colours are chosen
+// separately for each, and one that works on a dark ground can be unreadable on a
+// pale one. The whole suite therefore runs twice, once in each appearance, driven by
+// this variable. Both the palette and AppKit's own dynamic colours have to be told:
+// the palette has no application to ask, and NSColor resolves a dynamic colour
+// against whatever appearance is current on this thread.
+let appearanceName = ProcessInfo.processInfo.environment["LIMEN_APPEARANCE"] ?? "light"
+let runningLight = appearanceName != "dark"
+Palette.forcedAppearance = runningLight
+
+/// Runs `body` with this pass's appearance current, so AppKit's dynamic colours -
+/// labelColor, systemGreen and the rest - resolve to the values they would have on
+/// screen rather than to whatever the process happens to default to.
+func inThisAppearance(_ body: () -> Void) {
+    let appearance = NSAppearance(named: runningLight ? .aqua : .darkAqua)!
+    if #available(macOS 11.0, *) {
+        appearance.performAsCurrentDrawingAppearance(body)
+    } else {
+        body()   // the palette checks below are skipped on older systems
+    }
+}
 
 // A plain assertion harness. There is no Xcode project here, so the tests build the
 // same way the app does: swiftc over Sources plus this file.
@@ -94,6 +117,24 @@ check("sd: a fixed disk gets no card label",
       Reference.mediumClass(bytes: 64_000_000_000, deviceName: "Elements 2621", removable: false).isEmpty)
 check("sd: a non-reader removable gets no card label",
       Reference.mediumClass(bytes: 64_000_000_000, deviceName: "Generic Flash Disk", removable: true).isEmpty)
+
+// The SD standard's capacity boundaries are decimal GB, not GiB. Reading them as GiB
+// pushed every boundary up by 7%: a 32 GB card - SDHC by the standard - came out SDXC.
+check("sd: 32 GB is the largest SDHC",
+      Reference.mediumClass(bytes: 32_000_000_000, deviceName: "USB3.0 Card Reader",
+                            removable: true).hasPrefix("SDHC"))
+check("sd: just above 32 GB is SDXC",
+      Reference.mediumClass(bytes: 32_100_000_000, deviceName: "USB3.0 Card Reader",
+                            removable: true).hasPrefix("SDXC"))
+check("sd: 32 GiB is well inside SDXC, not on the boundary",
+      Reference.mediumClass(bytes: 34_359_738_368, deviceName: "USB3.0 Card Reader",
+                            removable: true).hasPrefix("SDXC"))
+check("sd: 2 GB is the largest SDSC",
+      Reference.mediumClass(bytes: 2_000_000_000, deviceName: "SD Card Reader",
+                            removable: true).hasPrefix("SDSC"))
+check("sd: above 2 TB is SDUC",
+      Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
+                            removable: true).hasPrefix("SDUC"))
 
 // ---- the usage gauge ---------------------------------------------------------
 check("gauge: a device that never moved data has no bar",
@@ -697,6 +738,87 @@ do {
     check("painting: and still repaints only the part actually asked for",
           InferenceNote.paintable(dirty: sliver, bounds: note)
             == NSRect(x: 100, y: 0, width: 40, height: 22))
+}
+
+// The card's dismiss button: drawn and hit-tested from one expression, because when
+// those are written out twice they drift and the cross stops being clickable.
+do {
+    let card = NSRect(x: 0, y: 0, width: MagnifierView.width, height: 260)
+    let close = MagnifierView.closeRect(in: card)
+    check("dismiss: the cross is inside the card", card.contains(close))
+    // The card is drawn flipped, so the top is y = 0.
+    check("dismiss: it sits in the top-right corner",
+          close.maxX <= card.maxX && close.minX > card.midX && close.minY < 20)
+    check("dismiss: and is big enough to hit",
+          close.width >= 20 && close.height >= 20)
+}
+
+// ---- the palette, in whichever appearance this pass is running -----------------
+// A new colour is only a code if it can be read and if it cannot be confused with the
+// colours already in use. Both of those are appearance-dependent, which is why this
+// section runs twice.
+func luminance(_ colour: NSColor) -> Double {
+    guard let c = colour.usingColorSpace(.sRGB) else { return 0 }
+    func channel(_ v: CGFloat) -> Double {
+        let v = Double(v)
+        return v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+    }
+    return 0.2126 * channel(c.redComponent)
+         + 0.7152 * channel(c.greenComponent)
+         + 0.0722 * channel(c.blueComponent)
+}
+
+func contrast(_ a: NSColor, _ b: NSColor) -> Double {
+    let (x, y) = (luminance(a), luminance(b))
+    return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+}
+
+/// How far apart two colours look, in plain sRGB distance. Crude next to a perceptual
+/// metric, but enough to catch a new colour landing on top of an existing one.
+func separation(_ a: NSColor, _ b: NSColor) -> Double {
+    guard let p = a.usingColorSpace(.sRGB), let q = b.usingColorSpace(.sRGB) else { return 0 }
+    let dr = Double(p.redComponent - q.redComponent)
+    let dg = Double(p.greenComponent - q.greenComponent)
+    let db = Double(p.blueComponent - q.blueComponent)
+    return (dr * dr + dg * dg + db * db).squareRoot()
+}
+
+let mode = runningLight ? "light" : "dark"
+inThisAppearance {
+check("palette (\(mode)): inferred text is readable on the canvas",
+      contrast(Palette.inferred, Palette.canvas) >= 4.5,
+      String(format: "%.2f:1", contrast(Palette.inferred, Palette.canvas)))
+check("palette (\(mode)): and on a striped row",
+      contrast(Palette.inferred, Palette.canvas.blended(withFraction: 0.05,
+                                                        of: NSColor.textColor) ?? Palette.canvas) >= 4.0)
+// If it reads as one of the direction colours it is not a separate statement any more.
+check("palette (\(mode)): inferred is not mistakable for read/in",
+      separation(Palette.inferred, Palette.down) > 0.35,
+      String(format: "%.2f", separation(Palette.inferred, Palette.down)))
+check("palette (\(mode)): nor for write/out",
+      separation(Palette.inferred, Palette.up) > 0.35,
+      String(format: "%.2f", separation(Palette.inferred, Palette.up)))
+check("palette (\(mode)): nor for a link at its ceiling",
+      separation(Palette.inferred, NSColor.systemOrange) > 0.35,
+      String(format: "%.2f", separation(Palette.inferred, NSColor.systemOrange)))
+check("palette (\(mode)): nor for the quiet grey everything else uses",
+      separation(Palette.inferred, Palette.faint) > 0.25,
+      String(format: "%.2f", separation(Palette.inferred, Palette.faint)))
+// The tint behind the footer is a background, not text. Two things have to hold at
+// once: it has to be visibly different from the canvas, or the line it marks is just
+// more grey; and text on it has to stay readable, or highlighting the line costs the
+// sentence. The band as actually painted is the tint composited over the canvas.
+let band = Palette.canvas.blended(withFraction: Palette.inferredBadge.alphaComponent,
+                                  of: Palette.inferred) ?? Palette.canvas
+check("palette (\(mode)): the footer band is visibly not the canvas",
+      separation(band, Palette.canvas) > 0.02,
+      String(format: "%.3f", separation(band, Palette.canvas)))
+check("palette (\(mode)): and does not swamp the sentence on it",
+      contrast(NSColor.labelColor.withAlphaComponent(0.70), band) >= 4.0,
+      String(format: "%.2f:1", contrast(NSColor.labelColor.withAlphaComponent(0.70), band)))
+check("palette (\(mode)): the mark stays legible on its own band",
+      contrast(Palette.inferred, band) >= 4.5,
+      String(format: "%.2f:1", contrast(Palette.inferred, band)))
 }
 
 print(failures == 0 ? "\n\(checks) checks passed" : "\n\(failures) of \(checks) checks FAILED")

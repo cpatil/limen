@@ -33,6 +33,9 @@ struct Row {
     var hint: String = ""
     /// What Apple calls this link, when that differs from the neutral name.
     var appleName: String = ""
+    /// Other names the same wire goes by - the USB-IF has renamed it more than once,
+    /// and the marketing name on the box ("USB 5Gbps") is not the one in the spec.
+    var alsoKnown: String = ""
     /// Identity, kept as separate fields rather than one joined subtitle so it can be
     /// shown and copied on its own.
     var vendor: String = ""
@@ -598,9 +601,9 @@ final class Monitor {
                 }
                 row.internalMedium = device.id.hasPrefix("internal:")
             }
-            if let std = Reference.standard(forLinkBits: device.linkSpeedBits),
-               let apple = std.appleName, apple != std.name {
-                row.appleName = apple
+            if let std = Reference.standard(forLinkBits: device.linkSpeedBits) {
+                if let apple = std.appleName, apple != std.name { row.appleName = apple }
+                if let alias = std.alias, alias != std.name { row.alsoKnown = alias }
             }
             row.hint = Reference.advice(peakBytesPerSec: row.peak,
                                         linkBits: device.linkSpeedBits,

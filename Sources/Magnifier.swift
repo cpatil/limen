@@ -33,8 +33,39 @@ final class MagnifierView: NSView {
 
     /// Text-only in a flipped space, so blocks can be laid out top-down and measured
     /// with the same code that draws them.
+    /// Held open by a click rather than following the pointer.
+    var isPinned = false
+    var onClose: (() -> Void)?
+
+    /// The dismiss target, top-right in this view's own (flipped) space.
+    ///
+    /// Geometry in one place because two things have to agree about it: what is drawn
+    /// and what is clickable. They were the same expression written twice in the first
+    /// attempt, which is how a close button ends up one pixel out of reach.
+    static func closeRect(in bounds: NSRect) -> NSRect {
+        NSRect(x: bounds.maxX - 30, y: 10, width: 20, height: 20)
+    }
+
     override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Transparent to the mouse except for the dismiss button, and only while pinned.
+    /// A card that swallowed clicks would put a 400-point hole over the rows it is
+    /// describing.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard isPinned, !isHidden else { return nil }
+        let local = convert(point, from: superview)
+        return MagnifierView.closeRect(in: bounds).contains(local) ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        if MagnifierView.closeRect(in: bounds).contains(local) { onClose?() }
+    }
+
+    override func resetCursorRects() {
+        guard isPinned else { return }
+        addCursorRect(MagnifierView.closeRect(in: bounds), cursor: .pointingHand)
+    }
 
     private var contentWidth: CGFloat { MagnifierView.width - MagnifierView.pad * 2 }
 
@@ -55,10 +86,20 @@ final class MagnifierView: NSView {
         // The card badge above carries the mark. This is what the mark stands for -
         // the evidence, so it can be disagreed with.
         if !row.mediumClass.isEmpty {
-            out.append((Palette.marked("SD family read off the card's capacity. A reader "
-                        + "presents itself as USB mass storage and never reports which "
-                        + "standard the card follows, so its speed class - UHS-I, V30 - "
-                        + "cannot be established this way."),
+            // Deliberately hedged twice over. The family follows from the capacity
+            // only once the medium is known to be an SD card, which Limen takes from
+            // the reader's own description rather than from the capacity; and the
+            // reason the rest is unavailable is what readers usually do, not a law -
+            // a vendor-specific reader and driver can expose more.
+            let capacity = row.capacityBytes > 0
+                ? "the card's " + Fmt.bytes(Double(row.capacityBytes)) + " capacity"
+                : "the card's capacity"
+            let family = row.mediumClass.split(separator: " ").first.map(String.init) ?? ""
+            out.append((Palette.marked("Likely \(family), based on \(capacity). Most USB "
+                        + "card readers expose the card to macOS as generic storage, "
+                        + "without its SD-specific metadata, so Limen cannot tell which "
+                        + "bus interface (UHS-I, say) or rated speed class (V30) the "
+                        + "card supports from what is available here."),
                         smallFont, Palette.inferred))
         }
 
@@ -81,7 +122,12 @@ final class MagnifierView: NSView {
         if !row.appleName.isEmpty {
             // Its own line. Squeezed onto the link row beside the badge and the speed
             // it had nowhere to go and was being cut mid-word.
-            out.append(("Apple calls this " + row.appleName, smallFont, NSColor.secondaryLabelColor))
+            // Not something Limen was told. macOS reports a numeric device-speed
+            // code; this name comes from Limen's own catalogue entry for it, so it is
+            // "also known as", not "Apple calls this".
+            let names = [row.alsoKnown, row.appleName].filter { !$0.isEmpty }
+            out.append(("Also known as " + names.joined(separator: "  ·  "),
+                        smallFont, NSColor.secondaryLabelColor))
         }
         return out
     }
@@ -204,6 +250,22 @@ final class MagnifierView: NSView {
         path.lineWidth = 1
         path.stroke()
 
+        if isPinned {
+            let box = MagnifierView.closeRect(in: bounds)
+            NSColor.labelColor.withAlphaComponent(0.10).setFill()
+            NSBezierPath(ovalIn: box).fill()
+            let cross = NSBezierPath()
+            let inset = box.insetBy(dx: 6, dy: 6)
+            cross.move(to: NSPoint(x: inset.minX, y: inset.minY))
+            cross.line(to: NSPoint(x: inset.maxX, y: inset.maxY))
+            cross.move(to: NSPoint(x: inset.maxX, y: inset.minY))
+            cross.line(to: NSPoint(x: inset.minX, y: inset.maxY))
+            cross.lineWidth = 1.5
+            cross.lineCapStyle = .round
+            NSColor.labelColor.withAlphaComponent(0.55).setStroke()
+            cross.stroke()
+        }
+
         let pad = MagnifierView.pad
         let left = card.minX + pad
         let width = contentWidth
@@ -243,13 +305,28 @@ final class MagnifierView: NSView {
                                     font: badgeFont, prominent: true) + 8
             }
             if row.linkTrusted, row.linkBits > 0 {
-                let primary = Fmt.speed(bitsPerSec: row.linkBits, unit: unit)
+                // The negotiated figure, named as what it is. Dividing it by eight and
+                // calling the result MB/s is arithmetically right and practically
+                // misleading: line coding and protocol overhead are paid before any
+                // file moves, so a 5 Gbit/s port does not carry 625 MB/s of payload.
+                let primary = Fmt.linkSpeed(bitsPerSec: row.linkBits)
                 Text.draw(primary, at: NSPoint(x: x, y: y + 4), font: bodyFont,
                           color: NSColor.labelColor)
-                x += Text.width(primary, font: bodyFont) + 8
-                let other = "= " + Fmt.alternateSpeed(bitsPerSec: row.linkBits, unit: unit)
-                Text.draw(other, at: NSPoint(x: x, y: y + 5), font: smallFont,
+                x += Text.width(primary, font: bodyFont) + 6
+                Text.draw("raw signalling", at: NSPoint(x: x, y: y + 5), font: smallFont,
                           color: Palette.faint)
+                x += Text.width("raw signalling", font: smallFont) + 8
+                // What the catalogue says that standard actually sustains. An estimate,
+                // so it is marked like every other estimate.
+                if let ceiling = Reference.ceiling(forLinkBits: row.linkBits,
+                                                   family: row.compareFamilies.contains(.network)
+                                                        ? .network : .usb),
+                   ceiling.bytes > 0 {
+                    let practical = Palette.marked(Fmt.rate(ceiling.bytes, unit: .bytes)
+                                                   + " in practice")
+                    Text.draw(practical, at: NSPoint(x: x, y: y + 5), font: smallFont,
+                              color: Palette.inferred)
+                }
             }
             y += 26
         }

@@ -219,14 +219,19 @@ enum Reference {
         guard name.contains("card") || name.contains("reader") || name.contains("sd") else {
             return ""
         }
-        let giB = 1024.0 * 1024.0 * 1024.0
+        // The SD Association states these boundaries in decimal GB, and the card's
+        // capacity is quoted the same way. Using GiB moved every boundary up by 7%,
+        // which misfiled anything between 32.0 GB and 32 GiB - a 32 GB card, which is
+        // SDHC by the standard, was reported as SDXC. Closed ranges because each
+        // boundary belongs to the family below it: 32 GB is the largest SDHC.
+        let GB = 1_000_000_000.0
         let size = Double(bytes)
         let family: String
         switch size {
-        case ..<(2 * giB):    family = "SDSC"
-        case ..<(32 * giB):   family = "SDHC"
-        case ..<(2048 * giB): family = "SDXC"
-        default:              family = "SDUC"
+        case ...(2 * GB):    family = "SDSC"
+        case ...(32 * GB):   family = "SDHC"
+        case ...(2000 * GB): family = "SDXC"
+        default:             family = "SDUC"
         }
         return family + " " + Fmt.bytes(size)
     }

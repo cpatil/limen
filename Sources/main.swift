@@ -140,6 +140,13 @@ private func buildMainMenu(target: AppDelegate) -> NSMenu {
                                keyEquivalent: "")
     setupItem.target = target
     helpMenu.addItem(setupItem)
+    // The same key the toolbar mark and the bottom line open. Three ways in, because
+    // a legend nobody finds is a legend that does not exist.
+    let keyItem = NSMenuItem(title: "What the Colours Mean…",
+                             action: #selector(AppDelegate.showLegend(_:)),
+                             keyEquivalent: "")
+    keyItem.target = target
+    helpMenu.addItem(keyItem)
     helpMenuItem.submenu = helpMenu
 
     // Things Limen does by itself when a card turns up. Off until asked for.

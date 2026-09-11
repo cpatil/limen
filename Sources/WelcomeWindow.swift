@@ -158,9 +158,13 @@ final class SetupWindowController: NSWindowController {
                      + "The rest is worked out by comparing those measurements against "
                      + "a catalogue of what hardware normally does - what kind of card "
                      + "is in the reader, what held a transfer back, what would help. "
-                     + "Those carry a \u{2248} and are drawn in violet, and hovering one "
-                     + "shows what it was concluded from. A match is not a proof, and "
-                     + "the mark is there so you can weigh it yourself."),
+                     + "Those carry a \u{2248} and are drawn in violet. Hovering a row "
+                     + "brings up its card, which says what each one was concluded "
+                     + "from; clicking a row keeps that card open until you close it. "
+                     + "A match is not a proof, and the mark is there so you can weigh "
+                     + "it yourself.\n\n"
+                     + "The \u{2248} at the top left of the window, and the line along "
+                     + "the bottom, both open the colour key."),
 
             Page(title: "Arranging the lists",
                  body: "Each section sorts on its own, from the popup in its heading.\n\n"
