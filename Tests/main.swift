@@ -153,9 +153,12 @@ do {
     check("name: the identity everything is keyed by does not move",
           reader.title == "USB3.0 Card Reader")
 
-    // A card that has not been named yet still beats naming the holder.
+    // A card that has not been named yet still beats naming the holder, and is
+    // called by its full description - "SDXC" over a badge reading "SDXC 128 GB" is
+    // one fact printed twice.
     reader.volumes = []
-    check("name: an unnamed card is called by its family", reader.headline == "SDXC")
+    check("name: an unnamed card is called by what is known of it",
+          reader.headline == "SDXC 128 GB")
 
     let drive = Row(id: "usb:1", title: "APPLE SSD AP1024Z", subtitle: "internal SSD", badge: "")
     check("name: a drive is its own subject",

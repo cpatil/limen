@@ -62,7 +62,10 @@ struct Row {
     var headline: String {
         guard !mediumClass.isEmpty else { return title }
         if let volume = volumes.first, !volume.isEmpty { return volume }
-        return mediumClass.split(separator: " ").first.map(String.init) ?? title
+        // No name yet: the card's own description is the best title available, and
+        // saying "SDXC" while a badge underneath says "SDXC 394 GB" is one fact
+        // printed twice.
+        return mediumClass
     }
 
     /// The holder, named for a row whose subject is what is inside it.

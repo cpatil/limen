@@ -329,8 +329,10 @@ final class MagnifierView: NSView {
     }
 
     private func cardText(_ row: Row) -> String {
-        // Without the volume name when that is already the headline: a badge that
-        // repeats the title tells you nothing twice.
+        // Nothing at all when the headline is already the card's description, and
+        // without the volume name when that is the headline: a badge repeating the
+        // title tells you nothing twice.
+        if headline(row) == row.mediumClass { return "" }
         guard headline(row) != row.volumes.first else { return row.mediumClass }
         return Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
     }
@@ -374,21 +376,41 @@ final class MagnifierView: NSView {
                               : NSColor.systemGreen
     }
 
+    /// How wide the used/free pair is when drawn as a block beside something.
+    var capacityBlockWidth: CGFloat { 190 }
+
+    /// Whether used and free fit beside the badge rather than under it.
+    ///
+    /// The panel had a badge on one line, a word like "exFAT" on the next, and
+    /// two-thirds of both lines empty - then spent a third line on the figures. They
+    /// go in that gap when it is big enough, which for a card it is and for a drive
+    /// listing five device names it is not.
+    func capacityFitsBeside(_ row: Row) -> Bool {
+        guard !capacityStats(for: row).isEmpty else { return false }
+        let badge = cardText(row).isEmpty ? 0
+            : Text.badgeWidth(Palette.mark + cardText(row), font: cardBadgeFont)
+        let identity = Text.width(identityLine(row), font: bodyFont)
+        return max(badge, identity) + capacityBlockWidth + 12 <= panelWidth
+    }
+
     /// What this device is: the badge where there is one, then identity, capacity and
     /// any evidence for what the badge claims.
     func cardPanelHeight(_ row: Row) -> CGFloat {
         let hasCard = !cardText(row).isEmpty
-        // A panel earns its place when there is something to group: a card, or a
-        // volume with space to report. An interface has one line - "Wi-Fi" - and a box
-        // drawn round a single word is decoration, so those keep the plain line.
-        guard hasCard || !capacityStats(for: row).isEmpty else { return 0 }
+        // A panel earns its place by grouping more than one thing. A box round a
+        // single badge is a box round the row's own title restated - it takes a
+        // caption, a border and twenty points of padding to say nothing. So: a card
+        // with something known about it, or a volume with space to report.
+        let parts = (hasCard ? 1 : 0) + (identityLine(row).isEmpty ? 0 : 1)
+            + (capacityStats(for: row).isEmpty ? 0 : 1) + cardBlocks(for: row).count
+        guard parts > 1 else { return 0 }
         var h = MagnifierView.captionHeight + (hasCard ? 28 : 0)
         let identity = identityLine(row)
         if !identity.isEmpty {
             h += Text.wrappedHeight(identity, font: bodyFont, width: panelWidth) + 5
         }
         let capacity = capacityStats(for: row)
-        if !capacity.isEmpty {
+        if !capacity.isEmpty, !capacityFitsBeside(row) {
             h += CGFloat(MagnifierView.statRows(capacity.count))
                 * MagnifierView.statRowHeight + 4
         }
@@ -469,9 +491,16 @@ final class MagnifierView: NSView {
         let cardHeight = cardPanelHeight(row)
         if cardHeight > 0 {
             height += cardHeight + 8
-        } else if !identityLine(row).isEmpty {
-            height += Text.wrappedHeight(identityLine(row), font: bodyFont,
-                                         width: contentWidth) + 5
+        } else {
+            if !cardText(row).isEmpty { height += 28 }
+            if !identityLine(row).isEmpty {
+                height += Text.wrappedHeight(identityLine(row), font: bodyFont,
+                                             width: contentWidth) + 5
+            }
+            for block in cardBlocks(for: row) {
+                height += Text.wrappedHeight(block.text, font: block.font,
+                                             width: contentWidth) + 5
+            }
         }
         for block in blocks(for: row) {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
@@ -550,6 +579,14 @@ final class MagnifierView: NSView {
                       font: NSFont.systemFont(ofSize: 9, weight: .semibold),
                       color: Palette.faint, tracking: 0.7)
             py += MagnifierView.captionHeight
+
+            // Used and free go in the empty half of the badge line when there is one.
+            let besideCapacity = capacityFitsBeside(row)
+            if besideCapacity {
+                _ = drawStats(capacityStats(for: row),
+                              at: NSPoint(x: inner + innerWidth - capacityBlockWidth, y: py),
+                              width: capacityBlockWidth)
+            }
             if !cardText(row).isEmpty {
                 _ = Text.drawBadge(Palette.mark + cardText(row),
                                    at: NSPoint(x: inner, y: py + 2),
@@ -569,7 +606,7 @@ final class MagnifierView: NSView {
             }
             // Directly under what the device is, because that is what it answers.
             let capacity = capacityStats(for: row)
-            if !capacity.isEmpty {
+            if !capacity.isEmpty, !besideCapacity {
                 py = drawStats(capacity, at: NSPoint(x: inner, y: py + 2), width: innerWidth)
                 py += 2
             }
@@ -582,11 +619,29 @@ final class MagnifierView: NSView {
             }
             y += cardHeight + 8
         } else {
+            // No panel: whatever little there is goes on the line under the title.
+            if !cardText(row).isEmpty {
+                _ = Text.drawBadge(Palette.mark + cardText(row),
+                                   at: NSPoint(x: left, y: y + 2),
+                                   font: cardBadgeFont, fill: Palette.cardBadge,
+                                   textColor: NSColor.labelColor)
+                y += 28
+            }
             let identity = identityLine(row)
             if !identity.isEmpty {
                 let h = Text.wrappedHeight(identity, font: bodyFont, width: width)
                 Text.drawWrapped(identity, in: NSRect(x: left, y: y, width: width, height: h),
                                  font: bodyFont, color: NSColor.labelColor)
+                y += h + 5
+            }
+            // The evidence survives the panel. Losing the paragraph that says how the
+            // card was identified, because there was too little else to box, would
+            // throw away the only part that answers "how do you know?".
+            for block in cardBlocks(for: row) {
+                let h = Text.wrappedHeight(block.text, font: block.font, width: width)
+                Text.drawWrapped(block.text,
+                                 in: NSRect(x: left, y: y, width: width, height: h),
+                                 font: block.font, color: block.color)
                 y += h + 5
             }
         }
