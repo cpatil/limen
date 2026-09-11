@@ -255,6 +255,18 @@ final class MagnifierView: NSView {
         return y
     }
 
+    /// The bar's label, in the form this card has room for.
+    private func gaugeLabel(_ gauge: Reference.Gauge) -> String {
+        gauge.isInferred ? Palette.marked(gauge.longLabel) : gauge.label
+    }
+
+    /// Whether that label has to go under the bar rather than beside it. Asked by both
+    /// the height calculation and the drawing, so the card cannot be sized for one
+    /// layout and drawn in the other.
+    private func gaugeLabelWraps(_ gauge: Reference.Gauge) -> Bool {
+        contentWidth - Text.width(gaugeLabel(gauge), font: smallFont) - 12 < 120
+    }
+
     /// What the bar measures: the link where that can be judged, the device's own
     /// best where it cannot. Same rule as the rows, so the card never disagrees with
     /// what is behind it.
@@ -342,7 +354,7 @@ final class MagnifierView: NSView {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
         }
         if hasLinkRow(row) { height += linkRowWraps(row) ? 44 : 26 }
-        if usage(row) != nil { height += 28 }
+        if let gauge = usage(row) { height += gaugeLabelWraps(gauge) ? 46 : 28 }
         height += 10 + 14 + MagnifierView.chartHeight + 12       // scale labels + chart
         height += 46                                             // the two big rates
         // The grid, then the one line saying where its counters come from.
@@ -507,7 +519,13 @@ final class MagnifierView: NSView {
         // proportion is read faster as a length than as text.
         if let gauge = usage(row) {
             let used = gauge.fraction
-            let barWidth = width - 132
+            // The bar takes what the label leaves, and the label goes underneath when
+            // what is left is too narrow to be a bar. The width used to be a constant
+            // measured against "0% link utilization"; the label then grew to name its
+            // yardstick and ran off the side of the card.
+            let text = gaugeLabel(gauge)
+            let wraps = gaugeLabelWraps(gauge)
+            let barWidth = wraps ? width : width - Text.width(text, font: smallFont) - 12
             let bar = NSRect(x: left, y: y + 5, width: barWidth, height: 7)
             Palette.hairline.setFill()
             NSBezierPath(roundedRect: bar, xRadius: 3.5, yRadius: 3.5).fill()
@@ -532,13 +550,14 @@ final class MagnifierView: NSView {
                 NSColor.labelColor.withAlphaComponent(0.6).setFill()
                 mark.fill()
             }
-            Text.draw(gauge.isInferred ? Palette.marked(gauge.longLabel) : gauge.label,
-                      at: NSPoint(x: bar.maxX + 10, y: y),
+            Text.draw(text,
+                      at: NSPoint(x: wraps ? left : bar.maxX + 10,
+                                  y: wraps ? y + 18 : y),
                       font: smallFont,
                       color: gauge.isInferred ? Palette.inferred
                            : (used >= 0.85 ? NSColor.systemOrange
                                            : Palette.secondary))
-            y += 28
+            y += wraps ? 46 : 28
         }
 
         // ---- the figures, as a grid ----------------------------------------
