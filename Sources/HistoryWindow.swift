@@ -6,11 +6,48 @@ enum HistoryItem {
     case group(Analysis.Group, collapsed: Bool)
     case session(TransferSession)
 
+    struct Advice {
+        let text: String
+        let colour: NSColor
+    }
+
+    /// A readable measure, not the width of the window.
+    ///
+    /// These paragraphs were being wrapped to whatever the window happened to be -
+    /// 1200 points of 11.5pt text, which is about 170 characters a line. Typography
+    /// puts the comfortable range nearer 60 to 90; past that the eye loses the start
+    /// of the next line, which is the actual reason the block was unreadable.
+    static func adviceWidth(_ width: CGFloat) -> CGFloat {
+        min(max(80, width - 64), 660)
+    }
+
+    /// What a group has to say about itself, in the app's own two meanings: violet
+    /// for a conclusion drawn from measurements, red for something that is costing
+    /// you. The four arbitrary system colours this replaced - blue, teal, yellow,
+    /// orange - meant nothing, agreed with nothing else in the app, and two of them
+    /// were barely visible on the log's own background.
+    static func advice(for group: Analysis.Group) -> [Advice] {
+        var out: [Advice] = []
+        for text in [Analysis.recommendation(for: group),
+                     Analysis.hostNote(for: group),
+                     Analysis.pattern(for: group)] where !text.isEmpty {
+            out.append(Advice(text: Palette.marked(text), colour: Palette.inferred))
+        }
+        let housekeeping = Analysis.housekeeping(for: group)
+        if !housekeeping.isEmpty {
+            // Not marked: it opens with a measurement - so many bytes written while
+            // so many were read - and only then reads it. Red is the app's colour for
+            // something you are paying for and can stop.
+            out.append(Advice(text: housekeeping, colour: Palette.warning))
+        }
+        return out
+    }
+
     /// Tall enough for whatever advice it carries. Fixed heights truncated the
     /// longer recommendations, which are exactly the ones worth reading.
     func height(width: CGFloat) -> CGFloat {
         let font = NSFont.systemFont(ofSize: 11.5)
-        let textWidth = max(80, width - 60)
+        let textWidth = HistoryItem.adviceWidth(width)
         switch self {
         case .group(let g, let collapsed):
             // Folded, a group is one line: its name and its totals. The advice folds
@@ -18,13 +55,8 @@ enum HistoryItem {
             // devices onto one screen.
             if collapsed { return 44 }
             var h: CGFloat = 34
-            for text in [Analysis.recommendation(for: g), Analysis.hostNote(for: g),
-                         Analysis.housekeeping(for: g)] where !text.isEmpty {
-                h += Text.wrappedHeight("→ " + text, font: font, width: textWidth) + 6
-            }
-            let pattern = Analysis.pattern(for: g)
-            if !pattern.isEmpty {
-                h += Text.wrappedHeight("→ " + pattern, font: font, width: textWidth) + 6
+            for advice in HistoryItem.advice(for: g) {
+                h += Text.wrappedHeight(advice.text, font: font, width: textWidth) + 8
             }
             return max(60, h + 8)
         case .session:
@@ -314,18 +346,21 @@ final class HistoryView: NSView {
         // rather than repeated against every copy.
         guard !collapsed else { return }
 
-        let textWidth = max(80, rect.width - 60)
+        let textWidth = HistoryItem.adviceWidth(rect.width)
         var y = rect.minY + 30
-        for (text, colour) in [(Analysis.recommendation(for: group), NSColor.systemBlue),
-                               (Analysis.hostNote(for: group), NSColor.systemTeal),
-                               (Analysis.housekeeping(for: group), NSColor.systemYellow),
-                               (Analysis.pattern(for: group), NSColor.systemOrange)]
-                where !text.isEmpty {
-            let line = "→ " + text
-            let h = Text.wrappedHeight(line, font: adviceFont, width: textWidth)
-            Text.drawWrapped(line, in: NSRect(x: 44, y: y, width: textWidth, height: h),
-                             font: adviceFont, color: colour)
-            y += h + 6
+        let top = y
+        for advice in HistoryItem.advice(for: group) {
+            let h = Text.wrappedHeight(advice.text, font: adviceFont, width: textWidth)
+            Text.drawWrapped(advice.text,
+                             in: NSRect(x: 48, y: y, width: textWidth, height: h),
+                             font: adviceFont, color: advice.colour)
+            y += h + 8
+        }
+        // A rule down the left of the block, so several paragraphs read as notes
+        // about this device rather than as loose text in the middle of a list.
+        if y > top {
+            Palette.hairline.setFill()
+            NSRect(x: 40, y: top + 1, width: 2, height: y - top - 9).fill()
         }
     }
 

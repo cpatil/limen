@@ -127,6 +127,19 @@ enum Palette {
         text.hasPrefix("\u{2248}") ? text : mark + text
     }
 
+    /// Red as text, rather than as a fill.
+    ///
+    /// The stock system red is a control tint. As small text it measures about 2.9:1
+    /// on this app's pale canvas and 3.7:1 on the dark one - both under the 4.5:1 a
+    /// body of text needs, which I only found by measuring rather than by looking,
+    /// because red always looks emphatic whether or not it is readable. Darkened
+    /// against the light ground, lightened against the dark one.
+    static var warning: NSColor {
+        let base = NSColor.systemRed
+        return (isLight ? base.blended(withFraction: 0.34, of: .black)
+                        : base.blended(withFraction: 0.35, of: .white)) ?? base
+    }
+
     /// What a view may actually paint, given the rect AppKit asked it to refresh.
     ///
     /// AppKit hands a subview the whole invalidated region of the window rather than

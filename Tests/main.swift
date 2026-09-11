@@ -844,6 +844,16 @@ do {
     }
 }
 
+// Wrapping a paragraph to the whole window put about 170 characters on a line. The
+// comfortable range is nearer 60-90; past that the eye loses the start of the next
+// one, which is what made the log's advice unreadable rather than merely long.
+check("log: advice is capped to a readable measure",
+      HistoryItem.adviceWidth(1600) <= 700, "\(HistoryItem.adviceWidth(1600))")
+check("log: and still uses the width it has in a narrow window",
+      HistoryItem.adviceWidth(400) < HistoryItem.adviceWidth(1600))
+check("log: never narrower than something can be drawn in",
+      HistoryItem.adviceWidth(40) >= 80)
+
 // A view smaller than the region AppKit asks it to refresh must clip to itself.
 // The card's dismiss button: drawn and hit-tested from one expression, because when
 // those are written out twice they drift and the cross stops being clickable.
@@ -921,6 +931,22 @@ check("palette (\(mode)): the footer band is visibly not the canvas",
 check("palette (\(mode)): and does not swamp the sentence on it",
       contrast(NSColor.labelColor.withAlphaComponent(0.70), band) >= 4.0,
       String(format: "%.2f:1", contrast(NSColor.labelColor.withAlphaComponent(0.70), band)))
+// The transfer log's advice was drawn in four system colours, two of which - yellow
+// and orange - sat at about 1.5:1 on the log's own background. Whatever colour these
+// notes take, they have to be readable in both appearances.
+check("palette (\(mode)): advice about a conclusion is readable in the log",
+      contrast(Palette.inferred, Palette.canvas) >= 4.5,
+      String(format: "%.2f:1", contrast(Palette.inferred, Palette.canvas)))
+check("palette (\(mode)): so is advice about something costing you",
+      contrast(Palette.warning, Palette.canvas) >= 4.5,
+      String(format: "%.2f:1", contrast(Palette.warning, Palette.canvas)))
+// The stock red is a control tint, not a text colour on this ground - which is why
+// the app has its own. It fell short in both appearances, not just the light one.
+check("palette (\(mode)): warning text reads better than the stock red",
+      contrast(Palette.warning, Palette.canvas)
+        > contrast(NSColor.systemRed, Palette.canvas),
+      String(format: "%.2f:1 vs %.2f:1", contrast(Palette.warning, Palette.canvas),
+             contrast(NSColor.systemRed, Palette.canvas)))
 check("palette (\(mode)): the mark stays legible on its own band",
       contrast(Palette.inferred, band) >= 4.5,
       String(format: "%.2f:1", contrast(Palette.inferred, band)))

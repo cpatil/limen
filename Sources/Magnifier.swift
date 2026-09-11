@@ -110,7 +110,7 @@ final class MagnifierView: NSView {
                         + "Spotlight indexing this volume. Whether it is doing so now is "
                         + "not checked. On something you only read from, indexing is "
                         + "wear and contention for nothing - right-click the row to "
-                        + "stop it, and again to allow it.", smallFont, NSColor.systemRed))
+                        + "stop it, and again to allow it.", smallFont, Palette.warning))
         }
         if !row.appleName.isEmpty {
             // Its own line. Squeezed onto the link row beside the badge and the speed

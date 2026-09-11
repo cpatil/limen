@@ -917,7 +917,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         if row.indexingWorthReporting {
             let note = row.indexingDisabled ? "Spotlight off" : "Spotlight not blocked"
             Text.draw(note, at: NSPoint(x: footerX, y: rect.minY + 68), font: totalFont,
-                      color: row.indexingDisabled ? Palette.faint : NSColor.systemRed)
+                      color: row.indexingDisabled ? Palette.faint : Palette.warning)
             footerX += Text.width(note, font: totalFont) + 10
         }
 
