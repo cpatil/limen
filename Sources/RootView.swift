@@ -512,18 +512,17 @@ final class RootView: NSView, NSSplitViewDelegate {
             return x - width
         }
 
-        let rowY = top - headerHeight + (headerHeight - 22) / 2
-        let legendWidth = max(88, legendButton.fittingSize.width)
-        legendButton.frame = NSRect(x: 16, y: rowY, width: legendWidth, height: 22)
-        infoButton.frame = NSRect(x: 16 + legendWidth + 6, y: rowY, width: 26, height: 22)
-
         var cursor = bounds.maxX - 16
         let unitSize = unitControl.fittingSize
         cursor = place(unitControl, rightOf: cursor, width: unitSize.width, height: unitSize.height) - 10
         cursor = place(intervalPopup, rightOf: cursor, width: 78, height: 24) - 10
         let toggleSize = inactiveToggle.fittingSize
-        _ = place(inactiveToggle, rightOf: cursor,
-                  width: toggleSize.width, height: toggleSize.height)
+        cursor = place(inactiveToggle, rightOf: cursor,
+                       width: toggleSize.width, height: toggleSize.height) - 18
+        // The key sits with the other controls rather than alone in the far corner.
+        cursor = place(infoButton, rightOf: cursor, width: 26, height: 22) - 6
+        _ = place(legendButton, rightOf: cursor,
+                  width: max(88, legendButton.fittingSize.width), height: 22)
 
         outerSplit.frame = NSRect(x: 0, y: 0, width: bounds.width,
                                   height: max(0, top - headerHeight - 1))
