@@ -536,6 +536,21 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
     ///
     /// Its own column rather than borrowed space beside the chart: how full a disk is
     /// belongs with what the disk *is*, not with what it is doing this second.
+    /// Where the all-time peak sits on a bar, or nil when there is nothing to show.
+    ///
+    /// Nothing to show covers three cases: no peak recorded, no denominator to place
+    /// it against, and a peak the current reading has already reached - a tick sitting
+    /// under the end of the fill is not a second fact, it is a smudge.
+    static func peakMark(in bar: NSRect, peak: Double, denominator: Double,
+                         current: Double) -> NSRect? {
+        guard peak > 0, denominator > 0 else { return nil }
+        let fraction = min(1.0, peak / denominator)
+        guard fraction > current + 0.03 else { return nil }
+        let x = bar.minX + bar.width * CGFloat(fraction)
+        return NSRect(x: min(bar.maxX - 2, max(bar.minX, x - 1)), y: bar.minY - 2,
+                      width: 2, height: bar.height + 4)
+    }
+
     static func capacityGauge(in row: NSRect) -> NSRect {
         NSRect(x: gaugeLeft, y: row.minY + 15, width: 8, height: 54)
     }
@@ -719,9 +734,21 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                       color: NSColor.secondaryLabelColor)
         }
 
+        let gauge = Reference.gauge(down: row.down, up: row.up,
+                                    peakDirectional: row.peakDirectional, peak: row.peak,
+                                    linkBits: row.linkBits, linkTrusted: row.linkTrusted,
+                                    families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
+                                    roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
+                                    internalMedium: row.internalMedium,
+                                    kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds,
+                                    hasKnownClass: row.hasKnownMediumClass)
+
         // Third line: either why we cannot measure this, or what the rate is
-        // comparable to. The comparison is the point of the feature - "6.2 MB/s"
-        // means little on its own, "half of USB 2.0" means something.
+        // comparable to. One statement per question, though: where the bar already
+        // answers "how does this compare", naming a second standard beside it said
+        // the same thing twice and in a worse way - the name came from whatever
+        // catalogue entry sat nearest the rate, so a card doing 12 MB/s was announced
+        // as a 12 MB/s card.
         var context = row.note
         // Whether this line is a catalogue comparison rather than something observed.
         // row.note reports a fact about the interface; "best this session" is a
@@ -734,8 +761,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                 // naming a standard it cannot establish.
                 context = row.peak > 0 ? "best this session " + Fmt.rate(row.peak, unit: unit) : ""
             } else {
-                contextInferred = true
-                context = Reference.context(current: combined, peak: row.peak, unit: unit,
+                contextInferred = gauge == nil
+                context = gauge != nil ? "" : Reference.context(current: combined, peak: row.peak, unit: unit,
                                             families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
                                             roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
                                             internalMedium: row.internalMedium,
@@ -764,14 +791,6 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // believable the bar measures against it; where it is not - Wi-Fi, whose
         // reported rate is fiction, and the internal drive, which has no cable - it
         // measures against the fastest that device has actually gone.
-        let gauge = Reference.gauge(down: row.down, up: row.up,
-                                    peakDirectional: row.peakDirectional, peak: row.peak,
-                                    linkBits: row.linkBits, linkTrusted: row.linkTrusted,
-                                    families: row.compareFamilies.isEmpty ? nil : row.compareFamilies,
-                                    roles: row.compareRoles.isEmpty ? nil : row.compareRoles,
-                                    internalMedium: row.internalMedium,
-                                    kinds: row.mediumKinds.isEmpty ? nil : row.mediumKinds,
-                                    hasKnownClass: row.hasKnownMediumClass)
         if let gauge = gauge {
             let bar = NSRect(x: chartLeft, y: rect.minY + 56, width: chartWidth, height: 5)
             Palette.hairline.setFill()
@@ -799,17 +818,15 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
                                              height: bar.height),
                          xRadius: 2.5, yRadius: 2.5).fill()
 
-            // A tick at the session peak, so a link that briefly maxed out still
-            // shows it after the transfer settles down. Only meaningful against a
-            // fixed ceiling - against the peak itself the tick is always at the end.
-            if gauge.ofLink,
-               let peakUsed = Reference.utilization(down: row.peakDirectional, up: 0,
-                                                    linkBits: row.linkBits),
-               peakUsed > gauge.fraction + 0.03 {
-                let x = bar.minX + bar.width * CGFloat(min(1.0, peakUsed))
-                NSColor.labelColor.withAlphaComponent(0.6).setFill()
-                NSRect(x: min(bar.maxX - 2, max(bar.minX, x - 1)), y: bar.minY - 2,
-                       width: 2, height: bar.height + 4).fill()
+            // A tick at the best this device has ever done, on the same scale as the
+            // bar. It answers the question the bar raises - "is that as good as it
+            // gets?" - and it is the one number here that survives a restart, since
+            // it comes from the transfer log rather than from this session.
+            if let mark = TrafficListView.peakMark(in: bar, peak: row.allTimePeak,
+                                                   denominator: gauge.denominatorBytes,
+                                                   current: gauge.fraction) {
+                NSColor.labelColor.withAlphaComponent(0.55).setFill()
+                mark.fill()
             }
         }
 
@@ -880,8 +897,8 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
             Text.draw(Palette.marked(gauge.label),
                       at: NSPoint(x: 0, y: rect.minY + 65),
                       font: totalFont, color: Palette.inferred, alignRight: rightEdge)
-        } else if row.peak > 0 {
-            Text.draw("peak " + Fmt.rate(row.peak, unit: unit),
+        } else if row.allTimePeak > 0 {
+            Text.draw("best ever " + Fmt.rate(row.allTimePeak, unit: unit),
                       at: NSPoint(x: 0, y: rect.minY + 65),
                       font: totalFont, color: Palette.faint, alignRight: rightEdge)
         }

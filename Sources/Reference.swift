@@ -61,6 +61,26 @@ enum Reference {
         all.first { $0.name == name }
     }
 
+    /// The yardstick for a kind of device: what a buyer would get today.
+    ///
+    /// Fixed on purpose. Picking the catalogue entry nearest the observed rate - the
+    /// obvious thing, and what this used to do - produces a denominator chosen by the
+    /// number it is meant to judge, so the answer is always "about 100% of itself" and
+    /// the name it reports is whatever the device happened to be doing at the time.
+    static func modern(roles: [String]?, families: [SpeedRef.Family]?) -> SpeedRef? {
+        guard let role = roles?.first, let family = families?.first else { return nil }
+        return mainstream(role: role, family: family)
+    }
+
+    /// What to call that yardstick in a sentence.
+    static func modernNoun(role: String?) -> String {
+        switch role {
+        case "card": return "a modern card"
+        case "disk": return "a modern drive"
+        default: return "a modern device of this kind"
+        }
+    }
+
     /// What a buyer would sensibly choose today for this kind of medium.
     static func mainstream(role: String, family: SpeedRef.Family) -> SpeedRef? {
         ladder(role: role, family: family).first { $0.mainstream == true }
@@ -252,9 +272,15 @@ enum Reference {
         /// this class of device typically manages, which is a comparison against a
         /// catalogue and therefore an inference.
         let ofLink: Bool
-        /// The entry the inference was drawn from, so the hover card can show what it
-        /// was based on rather than only what it concluded. nil when measured.
+        /// The yardstick this was measured against, as a noun phrase - "a modern
+        /// drive, around 550 MB/s (SATA SSD)". A phrase rather than a sentence because
+        /// the callers put it inside one; when this held a sentence of its own, the
+        /// card read "compares this with a modern drive is around 550 MB/s. This
+        /// device is not being identified. - what this class typically manages".
         let basis: String?
+        /// What the percentage is a percentage of, in bytes per second. Lets anything
+        /// else on the bar - an all-time peak, say - be placed on the same scale.
+        let denominatorBytes: Double
 
         var isInferred: Bool { !ofLink }
     }
@@ -274,7 +300,8 @@ enum Reference {
            let used = utilization(down: down, up: up, linkBits: linkBits) {
             return Gauge(fraction: used,
                          label: String(format: "%.0f%% link utilization", used * 100),
-                         ofLink: true, basis: nil)
+                         ofLink: true, basis: nil,
+                         denominatorBytes: ceiling(forLinkBits: linkBits)?.bytes ?? 0)
         }
 
         // No trustworthy ceiling. What this kind of device typically manages is the
@@ -287,17 +314,25 @@ enum Reference {
         // standard happened to sit near it - it read "100% of typical" at 10 Mbit/s
         // because it had been matched against 10 Mbit Ethernet, which is a category
         // error and a circular one: the yardstick was chosen by the rate it measures.
+        // No "current > 0" here. Dropping the bar whenever the device went quiet made
+        // it flash in and out once a second, taking the label and the row's layout
+        // with it - and an idle device is a reading, not an absence of one.
         guard hasKnownClass,
-              current > 0,
-              let ref = nearest(bytesPerSec: max(current, peak), families: families,
-                                roles: roles, internalMedium: internalMedium, kinds: kinds),
+              let ref = modern(roles: roles, families: families),
               ref.payloadBytes > 0
         else { return nil }
-        let fraction = min(1.0, current / ref.payloadBytes)
-        return Gauge(fraction: fraction,
-                     label: String(format: "%.0f%% of typical", fraction * 100),
-                     ofLink: false,
-                     basis: ref.name + ", about " + Fmt.rate(ref.payloadBytes, unit: .bytes))
+        let noun = modernNoun(role: roles?.first)
+        let ratio = current / ref.payloadBytes
+        let fraction = min(1.0, ratio)
+        // Above the yardstick the percentage stops meaning anything useful - it is
+        // pinned at full and says nothing about how far past it the device is.
+        let label = ratio >= 1
+            ? "at or above " + noun
+            : String(format: "%.0f%% of %@", fraction * 100, noun)
+        return Gauge(fraction: fraction, label: label, ofLink: false,
+                     basis: noun + ", around " + Fmt.rate(ref.payloadBytes, unit: .bytes)
+                          + " (" + ref.name + ")",
+                     denominatorBytes: ref.payloadBytes)
     }
 
     /// A quiet, evidence-based note about a removable device: what is limiting it and
@@ -308,10 +343,25 @@ enum Reference {
     /// storage - but a transfer that plateaus near 90 MB/s on a link good for 450
     /// MB/s has told you what the card is. Hints only appear once enough traffic has
     /// been seen to mean something, so an idle device stays quiet.
+    /// How much has to have moved before the medium itself can be judged.
+    ///
+    /// A peak is only evidence of what a device can do once it has been given the
+    /// chance to do it. Reading 20 MB of small files at 12 MB/s says nothing about the
+    /// card: a fast card reading a directory tree looks exactly like a slow card
+    /// reading a single file. Calling that "slow for a modern card" was an assertion
+    /// with no measurement behind it.
+    static let judgementFloor: Double = 512 * 1024 * 1024
+
     static func advice(peakBytesPerSec: Double, linkBits: UInt64,
-                       isStorage: Bool, removableMedia: Bool) -> String {
+                       isStorage: Bool, removableMedia: Bool,
+                       bytesMoved: Double = .greatestFiniteMagnitude) -> String {
         guard isStorage, peakBytesPerSec > 4_000_000 else { return "" }
         let peakBits = peakBytesPerSec * 8
+        let evidence = " (peaked at " + Fmt.rate(peakBytesPerSec, unit: .bytes)
+            + " over " + Fmt.bytes(bytesMoved) + ")"
+        // Judgements about the port do not need a big sample - the link rate is
+        // reported, not inferred. Judgements about the medium do.
+        let enoughToJudgeMedium = bytesMoved >= judgementFloor
 
         // Connected below the device's own potential: the port or cable is the fault,
         // and that is worth saying because it is trivially fixable.
@@ -324,21 +374,22 @@ enum Reference {
 
         // Plateauing well under the link ceiling means the media is the limit. Around
         // 90 MB/s that is almost certainly a UHS-I card, whose bus tops out at 104.
-        if headroom < 0.45 {
+        if headroom < 0.45, enoughToJudgeMedium {
             // The UHS ceilings only mean anything for a card in a reader. A portable
             // hard disk sits in the same throughput band for entirely different
             // reasons, and telling someone to buy a faster card would be nonsense.
             if removableMedia, peakBits > 560 * 1_000_000, peakBits < 900 * 1_000_000 {
-                return "plateauing near UHS-I's ~90 MB/s limit — a UHS-II card and reader would roughly triple it"
+                return "plateauing near UHS-I's ~90 MB/s limit" + evidence + " — a UHS-II card and reader would roughly triple it"
             }
             if removableMedia, peakBytesPerSec < 45_000_000 {
-                return "slow for a modern card — a UHS-I U3 or better would lift this"
+                return "slower than a modern card manages" + evidence
+                    + " — though a tree of small files looks the same; a UHS-I U3 or better would lift a genuinely slow card"
             }
             if !removableMedia, peakBytesPerSec > 60_000_000, peakBytesPerSec < 200_000_000 {
-                return "typical of a portable hard disk — an SSD would be several times faster"
+                return "typical of a portable hard disk" + evidence + " — an SSD would be several times faster"
             }
             if peakBytesPerSec < 60_000_000 {
-                return "well under the link's ceiling — the media is the limit, not the port"
+                return "well under the link's ceiling" + evidence + " — the media looks like the limit rather than the port"
             }
         }
         // Worth saying plainly when a transfer is doing as well as the wire allows -

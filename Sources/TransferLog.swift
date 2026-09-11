@@ -62,6 +62,24 @@ final class TransferLog {
     }
 
     private(set) var sessions: [TransferSession] = []
+
+    /// The best rate ever recorded for each device, across every launch.
+    ///
+    /// `Row.peak` only knows about this run, so a drive that did 4.6 GB/s yesterday
+    /// and has been idle since reads as though it can barely move. The log has been
+    /// carrying the answer all along - it was only ever shown in the session list.
+    ///
+    /// Computed in one fold and handed out as a map rather than cached and
+    /// invalidated: the log is capped at 500 entries, a transfer in progress raises
+    /// its own peak continuously, and a cache that has to be cleared from six mutation
+    /// sites is a stale number waiting to happen.
+    func bestPeaksByDevice() -> [String: Double] {
+        var peaks: [String: Double] = [:]
+        for session in sessions + Array(open.values) {
+            peaks[session.device] = max(peaks[session.device] ?? 0, session.peakRate)
+        }
+        return peaks
+    }
     private var open: [String: TransferSession] = [:]
     private var lastActive: [String: Date] = [:]
 

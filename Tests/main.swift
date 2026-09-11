@@ -136,6 +136,28 @@ check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
 
+// ---- advice ------------------------------------------------------------------
+// "Slow for a modern card" was being said after 22 MB had moved. A card reading a
+// directory tree at 12 MB/s looks exactly like a slow card reading one large file,
+// and only one of those is a fact about the card.
+check("advice: no verdict on the medium from a scrap of traffic",
+      Reference.advice(peakBytesPerSec: 12_000_000, linkBits: 5_000_000_000,
+                       isStorage: true, removableMedia: true,
+                       bytesMoved: 22 * 1024 * 1024).isEmpty)
+check("advice: the same rate does earn a verdict once enough has moved",
+      !Reference.advice(peakBytesPerSec: 12_000_000, linkBits: 5_000_000_000,
+                        isStorage: true, removableMedia: true,
+                        bytesMoved: 4 * 1024 * 1024 * 1024).isEmpty)
+check("advice: and it shows what it was based on",
+      Reference.advice(peakBytesPerSec: 12_000_000, linkBits: 5_000_000_000,
+                       isStorage: true, removableMedia: true,
+                       bytesMoved: 4 * 1024 * 1024 * 1024).contains("peaked at"))
+// A port judgement needs no sample at all - the link rate is reported, not inferred.
+check("advice: a USB 2.0 port is worth saying immediately",
+      Reference.advice(peakBytesPerSec: 30_000_000, linkBits: 480_000_000,
+                       isStorage: true, removableMedia: true,
+                       bytesMoved: 1024).contains("USB 2.0"))
+
 // ---- the usage gauge ---------------------------------------------------------
 check("gauge: a device that never moved data has no bar",
       Reference.gauge(down: 0, up: 0, peakDirectional: 0, peak: 0,
@@ -162,7 +184,8 @@ do {
                    kinds: ["ssd"], internalMedium: true, peak: 1_090_000_000) {
         check("gauge: without a link it measures against what the class manages",
               !g.ofLink)
-        check("gauge: and says that too", g.label.contains("typical"), g.label)
+        check("gauge: and names the yardstick it used",
+              g.label.contains("a modern drive"), g.label)
         check("gauge: never against the device's own past",
               !g.label.contains("peak"), g.label)
         check("gauge: 200 of ~550 is about a third",
@@ -170,9 +193,17 @@ do {
     } else {
         check("gauge: a known class produces a bar", false)
     }
-    check("gauge: idle with no link has nothing to show",
-          bar(0, link: 0, trusted: false, roles: ["disk"], kinds: ["ssd"],
-              internalMedium: true, peak: 1_090_000_000) == nil)
+    // This used to assert the opposite - no bar when idle. Withdrawing the bar every
+    // time the device went quiet made it flash in and out once a second, and took the
+    // row's layout with it. An idle device is a reading, not the absence of one.
+    if let idle = bar(0, link: 0, trusted: false, roles: ["disk"], kinds: ["ssd"],
+                      internalMedium: true, peak: 1_090_000_000) {
+        check("gauge: an idle device keeps its bar", idle.fraction == 0)
+        check("gauge: and reads as zero rather than vanishing",
+              idle.label.contains("0%"), idle.label)
+    } else {
+        check("gauge: an idle device keeps its bar", false)
+    }
     // The mark is only honest if what it stands for can be shown. A gauge that says
     // "of typical" without being able to name the typical it used is a bare assertion.
     if let g = bar(400_000_000, link: 5_000_000_000, trusted: true, roles: ["card"]) {
@@ -199,6 +230,21 @@ do {
                           peak: 1_390_000, linkBits: 0, linkTrusted: false,
                           families: [.storage], roles: ["card"],
                           hasKnownClass: true) != nil)
+    // The whole point of a fixed yardstick: two very different rates on the same kind
+    // of device must be judged against the same denominator. A yardstick picked by the
+    // rate gave both of them "about 100%" and told you nothing.
+    if let slow = bar(50_000_000, link: 0, trusted: false, roles: ["disk"],
+                      kinds: ["ssd"], internalMedium: true, peak: 50_000_000),
+       let fast = bar(400_000_000, link: 0, trusted: false, roles: ["disk"],
+                      kinds: ["ssd"], internalMedium: true, peak: 400_000_000) {
+        check("gauge: a slow device and a fast one are not both at 100%",
+              fast.fraction > slow.fraction * 3,
+              String(format: "%.2f vs %.2f", slow.fraction, fast.fraction))
+        check("gauge: and both were measured against the same thing",
+              slow.basis == fast.basis)
+    } else {
+        check("gauge: both rates produce a bar", false)
+    }
     check("gauge: it never exceeds full",
           (bar(9_000_000_000, link: 0, trusted: false, roles: ["disk"],
                kinds: ["ssd"], internalMedium: true)?.fraction ?? 0) <= 1.0)
@@ -751,6 +797,44 @@ do {
     check("painting: and still repaints only the part actually asked for",
           Palette.paintable(dirty: sliver, bounds: note)
             == NSRect(x: 100, y: 0, width: 40, height: 22))
+}
+
+// The all-time peak is drawn on the bar's own scale, so it can be compared with the
+// fill beside it rather than being a second number to hold in your head.
+do {
+    let bar = NSRect(x: 100, y: 50, width: 200, height: 5)
+    let modernDrive = 550.0 * 1_000_000
+    // Half the yardstick, and the device is idle: the tick belongs at the midpoint.
+    if let mark = TrafficListView.peakMark(in: bar, peak: modernDrive / 2,
+                                           denominator: modernDrive, current: 0) {
+        check("peak mark: sits at the peak's share of the same scale",
+              abs(mark.midX - bar.midX) < 2, String(format: "%.1f", mark.midX))
+    } else {
+        check("peak mark: a recorded peak is marked", false)
+    }
+    check("peak mark: nothing to mark without a recorded peak",
+          TrafficListView.peakMark(in: bar, peak: 0, denominator: modernDrive,
+                                   current: 0) == nil)
+    check("peak mark: nor without a scale to place it on",
+          TrafficListView.peakMark(in: bar, peak: 1_000, denominator: 0,
+                                   current: 0) == nil)
+    // A tick under the end of the fill is a smudge, not a second fact - and that
+    // holds just short of it too, which is where the fill's rounded cap already is.
+    check("peak mark: not drawn when the current rate has reached it",
+          TrafficListView.peakMark(in: bar, peak: modernDrive / 2,
+                                   denominator: modernDrive, current: 0.5) == nil)
+    check("peak mark: nor when the fill has all but reached it",
+          TrafficListView.peakMark(in: bar, peak: modernDrive / 2,
+                                   denominator: modernDrive, current: 0.49) == nil)
+    check("peak mark: but drawn once there is clear space between them",
+          TrafficListView.peakMark(in: bar, peak: modernDrive / 2,
+                                   denominator: modernDrive, current: 0.40) != nil)
+    // A device that has once exceeded the yardstick pins to the end, not past it.
+    if let mark = TrafficListView.peakMark(in: bar, peak: modernDrive * 4,
+                                           denominator: modernDrive, current: 0) {
+        check("peak mark: stays inside the bar when the peak exceeds the yardstick",
+              mark.maxX <= bar.maxX)
+    }
 }
 
 // A view smaller than the region AppKit asks it to refresh must clip to itself.

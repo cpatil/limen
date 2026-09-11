@@ -25,6 +25,9 @@ struct Row {
     /// Highest rate seen in a single direction. Utilisation is measured against this
     /// rather than the combined figure, because links are full duplex.
     var peakDirectional: Double = 0
+    /// The best this device has ever been seen to do, across every run - taken from
+    /// the transfer log rather than from this session, which may have been idle.
+    var allTimePeak: Double = 0
     /// "Network" or "USB" - both are shown on one page now, grouped under headings.
     var section: String = ""
     /// Processes the kernel says are moving this data, most active first.
@@ -351,6 +354,19 @@ final class Monitor {
         // Fold this sample into the transfer history.
         TransferLog.shared.record(rows: networkRows + usbRows)
 
+        // Then read back out of it what this device has ever managed. Done here, once
+        // for all rows, rather than per row while drawing: it is a fold over the whole
+        // log, and the lists redraw every second.
+        let best = TransferLog.shared.bestPeaksByDevice()
+        for index in networkRows.indices {
+            networkRows[index].allTimePeak = max(networkRows[index].peak,
+                                                 best[networkRows[index].title] ?? 0)
+        }
+        for index in usbRows.indices {
+            usbRows[index].allTimePeak = max(usbRows[index].peak,
+                                             best[usbRows[index].title] ?? 0)
+        }
+
         allDown = totalDown + usbTotalDown
         allUp = totalUp + usbTotalUp
         Monitor.appendCapped(&allDownHist, allDown)
@@ -611,10 +627,13 @@ final class Monitor {
                 if let apple = std.appleName, apple != std.name { row.appleName = apple }
                 if let alias = std.alias, alias != std.name { row.alsoKnown = alias }
             }
+            // How much this device has actually been asked to move, so a verdict on
+            // the medium is only offered once there is something to base it on.
             row.hint = Reference.advice(peakBytesPerSec: row.peak,
                                         linkBits: device.linkSpeedBits,
                                         isStorage: !device.disks.isEmpty,
-                                        removableMedia: device.removableMedia)
+                                        removableMedia: device.removableMedia,
+                                        bytesMoved: Double(row.totalDown + row.totalUp))
             // Where this device is mounted, so its traffic can be tied to the
             // processes holding files open there. All partitions, since a copy may
             // be touching any one of them.

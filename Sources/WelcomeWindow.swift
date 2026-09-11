@@ -163,9 +163,8 @@ final class SetupWindowController: NSWindowController {
                      + "from; clicking a row keeps that card open until you close it. "
                      + "A match is not a proof, and the mark is there so you can weigh "
                      + "it yourself.\n\n"
-                     + "Color key at the top left of the window opens the key itself, "
-                     + "and the information button beside it says more about the "
-                     + "difference."),
+                     + "Color key in the toolbar opens the key itself - what each "
+                     + "color means, and which statements are not measurements."),
 
             Page(title: "Arranging the lists",
                  body: "Each section sorts on its own, from the popup in its heading.\n\n"

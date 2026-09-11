@@ -1,50 +1,14 @@
 import Cocoa
 
-/// The colour key, as a chart rather than a paragraph.
+/// Two panels sharing one layout: what the colours mean, and how Limen reaches the
+/// conclusions it draws.
 ///
-/// Shown from the mark in the toolbar and from the line along the bottom. A legend
-/// that only exists in prose is one most people never read; the point of a code is
-/// that it can be looked up in a second.
+/// Panels rather than alerts. The alert these replaced was six paragraphs in one
+/// block, which is the shape of a licence agreement - the eye slides off it, and the
+/// sentence that matters is indistinguishable from the five that do not.
 final class LegendView: NSView {
 
-    /// The long form, shown from the information button beside the key.
-    static let explanation =
-        "Limen shows two kinds of statement, and they are not equally certain.\n\n"
-        + "Measured. Bytes read and written, how full a volume is, the rate a link "
-        + "negotiated, which processes hold a file open. These come from the kernel "
-        + "and the storage stack, and Limen only does arithmetic on them.\n\n"
-        + "Inferred, marked \u{2248} and drawn in violet. What kind of card is in a "
-        + "reader, how a rate compares with what that class of device typically "
-        + "manages, what limited a transfer, and what would help. These come from "
-        + "matching a measurement against a catalogue of hardware, and a match is not "
-        + "a proof: a rate near an SDXC card's ceiling is equally consistent with a "
-        + "slow reader, a busy machine at the other end, a tree of small files, or a "
-        + "device that has got hot.\n\n"
-        + "Hovering a row brings up its card, which spells out every conclusion on that "
-        + "row and what each was drawn from - so you can disagree with it. Clicking a "
-        + "row keeps that card open until you dismiss it."
-
-
-    static func explain() {
-        let alert = NSAlert()
-        alert.messageText = "Measured, and worked out"
-        alert.informativeText = LegendView.explanation
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
-
-    /// The key itself: swatches and one line each.
-    static func showKey() {
-        let alert = NSAlert()
-        alert.messageText = "What the colors mean"
-        alert.informativeText = "Anything marked \u{2248} was worked out from a "
-            + "measurement rather than measured. Hovering a row explains each one it "
-            + "carries; clicking a row keeps that card open."
-        alert.accessoryView = LegendView(frame: NSRect(origin: .zero,
-                                                       size: LegendView.fittingSize))
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
+    enum Mode { case colors, inference }
 
     struct Entry {
         let swatches: [NSColor]
@@ -57,7 +21,7 @@ final class LegendView: NSView {
         [
             Entry(swatches: [Palette.inferred], mark: "\u{2248}",
                   title: "Worked out, not measured",
-                  detail: "Matched against a catalogue of what hardware normally does"),
+                  detail: "Compared against a catalogue of what hardware normally does"),
             Entry(swatches: [Palette.down], mark: "",
                   title: "Read, and traffic in",
                   detail: "Counted by the kernel and the storage stack"),
@@ -77,42 +41,204 @@ final class LegendView: NSView {
         ]
     }
 
-    private static let rowHeight: CGFloat = 38
-    static var fittingSize: NSSize {
-        NSSize(width: 460, height: CGFloat(entries.count) * rowHeight + 8)
+    /// Every statement Limen makes that is not a direct reading, with what it rests on
+    /// and - where there is one - what it cannot rule out. Written out in full because
+    /// "trust me" is not an answer to "how do you know?".
+    struct Statement {
+        let inferred: Bool
+        let claim: String
+        let basis: String
     }
 
+    static var statements: [Statement] {
+        [
+            Statement(inferred: false, claim: "\u{201C}R 86 MB/s\u{201D}, \u{201C}2.36 TB used\u{201D}",
+                      basis: "Read straight from the kernel's byte counters and the "
+                           + "filesystem. Limen only divides by the interval."),
+            Statement(inferred: false, claim: "\u{201C}0% link utilization\u{201D}",
+                      basis: "The rate divided by the link speed the system reported "
+                           + "for that port. Both numbers are given to Limen."),
+            Statement(inferred: true, claim: "\u{201C}SDXC 128 GB\u{201D}",
+                      basis: "The SD family follows from the capacity once the reader "
+                           + "says the medium is removable. The card's bus interface "
+                           + "and speed class \u{2014} UHS-I, V30 \u{2014} are not "
+                           + "exposed through a normal reader at all."),
+            Statement(inferred: true, claim: "\u{201C}13% of a modern card\u{201D}",
+                      basis: "Measured against a fixed catalogue entry for that kind "
+                           + "of device \u{2014} a mainstream card is around 90 MB/s, "
+                           + "a mainstream drive 550 MB/s. Deliberately not the entry "
+                           + "nearest this device's own rate: a yardstick chosen by "
+                           + "the measurement always reports about 100%."),
+            Statement(inferred: true, claim: "\u{201C}slower than a modern card manages\u{201D}",
+                      basis: "Only after half a gigabyte has actually moved, and it "
+                           + "names the peak and the volume it saw. A fast card "
+                           + "reading a tree of small files looks exactly like a slow "
+                           + "card reading one large one."),
+            Statement(inferred: true, claim: "\u{201C}peak is consistent with X's ceiling\u{201D}",
+                      basis: "A rate that lands near a known medium's limit. Equally "
+                           + "consistent with a slow reader, a busy machine at the far "
+                           + "end, small files, or a device that has got hot."),
+            Statement(inferred: false, claim: "\u{201C}Spotlight off\u{201D}",
+                      basis: "A .metadata_never_index file is present on the volume. "
+                           + "Whether macOS is indexing right now is not checked."),
+        ]
+    }
+
+    static let width: CGFloat = 430
+    private static let rowHeight: CGFloat = 36
+    private static let pad: CGFloat = 22
+
+    private let headingFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+    private let bodyFont = NSFont.systemFont(ofSize: 11.5)
+    private let titleFont = NSFont.systemFont(ofSize: 12, weight: .medium)
+    private let detailFont = NSFont.systemFont(ofSize: 11)
+    private let markFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+    private let sectionFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+
+    let mode: Mode
+
+    init(mode: Mode) {
+        self.mode = mode
+        super.init(frame: NSRect(x: 0, y: 0, width: LegendView.width, height: 10))
+        frame.size.height = fittingHeight
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
     override var isFlipped: Bool { true }
+
+    private var textWidth: CGFloat { LegendView.width - LegendView.pad * 2 }
+    /// The claim's column; the basis wraps under it.
+    private var basisLeft: CGFloat { LegendView.pad + 26 }
+    private var basisWidth: CGFloat { LegendView.width - basisLeft - LegendView.pad }
+
+    /// Measured exactly the way it is drawn, so the panel is never a few points short.
+    var fittingHeight: CGFloat {
+        var y = LegendView.pad
+        switch mode {
+        case .colors:
+            y += 18 + CGFloat(LegendView.entries.count) * LegendView.rowHeight
+        case .inference:
+            let intro = LegendView.introText
+            y += Text.wrappedHeight(intro, font: bodyFont, width: textWidth) + 18
+            for statement in LegendView.statements {
+                y += Text.wrappedHeight(statement.claim, font: titleFont, width: basisWidth) + 2
+                y += Text.wrappedHeight(statement.basis, font: detailFont, width: basisWidth) + 14
+            }
+        }
+        return y + LegendView.pad
+    }
+
+    static let introText =
+        "Most of this window is measured: bytes moved, how full a volume is, the rate "
+        + "a link negotiated. The rest is worked out by comparing those measurements "
+        + "against a catalogue of what hardware normally does, and is marked \u{2248}. "
+        + "A match is not a proof, so here is what each conclusion actually rests on."
 
     override func draw(_ dirtyRect: NSRect) {
         Palette.canvas.setFill()
         Palette.paintable(dirty: dirtyRect, bounds: bounds).fill()
-        let titleFont = NSFont.systemFont(ofSize: 12.5, weight: .medium)
-        let detailFont = NSFont.systemFont(ofSize: 11.5)
-        let markFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        var y: CGFloat = 4
+        switch mode {
+        case .colors: drawColors()
+        case .inference: drawInference()
+        }
+    }
+
+    private func drawColors() {
+        let left = LegendView.pad
+        var y = LegendView.pad
+        Text.draw("THE COLORS", at: NSPoint(x: left, y: y),
+                  font: sectionFont, color: Palette.faint, tracking: 0.8)
+        y += 18
 
         for entry in LegendView.entries {
-            // One swatch, or three stacked left to right where the colour is a scale
-            // rather than a state.
-            var x: CGFloat = 4
+            var x = left
             for colour in entry.swatches {
                 colour.setFill()
                 let width: CGFloat = entry.swatches.count > 1 ? 8 : 24
-                NSBezierPath(roundedRect: NSRect(x: x, y: y + 8, width: width, height: 16),
+                NSBezierPath(roundedRect: NSRect(x: x, y: y + 7, width: width, height: 16),
                              xRadius: 3, yRadius: 3).fill()
                 x += width + 2
             }
             if !entry.mark.isEmpty {
-                Text.draw(entry.mark, at: NSPoint(x: 36, y: y + 8),
+                Text.draw(entry.mark, at: NSPoint(x: left + 32, y: y + 7),
                           font: markFont, color: Palette.inferred)
             }
-            Text.draw(entry.title, at: NSPoint(x: 58, y: y + 4),
+            Text.draw(entry.title, at: NSPoint(x: left + 54, y: y + 3),
                       font: titleFont, color: NSColor.labelColor)
-            Text.draw(entry.detail, at: NSPoint(x: 58, y: y + 20),
+            Text.draw(entry.detail, at: NSPoint(x: left + 54, y: y + 19),
                       font: detailFont, color: Palette.faint)
             y += LegendView.rowHeight
         }
+    }
+
+    private func drawInference() {
+        let left = LegendView.pad
+        var y = LegendView.pad
+        let introHeight = Text.wrappedHeight(LegendView.introText, font: bodyFont,
+                                             width: textWidth)
+        Text.drawWrapped(LegendView.introText,
+                         in: NSRect(x: left, y: y, width: textWidth, height: introHeight),
+                         font: bodyFont, color: Palette.faint)
+        y += introHeight + 18
+
+        for statement in LegendView.statements {
+            // The mark in the margin, so the two kinds can be told apart down the
+            // left edge without reading a word of it.
+            if statement.inferred {
+                Text.draw("\u{2248}", at: NSPoint(x: left, y: y),
+                          font: markFont, color: Palette.inferred)
+            } else {
+                Palette.down.setFill()
+                NSBezierPath(ovalIn: NSRect(x: left + 3, y: y + 5, width: 7, height: 7)).fill()
+            }
+            let claimHeight = Text.wrappedHeight(statement.claim, font: titleFont,
+                                                 width: basisWidth)
+            Text.drawWrapped(statement.claim,
+                             in: NSRect(x: basisLeft, y: y, width: basisWidth, height: claimHeight),
+                             font: titleFont,
+                             color: statement.inferred ? Palette.inferred : NSColor.labelColor)
+            y += claimHeight + 2
+            let basisHeight = Text.wrappedHeight(statement.basis, font: detailFont,
+                                                 width: basisWidth)
+            Text.drawWrapped(statement.basis,
+                             in: NSRect(x: basisLeft, y: y, width: basisWidth, height: basisHeight),
+                             font: detailFont, color: Palette.faint)
+            y += basisHeight + 14
+        }
+    }
+}
+
+/// One window per panel, reused, so pressing a button twice does not stack copies.
+enum LegendWindow {
+    private static var windows: [LegendView.Mode: NSWindowController] = [:]
+
+    static func show(_ mode: LegendView.Mode) {
+        if let existing = windows[mode] {
+            existing.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let view = LegendView(mode: mode)
+        let window = NSWindow(contentRect: view.frame,
+                              styleMask: [.titled, .closable],
+                              backing: .buffered, defer: false)
+        window.title = mode == .colors ? "Color Key" : "How Limen Infers"
+        window.contentView = view
+        // Over the window it explains rather than the middle of the display: a panel
+        // that opens on another screen is a panel you have to go and find.
+        if let main = NSApp.mainWindow {
+            let frame = main.frame
+            window.setFrameOrigin(NSPoint(x: frame.midX - LegendView.width / 2,
+                                          y: frame.midY - view.frame.height / 2))
+        } else {
+            window.center()
+        }
+        window.isReleasedWhenClosed = false
+        let holder = NSWindowController(window: window)
+        windows[mode] = holder
+        holder.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -150,10 +276,9 @@ final class RootView: NSView, NSSplitViewDelegate {
                                          action: nil)
     let intervalPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     let inactiveToggle = NSButton(checkboxWithTitle: "Show all", target: nil, action: nil)
-    /// The colour key, at the top-left corner where a legend is looked for, and the
-    /// long explanation behind an information button beside it. Both were once a line
-    /// of prose along the bottom of the window, which spent a row of the interface on
-    /// something most people need to read exactly once.
+    /// Two questions, two buttons. The key answers "what does this color mean"; the
+    /// information button answers "how does Limen know that", which is a different
+    /// question and the one that decides whether to believe any of it.
     let legendButton = NSButton(title: "\u{2248} Color key", target: nil, action: nil)
     let infoButton = NSButton(title: "\u{24D8}", target: nil, action: nil)
     /// Re-applies the section orders. "Active first" is held rather than recomputed
@@ -258,13 +383,13 @@ final class RootView: NSView, NSSplitViewDelegate {
         infoButton.refusesFirstResponder = true
         infoButton.target = self
         infoButton.action = #selector(showInferenceHelp)
-        // Drawn as a glyph rather than NSImage(named: .infoName): that image is tiny
-        // and pale at this size, and next to a labelled button it read as a smudge.
         infoButton.attributedTitle = NSAttributedString(
             string: "\u{24D8}",
             attributes: [.foregroundColor: NSColor.secondaryLabelColor,
-                         .font: NSFont.systemFont(ofSize: 13, weight: .regular)])
-        infoButton.toolTip = "Which readings are measured and which are worked out."
+                         .font: NSFont.systemFont(ofSize: 14, weight: .regular)])
+        infoButton.toolTip = "How Limen infers: every conclusion it draws, and what "
+            + "each one is based on."
+
 
         columnsSplit.dividerStyle = .thin
         columnsSplit.delegate = self
@@ -397,9 +522,9 @@ final class RootView: NSView, NSSplitViewDelegate {
         if let monitor = escapeMonitor { NSEvent.removeMonitor(monitor) }
     }
 
-    @objc func showLegend(_ sender: Any?) { LegendView.showKey() }
+    @objc func showLegend(_ sender: Any?) { LegendWindow.show(.colors) }
 
-    @objc func showInferenceHelp(_ sender: Any?) { LegendView.explain() }
+    @objc func showInferenceHelp(_ sender: Any?) { LegendWindow.show(.inference) }
 
     /// Which row's card is being held open, if any.
     ///
@@ -518,11 +643,13 @@ final class RootView: NSView, NSSplitViewDelegate {
         cursor = place(intervalPopup, rightOf: cursor, width: 78, height: 24) - 10
         let toggleSize = inactiveToggle.fittingSize
         cursor = place(inactiveToggle, rightOf: cursor,
-                       width: toggleSize.width, height: toggleSize.height) - 18
-        // The key sits with the other controls rather than alone in the far corner.
-        cursor = place(infoButton, rightOf: cursor, width: 26, height: 22) - 6
+                       width: toggleSize.width, height: toggleSize.height) - 16
+        // The key sits with the other controls rather than alone in the far corner,
+        // and at their height: a button two points shorter than its neighbours reads
+        // as misaligned even when it is perfectly centred.
+        cursor = place(infoButton, rightOf: cursor, width: 30, height: 24) - 6
         _ = place(legendButton, rightOf: cursor,
-                  width: max(88, legendButton.fittingSize.width), height: 22)
+                  width: max(92, legendButton.fittingSize.width + 16), height: 24)
 
         outerSplit.frame = NSRect(x: 0, y: 0, width: bounds.width,
                                   height: max(0, top - headerHeight - 1))
@@ -671,7 +798,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc func showLegend(_ sender: Any?) { LegendView.showKey() }
+    @objc func showLegend(_ sender: Any?) { LegendWindow.show(.colors) }
+
+    @objc func showInferenceHelp(_ sender: Any?) { LegendWindow.show(.inference) }
 
     @objc func showSetup(_ sender: Any?) {
         if setupWindow == nil { setupWindow = SetupWindowController() }

@@ -103,7 +103,10 @@ final class MagnifierView: NSView {
                         smallFont, Palette.inferred))
         }
 
-        let context = contextText(row)
+        // Same rule as the row: where the bar already answers "how does this compare",
+        // a second comparison beside it is noise, and the one this produced named a
+        // standard picked by the very rate it was describing.
+        let context = usage(row) == nil ? contextText(row) : ""
         if !context.isEmpty {
             // row.note is a fact about the interface and "best this session" is a
             // measurement; anything else on this line names a standard from a rate,
@@ -140,7 +143,12 @@ final class MagnifierView: NSView {
         var facts = [Fmt.bytes(Double(row.totalDown)) + " " + row.inLong.lowercased()
                      + " and " + Fmt.bytes(Double(row.totalUp)) + " " + row.outLong.lowercased()
                      + " since the counters started"]
-        if row.peak > 0 { facts.append("peak " + Fmt.rate(row.peak, unit: unit)) }
+        if row.peak > 0 { facts.append("peak this run " + Fmt.rate(row.peak, unit: unit)) }
+        // From the transfer log, so it outlives the run - and outlives the device
+        // being idle all afternoon, which is what made "peak" alone misleading.
+        if row.allTimePeak > row.peak {
+            facts.append("best ever " + Fmt.rate(row.allTimePeak, unit: unit))
+        }
         if row.capacityBytes > 0 {
             // Counted once per container: several volumes of one disk share its space,
             // and each of them reports the whole disk's figures as its own.
@@ -164,9 +172,10 @@ final class MagnifierView: NSView {
         // What the bar was measured against, when it was not measured against a link.
         // The percentage on its own says nothing about how good the yardstick is.
         if let gauge = usage(row), let basis = gauge.basis {
-            out.append((Palette.marked("the bar compares this with " + basis
-                        + " - what this class of device typically manages, not a "
-                        + "ceiling this one reported."),
+            out.append((Palette.marked("The bar measures this against " + basis
+                        + " - what that class of device typically manages today. It is "
+                        + "not a reading of what this device is, and not a ceiling it "
+                        + "reported."),
                         smallFont, Palette.inferred))
         }
         if !row.hint.isEmpty {
@@ -389,13 +398,11 @@ final class MagnifierView: NSView {
             NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY,
                                              width: max(3, barWidth * fraction), height: bar.height),
                          xRadius: 3.5, yRadius: 3.5).fill()
-            if gauge.ofLink,
-               let peakUsed = Reference.utilization(down: row.peakDirectional, up: 0,
-                                                    linkBits: row.linkBits),
-               peakUsed > used + 0.03 {
-                let x = bar.minX + barWidth * CGFloat(min(1, peakUsed))
+            if let mark = TrafficListView.peakMark(in: bar, peak: row.allTimePeak,
+                                                   denominator: gauge.denominatorBytes,
+                                                   current: used) {
                 NSColor.labelColor.withAlphaComponent(0.6).setFill()
-                NSRect(x: min(bar.maxX - 2, x - 1), y: bar.minY - 3, width: 2, height: 13).fill()
+                mark.fill()
             }
             Text.draw(gauge.isInferred ? Palette.marked(gauge.label) : gauge.label,
                       at: NSPoint(x: bar.maxX + 10, y: y),
