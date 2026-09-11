@@ -110,7 +110,7 @@ final class HistoryView: NSView {
         // bumped to the top every time it twitches, not that its history is lost.
         HistoryView.routes = Analysis.routes(from: sessions)
         items = Hidden.sink(Analysis.groups(from: sessions,
-                                            records: TransferLog.shared.bestPeaksByDevice()),
+                                            records: TransferLog.shared.bestPeaks()),
                             name: { $0.device })
             .flatMap { group -> [HistoryItem] in
             let folded = collapsed.contains(group.key)
@@ -371,7 +371,10 @@ final class HistoryView: NSView {
         if !group.volumes.isEmpty {
             title += "  ·  " + group.volumes.joined(separator: ", ")
         } else if group.removable {
-            title += "  ·  no volume recorded"
+            // "Recorded" pointed at the bookkeeping. Volumes are filled in throughout
+            // a session now, so an empty list means what it says: nothing was mounted
+            // while those bytes moved.
+            title += "  ·  no volume mounted"
         }
         Text.draw(Text.clip(title, font: nameFont, maxWidth: rect.width - 300),
                   at: NSPoint(x: 44, y: rect.minY + 9), font: nameFont, color: NSColor.labelColor)

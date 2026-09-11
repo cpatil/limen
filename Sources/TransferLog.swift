@@ -112,12 +112,27 @@ final class TransferLog {
         // Seeded from whatever history is still on disk, so a log written before this
         // file existed does not start with every record at zero - and so a record can
         // only ever be raised by loading, never lowered.
-        var seeded = false
-        for session in sessions where session.peakRate > (records[session.device] ?? 0) {
-            records[session.device] = session.peakRate
-            seeded = true
+        // Records written before they were keyed by volume: a bare device name. Keep
+        // the ones whose history has no volumes anyway - a drive, an interface - and
+        // drop the rest, which are rebuilt from the sessions below. Keeping them would
+        // file one card's record under another's group, which is the bug this fixes.
+        let volumed = Set(sessions.filter { !$0.volumes.isEmpty }.map { $0.device })
+        for (key, value) in records where !key.contains("|") {
+            records.removeValue(forKey: key)
+            if !volumed.contains(key) {
+                records[TransferLog.recordKey(device: key, volumes: [])] = value
+            }
         }
-        if seeded { saveRecords() }
+        var seeded = false
+        for session in sessions {
+            let key = TransferLog.recordKey(device: session.device, volumes: session.volumes)
+            if session.peakRate > (records[key] ?? 0) {
+                records[key] = session.peakRate
+                seeded = true
+            }
+        }
+        if seeded || records.contains(where: { !$0.key.contains("|") }) { saveRecords() }
+        saveRecords()
     }
 
     private func saveRecords() {
@@ -125,11 +140,23 @@ final class TransferLog {
         try? data.write(to: recordsURL, options: .atomic)
     }
 
+    /// How a record is filed: the same scope the log groups by.
+    ///
+    /// Per device alone was wrong, and visibly so. A card reader's record belongs to
+    /// the card, not the reader - one card peaked at 102 MB/s and another at 26, and
+    /// keying by the reader gave the second card's group the first card's record, so
+    /// a session that peaked at 26.5 MB/s was captioned "peaks at 102 MB/s, right at
+    /// UHS-I SDR104's limit". The advice was about a card that was not there.
+    static func recordKey(device: String, volumes: [String]) -> String {
+        device + "|" + volumes.joined(separator: ",")
+    }
+
     /// Notes a device's best, and returns true when it is a new record.
     @discardableResult
-    func noteRecord(device: String, peak: Double) -> Bool {
-        guard peak > (records[device] ?? 0) else { return false }
-        records[device] = peak
+    func noteRecord(device: String, volumes: [String], peak: Double) -> Bool {
+        let key = TransferLog.recordKey(device: device, volumes: volumes)
+        guard peak > (records[key] ?? 0) else { return false }
+        records[key] = peak
         saveRecords()
         return true
     }
@@ -144,10 +171,13 @@ final class TransferLog {
     /// invalidated: the log is capped at 500 entries, a transfer in progress raises
     /// its own peak continuously, and a cache that has to be cleared from six mutation
     /// sites is a stale number waiting to happen.
-    func bestPeaksByDevice() -> [String: Double] {
+    /// Records keyed as the log groups them, so a reading is only ever shown beside
+    /// the thing that produced it.
+    func bestPeaks() -> [String: Double] {
         var peaks = records
         for session in sessions + Array(open.values) {
-            peaks[session.device] = max(peaks[session.device] ?? 0, session.peakRate)
+            let key = TransferLog.recordKey(device: session.device, volumes: session.volumes)
+            peaks[key] = max(peaks[key] ?? 0, session.peakRate)
         }
         return peaks
     }
@@ -327,7 +357,7 @@ final class TransferLog {
         sessions.insert(closed, at: 0)
         // Before trimming, not after: the record has to survive the sessions that
         // carried it.
-        noteRecord(device: closed.device, peak: closed.peakRate)
+        noteRecord(device: closed.device, volumes: closed.volumes, peak: closed.peakRate)
         sessions = TransferLog.trim(sessions)
         save()
     }

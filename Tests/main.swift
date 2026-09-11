@@ -136,6 +136,24 @@ check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
 
+// ---- which mounts are volumes --------------------------------------------------
+// "/Volumes/..." is the obvious spelling and not the only one: with the sealed system
+// volume macOS also reports the same place under /System/Volumes/Data/Volumes. Testing
+// only the short form left a card with no volume name, nothing to attach processes to,
+// and a session logged as having no volume at all while 1.69 GB came off it.
+check("mounts: the obvious spelling is a volume",
+      ProcessSampler.isFinderVolume("/Volumes/sd-21"))
+check("mounts: so is the same place through the firmlink",
+      ProcessSampler.isFinderVolume("/System/Volumes/Data/Volumes/sd-21"))
+check("mounts: the boot volume is not one of them",
+      !ProcessSampler.isFinderVolume("/"))
+check("mounts: nor is a system volume",
+      !ProcessSampler.isFinderVolume("/System/Volumes/Preboot"))
+check("mounts: two spellings give one name",
+      ProcessSampler.finderPath("/System/Volumes/Data/Volumes/sd-21") == "/Volumes/sd-21")
+check("mounts: and the short one is left alone",
+      ProcessSampler.finderPath("/Volumes/sd-21") == "/Volumes/sd-21")
+
 // ---- when a session happened ---------------------------------------------------
 // A clock time makes you work out what it means relative to now, which for something
 // that happened while you were watching is the wrong way round. Past a day the
@@ -197,10 +215,26 @@ do {
     // disagree about what a device once managed.
     do {
         let quick = made("Fast Disk", "", 1)
-        let groups = Analysis.groups(from: quick, records: ["Fast Disk": 4_620_000_000])
+        let key = TransferLog.recordKey(device: "Fast Disk", volumes: [])
+        let groups = Analysis.groups(from: quick, records: [key: 4_620_000_000])
         check("log: a group reports the record, not just what it still holds",
               groups.first?.bestPeak == 4_620_000_000,
               "\(groups.first?.bestPeak ?? -1)")
+
+        // A reader holds different cards, and one card's record is not another's. The
+        // record keyed to the reader alone was being shown against every card in it -
+        // so a session that peaked at 26 MB/s was captioned "peaks at 102 MB/s".
+        let withCard = made("Card Reader", "sd-21", 1)
+        let withNone = made("Card Reader", "", 1)
+        let mixed = Analysis.groups(
+            from: withCard + withNone,
+            records: [TransferLog.recordKey(device: "Card Reader", volumes: ["sd-21"]):
+                        102_000_000])
+        let carded = mixed.first { $0.volumes == ["sd-21"] }
+        let empty = mixed.first { $0.volumes.isEmpty }
+        check("log: the record follows the card, not the reader",
+              carded?.bestPeak == 102_000_000 && (empty?.bestPeak ?? 0) < 102_000_000,
+              "\(carded?.bestPeak ?? -1) vs \(empty?.bestPeak ?? -1)")
     }
 
     // Newest first in, newest first out.

@@ -18,7 +18,21 @@ final class MagnifierView: NSView {
 
     static let width: CGFloat = 400
     private static let pad: CGFloat = 18
-    private static let chartHeight: CGFloat = 76
+    private static let fullChartHeight: CGFloat = 58
+    private static let compactChartHeight: CGFloat = 34
+
+    /// Set when the card cannot fit in the window at its natural size.
+    ///
+    /// The alternative was what it did before: stay full height, get clamped to the
+    /// bottom of the window, and run off the top - so the device's own name, which is
+    /// the first thing on it, was the first thing lost. Shortening is better than
+    /// overflowing, and what it sheds is the prose: the chart shrinks, the
+    /// explanations go, and the figures stay.
+    var compact = false
+
+    private var chartHeight: CGFloat {
+        compact ? MagnifierView.compactChartHeight : MagnifierView.fullChartHeight
+    }
 
     private let titleFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
     private let bodyFont = NSFont.systemFont(ofSize: 12.5)
@@ -28,7 +42,7 @@ final class MagnifierView: NSView {
     /// the subject, and the link is context.
     private let cardBadgeFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
     private let tickFont = NSFont.systemFont(ofSize: 10)
-    private let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 19, weight: .medium)
+    private let rateFont = NSFont.monospacedDigitSystemFont(ofSize: 17, weight: .medium)
     private let tagFont = NSFont.systemFont(ofSize: 9.5, weight: .semibold)
 
     /// Text-only in a flipped space, so blocks can be laid out top-down and measured
@@ -36,6 +50,10 @@ final class MagnifierView: NSView {
     /// Held open by a click rather than following the pointer.
     var isPinned = false
     var onClose: (() -> Void)?
+
+    /// Whether the compact note applies - it does not while scrolling, since nothing
+    /// has been dropped.
+    var droppedContent: Bool { compact }
 
     /// The dismiss target, top-right in this view's own (flipped) space.
     ///
@@ -53,6 +71,10 @@ final class MagnifierView: NSView {
     /// describing.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard isPinned, !isHidden else { return nil }
+        // Inside a scroller the whole card has to be reachable, or there is nothing
+        // for the wheel to act on. Loose on the window it stays transparent except
+        // for the cross, so it does not put a hole over the rows it describes.
+        if enclosingScrollView != nil { return super.hitTest(point) }
         let local = convert(point, from: superview)
         return MagnifierView.closeRect(in: bounds).contains(local) ? self : nil
     }
@@ -73,6 +95,7 @@ final class MagnifierView: NSView {
     /// What belongs under "what is in the reader": the evidence for the card badge.
     private func cardBlocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
         var out: [(String, NSFont, NSColor)] = []
+        guard !compact else { return out }
         // The card badge above carries the mark. This is what the mark stands for -
         // the evidence, so it can be disagreed with.
         if !row.mediumClass.isEmpty {
@@ -99,6 +122,9 @@ final class MagnifierView: NSView {
     /// that is worth saying about.
     private func blocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
         var out: [(String, NSFont, NSColor)] = []
+        // In a window too short for the whole card, the paragraphs are what goes: a
+        // rate you cannot see is worse than a reason you have to hover again for.
+        guard !compact else { return out }
 
         // Same rule as the row: where the bar already answers "how does this compare",
         // a second comparison beside it is noise, and the one this produced named a
@@ -128,6 +154,7 @@ final class MagnifierView: NSView {
 
     private func footerBlocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
         var out: [(String, NSFont, NSColor)] = []
+        guard !compact else { return out }
 
 
         if !row.actors.isEmpty {
@@ -238,7 +265,7 @@ final class MagnifierView: NSView {
     /// being guessed at in two.
     static func statRows(_ count: Int) -> Int { (count + 1) / 2 }
 
-    private static let statRowHeight: CGFloat = 38
+    private static let statRowHeight: CGFloat = 34
 
     private func drawStats(_ stats: [Stat], at origin: NSPoint, width: CGFloat) -> CGFloat {
         let labelFont = NSFont.systemFont(ofSize: 9, weight: .semibold)
@@ -385,6 +412,7 @@ final class MagnifierView: NSView {
 
     /// The other names for this link, or empty when there are none.
     private func alsoKnownText(_ row: Row) -> String {
+        guard !compact else { return "" }
         let names = [row.alsoKnown, row.appleName].filter { !$0.isEmpty }
         guard !names.isEmpty else { return "" }
         // Why one port has four names, which otherwise reads as a contradiction: the
@@ -442,8 +470,9 @@ final class MagnifierView: NSView {
         let linkHeight = linkPanelHeight(row)
         if linkHeight > 0 { height += linkHeight + 8 }
         if let gauge = usage(row) { height += gaugeLabelWraps(gauge) ? 46 : 28 }
-        height += 10 + 14 + MagnifierView.chartHeight + 12       // scale labels + chart
-        height += 46                                             // the two big rates
+        height += 8 + 12 + chartHeight + 8        // scale labels + chart
+        height += 36                                             // the two rates
+        if compact { height += 14 }
         // The grid, then the one line saying where its counters come from.
         let statCount = stats(for: row).count
         if statCount > 0 {
@@ -628,7 +657,7 @@ final class MagnifierView: NSView {
         }
 
         // ---- history, labelled with its own scale ---------------------------
-        y += 10
+        y += 8
         let scale = Chart.peak(down: row.downHist, up: row.upHist)
         let span = Double(Monitor.historyLength) * sampleInterval
         Text.draw(span >= 120 ? String(format: "last %.0f min", span / 60)
@@ -637,11 +666,11 @@ final class MagnifierView: NSView {
         Text.draw(Fmt.rate(scale, unit: unit) + " full scale",
                   at: NSPoint(x: 0, y: y), font: tickFont,
                   color: Palette.secondary, alignRight: left + width)
-        y += 14
+        y += 12
         Palette.faint.setFill()
         NSRect(x: left, y: y, width: width, height: 1).fill()
 
-        let chart = NSRect(x: left, y: y, width: width, height: MagnifierView.chartHeight)
+        let chart = NSRect(x: left, y: y, width: width, height: chartHeight)
         NSGraphicsContext.saveGraphicsState()
         let flip = NSAffineTransform()
         flip.translateX(by: 0, yBy: chart.maxY + chart.minY)
@@ -649,7 +678,7 @@ final class MagnifierView: NSView {
         flip.concat()
         Chart.draw(down: row.downHist, up: row.upHist, in: chart, lineWidth: 1.8)
         NSGraphicsContext.restoreGraphicsState()
-        y += MagnifierView.chartHeight + 12
+        y += chartHeight + 8
 
         // ---- live rates -----------------------------------------------------
         let mid = left + width / 2
@@ -659,7 +688,7 @@ final class MagnifierView: NSView {
                   font: rateFont, color: Palette.down)
         Text.draw(Fmt.rate(row.up, unit: unit), at: NSPoint(x: mid, y: y + 13),
                   font: rateFont, color: Palette.up)
-        y += 46
+        y += 36
 
         // A bar as well as a number: the share of a link is a proportion, and a
         // proportion is read faster as a length than as text.
@@ -709,6 +738,12 @@ final class MagnifierView: NSView {
                            : (used >= 0.85 ? NSColor.systemOrange
                                            : Palette.secondary))
             y += wraps ? 46 : 28
+        }
+
+        if compact {
+            Text.draw("More in a taller window.", at: NSPoint(x: left, y: y),
+                      font: tickFont, color: Palette.faint)
+            y += 14
         }
 
         // ---- the figures, as a grid ----------------------------------------

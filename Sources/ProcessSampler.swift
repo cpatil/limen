@@ -230,6 +230,27 @@ enum ProcessSampler {
         return map
     }
 
+    /// Whether a mount point is a volume the user sees in Finder.
+    ///
+    /// "/Volumes/..." is the obvious answer and not the only one: with the sealed
+    /// system volume macOS also reports mounts under "/System/Volumes/Data/Volumes",
+    /// which is the same place reached through the firmlink. Testing only the short
+    /// form meant a card mounted the long way had no volume name, no volume to attach
+    /// processes to, and a logged session that said "no volume recorded" while 1.69 GB
+    /// came off it.
+    static let dataVolumePrefix = "/System/Volumes/Data/Volumes/"
+
+    static func isFinderVolume(_ path: String) -> Bool {
+        path.hasPrefix("/Volumes/") || path.hasPrefix(dataVolumePrefix)
+    }
+
+    /// The same mount as Finder would name it, so two spellings of one volume do not
+    /// become two volumes.
+    static func finderPath(_ path: String) -> String {
+        guard path.hasPrefix(dataVolumePrefix) else { return path }
+        return "/Volumes/" + String(path.dropFirst(dataVolumePrefix.count))
+    }
+
     /// Whether `path` lies inside `root`, respecting path boundaries.
     ///
     /// A plain prefix test counted "/Volumes/card-old/f" as being under

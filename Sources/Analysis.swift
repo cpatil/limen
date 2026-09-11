@@ -216,7 +216,9 @@ enum Analysis {
             byKey[key]?.sessions.append(s)
         }
         let groups = order.compactMap { byKey[$0] }
-        for group in groups { group.record = records[group.device] ?? 0 }
+        // By the group's own key, not the device's: a reader holds different cards,
+        // and one card's record is not another's.
+        for group in groups { group.record = records[group.key] ?? 0 }
         return groups
     }
 

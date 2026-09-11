@@ -360,24 +360,30 @@ final class Monitor {
         // Then read back out of it what this device has ever managed. Done here, once
         // for all rows, rather than per row while drawing: it is a fold over the whole
         // log, and the lists redraw every second.
-        let best = TransferLog.shared.bestPeaksByDevice()
+        let best = TransferLog.shared.bestPeaks()
         for index in networkRows.indices {
-            networkRows[index].allTimePeak = max(networkRows[index].peak,
-                                                 best[networkRows[index].title] ?? 0)
+            networkRows[index].allTimePeak = max(
+                networkRows[index].peak,
+                best[TransferLog.recordKey(device: networkRows[index].title,
+                                           volumes: networkRows[index].volumes)] ?? 0)
         }
         for index in usbRows.indices {
-            usbRows[index].allTimePeak = max(usbRows[index].peak,
-                                             best[usbRows[index].title] ?? 0)
+            usbRows[index].allTimePeak = max(
+                usbRows[index].peak,
+                best[TransferLog.recordKey(device: usbRows[index].title,
+                                           volumes: usbRows[index].volumes)] ?? 0)
         }
         for index in recordableNetworkRows.indices {
             recordableNetworkRows[index].allTimePeak =
                 max(recordableNetworkRows[index].peak,
-                    best[recordableNetworkRows[index].title] ?? 0)
+                    best[TransferLog.recordKey(device: recordableNetworkRows[index].title,
+                                               volumes: recordableNetworkRows[index].volumes)] ?? 0)
         }
         for index in recordableUSBRows.indices {
             recordableUSBRows[index].allTimePeak =
                 max(recordableUSBRows[index].peak,
-                    best[recordableUSBRows[index].title] ?? 0)
+                    best[TransferLog.recordKey(device: recordableUSBRows[index].title,
+                                               volumes: recordableUSBRows[index].volumes)] ?? 0)
         }
 
         allDown = totalDown + usbTotalDown
@@ -655,9 +661,11 @@ final class Monitor {
             // processes holding files open there. All partitions, since a copy may
             // be touching any one of them.
             row.allMounts = device.disks.compactMap { mounts[$0] }
-            row.mountRoots = row.allMounts.filter { $0.hasPrefix("/Volumes") }
+            row.mountRoots = row.allMounts.filter { ProcessSampler.isFinderVolume($0) }
             // Volume names as shown in Finder, not full paths.
-            row.volumes = row.mountRoots.map { ($0 as NSString).lastPathComponent }
+            row.volumes = row.mountRoots.map {
+                (ProcessSampler.finderPath($0) as NSString).lastPathComponent
+            }
             if let combined = ProcessSampler.combinedSpace(of: row.allMounts, in: space) {
                 row.capacityBytes = combined.capacity
                 row.usedBytes = combined.used

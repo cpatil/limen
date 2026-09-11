@@ -68,7 +68,7 @@ enum Setup {
             .filter { $0.removableMedia }
             .flatMap { $0.disks }
             .compactMap { mounts[$0] }
-            .filter { $0.hasPrefix("/Volumes") }
+            .filter { ProcessSampler.isFinderVolume($0) }
         guard let volume = removable.first else { return .untested }
         do {
             _ = try FileManager.default.contentsOfDirectory(atPath: volume)

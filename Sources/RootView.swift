@@ -258,6 +258,14 @@ final class RootView: NSView, NSSplitViewDelegate {
     let columnsSplit = NSSplitView()
     let outerSplit = NSSplitView()
     private let magnifier = MagnifierView()
+    /// Used only for a pinned card that is taller than the window.
+    ///
+    /// A card that follows the pointer cannot scroll: moving onto it means leaving the
+    /// row, and the card goes with it - so while hovering, a card too tall for the
+    /// window sheds its prose instead. A pinned card is different. It stays whatever
+    /// the pointer does, which means the pointer can get to it, which means it can
+    /// have a scroller and keep everything.
+    private let magnifierScroll = NSScrollView()
     /// Mirrors the monitor's sampling interval so the chart can state its time span.
     var sampleInterval: TimeInterval = 1
     /// Which row the card is showing, so it can be refreshed on every sample rather
@@ -400,6 +408,16 @@ final class RootView: NSView, NSSplitViewDelegate {
         outerSplit.addArrangedSubview(columnsSplit)
         outerSplit.addArrangedSubview(historyColumn)
 
+        magnifierScroll.drawsBackground = false
+        magnifierScroll.hasVerticalScroller = true
+        magnifierScroll.autohidesScrollers = true
+        magnifierScroll.isHidden = true
+        magnifierScroll.wantsLayer = true
+        magnifierScroll.layer?.cornerRadius = 12
+        magnifierScroll.layer?.shadowOpacity = 0.28
+        magnifierScroll.layer?.shadowRadius = 14
+        magnifierScroll.layer?.shadowOffset = CGSize(width: 0, height: -4)
+
         magnifier.isHidden = true
         magnifier.wantsLayer = true
         magnifier.layer?.shadowOpacity = 0.28
@@ -445,6 +463,7 @@ final class RootView: NSView, NSSplitViewDelegate {
         // summary, which then painted its text over the panel and made it look
         // translucent when it never was.
         addSubview(magnifier)
+        addSubview(magnifierScroll)
     }
 
     /// Whether the two sections sit beside each other or one above the other, and
@@ -571,6 +590,27 @@ final class RootView: NSView, NSSplitViewDelegate {
         guard !magnifier.isHidden else { return }
         pinnedRowID = row.id
         magnifier.isPinned = true
+
+        // Pinned and too tall: give it a scroller and its full content back. The
+        // pointer can reach a pinned card, so nothing has to be dropped.
+        magnifier.compact = false
+        let natural = magnifier.fittingHeight
+        let available = bounds.height - 16
+        if natural > available {
+            let frame = magnifier.frame
+            magnifier.removeFromSuperview()
+            magnifier.frame = NSRect(x: 0, y: 0, width: MagnifierView.width, height: natural)
+            magnifierScroll.documentView = magnifier
+            magnifierScroll.frame = NSRect(x: frame.minX, y: 8,
+                                           width: MagnifierView.width + 2, height: available)
+            magnifierScroll.isHidden = false
+            if subviews.last !== magnifierScroll {
+                magnifierScroll.removeFromSuperview()
+                addSubview(magnifierScroll)
+            }
+            // Showing the top, which is where the device's name is.
+            magnifier.scroll(NSPoint(x: 0, y: 0))
+        }
         magnifier.needsDisplay = true
     }
 
@@ -579,6 +619,17 @@ final class RootView: NSView, NSSplitViewDelegate {
         magnifier.isPinned = false
         magnifier.isHidden = true
         magnifiedRowID = nil
+        returnMagnifierFromScroller()
+    }
+
+    /// Takes the card back out of the scroller, so the hover path always works on a
+    /// plain subview rather than sometimes on a document view inside a clip view.
+    private func returnMagnifierFromScroller() {
+        guard magnifierScroll.documentView === magnifier else { return }
+        magnifierScroll.documentView = nil
+        magnifierScroll.isHidden = true
+        magnifier.removeFromSuperview()
+        addSubview(magnifier)
     }
 
     /// `force` is a click rather than the pointer passing over: it opens the card
@@ -598,6 +649,7 @@ final class RootView: NSView, NSSplitViewDelegate {
             magnifiedRowID = nil
             return
         }
+        returnMagnifierFromScroller()
         magnifiedRowID = row.id
         magnifier.row = row
         magnifier.zone = zone
@@ -605,8 +657,18 @@ final class RootView: NSView, NSSplitViewDelegate {
         magnifier.unit = usbList.unit
         magnifier.sampleInterval = sampleInterval
         let local = convert(windowPoint, from: nil)
-        // Sized to its content, so long device names and hints are never cut off.
-        let size = NSSize(width: MagnifierView.width, height: magnifier.fittingHeight)
+        // Sized to its content, so long device names and hints are never cut off -
+        // unless the window is shorter than the content, in which case the card sheds
+        // its prose rather than overflowing. Clamping alone pinned a too-tall card to
+        // the bottom and ran it off the top, taking the device's own name with it.
+        magnifier.compact = false
+        let available = bounds.height - 16
+        var height = magnifier.fittingHeight
+        if height > available {
+            magnifier.compact = true
+            height = min(magnifier.fittingHeight, available)
+        }
+        let size = NSSize(width: MagnifierView.width, height: height)
         // Keep it beside the pointer but always fully on screen.
         var x = local.x + 24
         if x + size.width > bounds.maxX - 8 { x = local.x - size.width - 24 }
