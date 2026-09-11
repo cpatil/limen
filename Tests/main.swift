@@ -136,6 +136,83 @@ check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
 
+// ---- routes: one transfer, seen from both ends ---------------------------------
+// Copying a card to a network share is two sessions in this log, and until now
+// nothing connected them - even though the two halves together are the whole answer
+// to "why was that slow?".
+do {
+    func session(_ id: String, section: String, start: Double, seconds: Double,
+                 bytes: UInt64, peak: Double) -> TransferSession {
+        let began = Date(timeIntervalSince1970: start)
+        return TransferSession(id: id, device: section == "Network" ? "en0" : "Card Reader",
+                               section: section, started: began,
+                               ended: began.addingTimeInterval(seconds),
+                               bytesRead: bytes, bytesWritten: 0, peakRate: peak,
+                               linkBits: 0, linkTrusted: false, removable: section != "Network",
+                               physical: true, wireless: false, processes: [], volumes: [])
+    }
+    let card = session("a", section: "USB", start: 1000, seconds: 100,
+                       bytes: 1_000_000_000, peak: 90_000_000)
+    var wire = session("b", section: "Network", start: 1002, seconds: 100,
+                       bytes: 0, peak: 300_000_000)
+    wire.bytesWritten = 980_000_000      // out over the wire: the far end of the copy
+    check("route: an overlapping copy of about the same size pairs",
+          Analysis.looksLikeOneTransfer(card, wire))
+
+    // Overlapping but unrelated: a backup ticking away in the background overlaps
+    // everything, which is why size has to agree as well as time.
+    let backup = session("c", section: "Network", start: 1002, seconds: 100,
+                         bytes: 5_000_000, peak: 2_000_000)
+    check("route: a much smaller overlapping session does not pair",
+          !Analysis.looksLikeOneTransfer(card, backup))
+
+    // Same size but hours apart: two separate copies of the same folder.
+    let later = session("d", section: "Network", start: 40_000, seconds: 100,
+                        bytes: 1_000_000_000, peak: 300_000_000)
+    check("route: the same size at another time does not pair",
+          !Analysis.looksLikeOneTransfer(card, later))
+    check("route: two storage sessions are never two ends of one transfer",
+          !Analysis.looksLikeOneTransfer(card, session("e", section: "USB", start: 1000,
+                                                       seconds: 100, bytes: 1_000_000_000,
+                                                       peak: 90_000_000)))
+
+    // Small sessions are everywhere, and several of them will always overlap
+    // something. Below the floor, coincidence is likelier than causation.
+    let tinyCard = session("g", section: "USB", start: 1000, seconds: 10,
+                           bytes: 4_000_000, peak: 1_000_000)
+    let tinyWire = session("h", section: "Network", start: 1000, seconds: 10,
+                           bytes: 4_000_000, peak: 1_000_000)
+    check("route: two small sessions do not pair on coincidence",
+          !Analysis.looksLikeOneTransfer(tinyCard, tinyWire))
+
+    // A card being read while something downloads is two things at once, not one
+    // copy: the bytes leave the disk and also arrive from the wire.
+    var inbound = session("i", section: "Network", start: 1002, seconds: 100,
+                          bytes: 980_000_000, peak: 300_000_000)
+    inbound.bytesRead = 980_000_000
+    inbound.bytesWritten = 0
+    check("route: directions have to make a route",
+          !Analysis.looksLikeOneTransfer(card, inbound))
+
+    let routes = Analysis.routes(from: [card, wire, backup, later])
+    check("route: both ends are given the pairing", routes["a"] != nil && routes["b"] != nil)
+    check("route: and the unrelated ones are not", routes["c"] == nil && routes["d"] == nil)
+    // The point of the pairing: which end could not go faster.
+    check("route: it names the slower end",
+          routes["a"]?.slowerIsStorage == true,
+          routes["a"]?.summary ?? "none")
+    check("route: and says so in words",
+          (routes["a"]?.summary ?? "").contains("Card Reader was the slower end"),
+          routes["a"]?.summary ?? "none")
+    // A long network session can overlap several imports; each pairs once, with the
+    // nearest in time.
+    let second = session("f", section: "USB", start: 1050, seconds: 100,
+                         bytes: 1_000_000_000, peak: 90_000_000)
+    let both = Analysis.routes(from: [card, second, wire])
+    check("route: a session pairs at most once", both["b"]?.storage.id == "a",
+          both["b"]?.storage.id ?? "none")
+}
+
 // ---- the logarithmic axis ------------------------------------------------------
 // Storage spans four decades between "a document is being saved" and "this drive is
 // flat out". A linear bar gives the first three of them one pixel, which is why the

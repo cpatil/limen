@@ -112,16 +112,10 @@ final class MagnifierView: NSView {
                         + "wear and contention for nothing - right-click the row to "
                         + "stop it, and again to allow it.", smallFont, Palette.warning))
         }
-        if !row.appleName.isEmpty {
-            // Its own line. Squeezed onto the link row beside the badge and the speed
-            // it had nowhere to go and was being cut mid-word.
-            // Not something Bottleneck was told. macOS reports a numeric device-speed
-            // code; this name comes from Bottleneck's own catalogue entry for it, so it is
-            // "also known as", not "Apple calls this".
-            let names = [row.alsoKnown, row.appleName].filter { !$0.isEmpty }
-            out.append(("Also known as " + names.joined(separator: "  ·  "),
-                        smallFont, Palette.secondary))
-        }
+        // The other names this link goes by used to sit here, in the middle of the
+        // block about the card, above the heading that says the connection starts
+        // below - so the one line naming the port was filed under the card. It is
+        // drawn inside the connection section now.
         return out
     }
 
@@ -307,6 +301,13 @@ final class MagnifierView: NSView {
 
     static let rawTag = "raw signalling"
 
+    /// The other names for this link, or empty when there are none.
+    private func alsoKnownText(_ row: Row) -> String {
+        let names = [row.alsoKnown, row.appleName].filter { !$0.isEmpty }
+        guard !names.isEmpty else { return "" }
+        return "Also known as " + names.joined(separator: "  \u{00B7}  ")
+    }
+
     /// The practical ceiling for this row's link, marked, or nil when there is none.
     private func practicalText(_ row: Row) -> String? {
         guard row.linkTrusted, row.linkBits > 0,
@@ -342,7 +343,7 @@ final class MagnifierView: NSView {
         guard let row = row else { return 120 }
         let pad = MagnifierView.pad
         var height = pad + 26                                    // icon + title
-        if !cardText(row).isEmpty { height += 28 }               // the card badge
+        if !cardText(row).isEmpty { height += 28 + 14 }          // caption + card badge
         let identity = identityLine(row)
         if !identity.isEmpty {
             height += Text.wrappedHeight(identity, font: bodyFont, width: contentWidth) + 5
@@ -355,7 +356,13 @@ final class MagnifierView: NSView {
         for block in blocks(for: row) {
             height += Text.wrappedHeight(block.text, font: block.font, width: contentWidth) + 5
         }
-        if hasLinkRow(row) { height += (linkRowWraps(row) ? 44 : 26) + 14 }
+        if hasLinkRow(row) {
+            height += (linkRowWraps(row) ? 44 : 26) + 14
+            let names = alsoKnownText(row)
+            if !names.isEmpty {
+                height += Text.wrappedHeight(names, font: smallFont, width: contentWidth) + 4
+            }
+        }
         if let gauge = usage(row) { height += gaugeLabelWraps(gauge) ? 46 : 28 }
         height += 10 + 14 + MagnifierView.chartHeight + 12       // scale labels + chart
         height += 46                                             // the two big rates
@@ -417,6 +424,10 @@ final class MagnifierView: NSView {
         // and above everything else - it is what the row is actually about.
         let cardLabel = cardText(row)
         if !cardLabel.isEmpty {
+            Text.draw("WHAT IS IN THE READER", at: NSPoint(x: left, y: y),
+                      font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+                      color: Palette.faint, tracking: 0.7)
+            y += 14
             _ = Text.drawBadge(Palette.mark + cardLabel, at: NSPoint(x: left, y: y + 2),
                                font: cardBadgeFont,
                                fill: Palette.cardBadge,
@@ -494,6 +505,16 @@ final class MagnifierView: NSView {
                 }
             }
             y += 26
+            // The other names this same wire goes by - the USB-IF has renamed it
+            // twice, and Apple uses a third vocabulary. A fact about the connection,
+            // so it lives in the connection's section.
+            let names = alsoKnownText(row)
+            if !names.isEmpty {
+                let h = Text.wrappedHeight(names, font: smallFont, width: width)
+                Text.drawWrapped(names, in: NSRect(x: left, y: y, width: width, height: h),
+                                 font: smallFont, color: Palette.secondary)
+                y += h + 4
+            }
         }
 
         // ---- history, labelled with its own scale ---------------------------

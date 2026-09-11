@@ -79,6 +79,93 @@ enum Analysis {
         return Verdict(summary: "no link rate to judge this against", maximised: false)
     }
 
+    // ---- routes: one transfer seen from both ends --------------------------
+
+    /// A storage session and a network session that were almost certainly the same
+    /// copy, seen from each end.
+    ///
+    /// Reading a card onto a network share is two sessions in this log - bytes off the
+    /// card, bytes onto the wire - and nothing connected them, even though the two
+    /// halves are the whole answer to "why was that slow?". This pairs them.
+    ///
+    /// A correlation, and never more than that: two unrelated transfers that happen to
+    /// overlap and move similar amounts will pair, which is why it is marked like every
+    /// other conclusion rather than stated as fact.
+    struct Route {
+        let storage: TransferSession
+        let network: TransferSession
+        /// The end that could not go faster, by peak rate.
+        let slowerIsStorage: Bool
+
+        var summary: String {
+            let slow = slowerIsStorage ? storage : network
+            let fast = slowerIsStorage ? network : storage
+            return "looks like the same copy as " + network.device + " \u{2014} "
+                + Fmt.bytes(Double(storage.total)) + " here, "
+                + Fmt.bytes(Double(network.total)) + " there. "
+                + slow.device + " was the slower end ("
+                + Fmt.rate(slow.peakRate, unit: .bytes) + " against "
+                + Fmt.rate(fast.peakRate, unit: .bytes) + ")."
+        }
+    }
+
+    /// How much of the shorter session has to lie inside the longer one.
+    static let routeOverlap = 0.6
+    /// How closely the two byte counts have to agree.
+    static let routeAgreement = 0.6
+    /// Below this, coincidence is likelier than causation: small sessions are
+    /// everywhere and several of them will always overlap something.
+    static let routeFloor: UInt64 = 64 * 1024 * 1024
+
+    /// Whether two sessions look like two ends of one transfer. Pure, and deliberately
+    /// strict on both axes: overlapping in time is not enough - a backup running in the
+    /// background overlaps everything - and similar sizes are not enough either.
+    static func looksLikeOneTransfer(_ a: TransferSession, _ b: TransferSession) -> Bool {
+        guard a.section == "Network" ? b.section != "Network" : b.section == "Network"
+        else { return false }
+        let start = max(a.started, b.started)
+        let end = min(a.ended, b.ended)
+        let shared = end.timeIntervalSince(start)
+        guard shared > 0 else { return false }
+        let shorter = min(a.duration, b.duration)
+        guard shared / shorter >= routeOverlap else { return false }
+
+        guard a.total >= routeFloor, b.total >= routeFloor else { return false }
+
+        let sizes = [Double(a.total), Double(b.total)].sorted()
+        guard sizes[1] > 0 else { return false }
+        guard sizes[0] / sizes[1] >= routeAgreement else { return false }
+
+        // The directions have to make a route. Bytes read from a disk and sent out
+        // over the wire is one copy going one way; bytes read from a disk while bytes
+        // also arrive from the network is two different things happening at once.
+        let storage = a.section == "Network" ? b : a
+        let network = a.section == "Network" ? a : b
+        let leavingDisk = storage.bytesRead >= storage.bytesWritten
+        let leavingHost = network.bytesWritten >= network.bytesRead
+        return leavingDisk == leavingHost
+    }
+
+    /// The route each session belongs to, keyed by session id, for whichever sessions
+    /// have a counterpart. Newest first, and each session pairs at most once - with the
+    /// closest in time, since a long network session can overlap several imports.
+    static func routes(from sessions: [TransferSession]) -> [String: Route] {
+        var out: [String: Route] = [:]
+        let networks = sessions.filter { $0.section == "Network" }
+        for storage in sessions where storage.section != "Network" {
+            let candidates = networks.filter { looksLikeOneTransfer(storage, $0) }
+            guard let network = candidates.min(by: {
+                abs($0.started.timeIntervalSince(storage.started))
+                    < abs($1.started.timeIntervalSince(storage.started))
+            }) else { continue }
+            let route = Route(storage: storage, network: network,
+                              slowerIsStorage: storage.peakRate <= network.peakRate)
+            out[storage.id] = route
+            out[network.id] = route
+        }
+        return out
+    }
+
     /// Everything recorded for one device and one volume.
     final class Group: NSObject {
         let key: String

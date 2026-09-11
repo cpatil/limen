@@ -71,14 +71,22 @@ enum HistoryItem {
                 h += Text.wrappedHeight(note.text, font: font, width: textWidth) + 8
             }
             return max(60, h + 8)
-        case .session:
-            return 66
+        case .session(let s):
+            // One more line when this session has a counterpart, so the route can be
+            // stated on the row rather than left to be worked out by comparing
+            // timestamps between two sections of the log.
+            return HistoryView.routes[s.id] == nil ? 66 : 84
         }
     }
 }
 
 /// The scrollable log of past transfers, grouped by device and volume.
 final class HistoryView: NSView {
+    /// Which sessions are two ends of one transfer. Computed once when the log is
+    /// rebuilt rather than per row: it is a pass over every session, and both the
+    /// height calculation and the drawing need the same answer.
+    static var routes: [String: Analysis.Route] = [:]
+
     static let rowHeight: CGFloat = 66
     /// Most recent sessions shown per device; the header states the true total.
     static let sessionsPerGroup = 5
@@ -100,6 +108,7 @@ final class HistoryView: NSView {
         // Hidden devices sink to the bottom rather than disappearing: their sessions
         // happened, and the point of hiding a chatty tunnel is that it stops being
         // bumped to the top every time it twitches, not that its history is lost.
+        HistoryView.routes = Analysis.routes(from: sessions)
         items = Hidden.sink(Analysis.groups(from: sessions), name: { $0.device })
             .flatMap { group -> [HistoryItem] in
             let folded = collapsed.contains(group.key)
@@ -182,6 +191,9 @@ final class HistoryView: NSView {
                 value = "average \(Fmt.rate(s.averageRate, unit: unit)), "
                     + "peak \(Fmt.rate(s.peakRate, unit: unit)). "
                     + (verdict.inferred ? "inferred: " : "") + verdict.summary
+                if let route = HistoryView.routes[s.id] {
+                    value += " Inferred: " + route.summary
+                }
             }
             if let element = NSAccessibilityElement.element(
                 withRole: .row, frame: window.convertToScreen(convert(frame, to: nil)),
@@ -408,6 +420,15 @@ final class HistoryView: NSView {
                   at: NSPoint(x: 44, y: rect.minY + 9), font: nameFont, color: NSColor.labelColor)
 
         // Did it go as fast as it could have, and if not, what stopped it.
+        if let route = HistoryView.routes[s.id] {
+            // Marked: two unrelated transfers that overlap and move similar amounts
+            // would pair, and this cannot tell them apart from one copy seen twice.
+            Text.draw(Text.clip(Palette.marked(route.summary), font: metaFont,
+                                maxWidth: rect.width - 330),
+                      at: NSPoint(x: 44, y: rect.minY + 62), font: metaFont,
+                      color: Palette.inferred)
+        }
+
         let verdict = Analysis.verdict(for: s)
         let summary = verdict.inferred ? Palette.marked(verdict.summary) : verdict.summary
         Text.draw(Text.clip(summary, font: metaFont, maxWidth: rect.width - 330),
