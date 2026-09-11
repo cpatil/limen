@@ -109,7 +109,9 @@ final class HistoryView: NSView {
         // happened, and the point of hiding a chatty tunnel is that it stops being
         // bumped to the top every time it twitches, not that its history is lost.
         HistoryView.routes = Analysis.routes(from: sessions)
-        items = Hidden.sink(Analysis.groups(from: sessions), name: { $0.device })
+        items = Hidden.sink(Analysis.groups(from: sessions,
+                                            records: TransferLog.shared.bestPeaksByDevice()),
+                            name: { $0.device })
             .flatMap { group -> [HistoryItem] in
             let folded = collapsed.contains(group.key)
             return [.group(group, collapsed: folded)]

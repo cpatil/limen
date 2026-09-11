@@ -387,7 +387,11 @@ final class MagnifierView: NSView {
     private func alsoKnownText(_ row: Row) -> String {
         let names = [row.alsoKnown, row.appleName].filter { !$0.isEmpty }
         guard !names.isEmpty else { return "" }
+        // Why one port has four names, which otherwise reads as a contradiction: the
+        // USB-IF renamed this same signalling mode every time a faster one arrived,
+        // and Apple uses its own vocabulary again.
         return "Also known as " + names.joined(separator: "  \u{00B7}  ")
+            + " \u{2014} one link, renamed each time a faster mode arrived."
     }
 
     /// The practical ceiling for this row's link, marked, or nil when there is none.

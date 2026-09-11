@@ -183,8 +183,13 @@ enum Analysis {
             self.sessions = sessions
         }
 
+        /// The device's record, which outlives the sessions that set it. Without
+        /// this the heading read "best 299 MB/s" on a drive whose row said 4.62 GB/s -
+        /// the fastest session had been trimmed away, and the two disagreed.
+        var record: Double = 0
+
         var total: UInt64 { sessions.reduce(0) { $0 + $1.total } }
-        var bestPeak: Double { sessions.map { $0.peakRate }.max() ?? 0 }
+        var bestPeak: Double { max(record, sessions.map { $0.peakRate }.max() ?? 0) }
         var removable: Bool { sessions.contains { $0.removable == true } }
         var physical: Bool { sessions.contains { $0.physical == true } }
         var wireless: Bool { sessions.contains { $0.wireless == true } }
@@ -197,7 +202,8 @@ enum Analysis {
     /// Grouped rather than listed flat because advice belongs to a piece of hardware,
     /// not to one copy: telling you to buy a faster card once is useful, telling you
     /// on every line is nagging.
-    static func groups(from sessions: [TransferSession]) -> [Group] {
+    static func groups(from sessions: [TransferSession],
+                      records: [String: Double] = [:]) -> [Group] {
         var order: [String] = []
         var byKey: [String: Group] = [:]
         for s in sessions {
@@ -209,7 +215,9 @@ enum Analysis {
             }
             byKey[key]?.sessions.append(s)
         }
-        return order.compactMap { byKey[$0] }
+        let groups = order.compactMap { byKey[$0] }
+        for group in groups { group.record = records[group.device] ?? 0 }
+        return groups
     }
 
     // ---- deriving advice from the catalogue ----------------------------

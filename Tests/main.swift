@@ -136,6 +136,60 @@ check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
 
+// ---- what the log keeps --------------------------------------------------------
+// One global cap meant the busiest device evicted every other. On this machine 342
+// of 500 entries were the boot disk and 151 were Wi-Fi, so the card reader - the
+// device the app exists for - was down to one session and a week of imports was
+// gone. A device's history is its own now.
+do {
+    func made(_ device: String, _ volume: String, _ n: Int) -> [TransferSession] {
+        (0..<n).map { i in
+            let began = Date(timeIntervalSince1970: 100_000 - Double(i))
+            return TransferSession(id: "\(device)-\(volume)-\(i)", device: device,
+                                   section: "USB", started: began,
+                                   ended: began.addingTimeInterval(1),
+                                   bytesRead: 100_000_000, bytesWritten: 0,
+                                   peakRate: 1, linkBits: 0, linkTrusted: false,
+                                   removable: true, physical: true, wireless: false,
+                                   processes: [], volumes: volume.isEmpty ? [] : [volume])
+        }
+    }
+    // A chatty boot disk and one quiet card, newest first.
+    let chatty = made("APPLE SSD", "", 400)
+    let card = made("Card Reader", "sd-15", 3)
+    let trimmed = TransferLog.trim(chatty + card, perDevice: 50, total: 2000)
+    check("log: the chatty device is capped at its own share",
+          trimmed.filter { $0.device == "APPLE SSD" }.count == 50)
+    check("log: and the quiet one keeps everything it had",
+          trimmed.filter { $0.device == "Card Reader" }.count == 3)
+
+    // Two cards in the same reader are two histories - which is exactly what went
+    // missing when the key was the device alone.
+    let second = made("Card Reader", "sd-21", 60)
+    let both = TransferLog.trim(second + card, perDevice: 50, total: 2000)
+    check("log: each volume in a reader keeps its own history",
+          both.filter { $0.volumes == ["sd-15"] }.count == 3
+            && both.filter { $0.volumes == ["sd-21"] }.count == 50)
+
+    // A record outlives the sessions that set it, so the heading and the row cannot
+    // disagree about what a device once managed.
+    do {
+        let quick = made("Fast Disk", "", 1)
+        let groups = Analysis.groups(from: quick, records: ["Fast Disk": 4_620_000_000])
+        check("log: a group reports the record, not just what it still holds",
+              groups.first?.bestPeak == 4_620_000_000,
+              "\(groups.first?.bestPeak ?? -1)")
+    }
+
+    // Newest first in, newest first out.
+    check("log: what is kept is the newest",
+          trimmed.first?.id == chatty.first?.id)
+    // The global ceiling is still a ceiling, just no longer the only rule.
+    let many = (0..<60).flatMap { made("Device \($0)", "", 50) }
+    check("log: the total is still capped",
+          TransferLog.trim(many, perDevice: 50, total: 2000).count == 2000)
+}
+
 // ---- routes: one transfer, seen from both ends ---------------------------------
 // Copying a card to a network share is two sessions in this log, and until now
 // nothing connected them - even though the two halves together are the whole answer

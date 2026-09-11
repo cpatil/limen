@@ -47,7 +47,35 @@ final class TransferLog {
     /// Below this a device is considered idle; a session ends after this much quiet.
     static let activeThreshold: Double = 256 * 1024
     static let idleGrace: TimeInterval = 6
-    static let maxEntries = 500
+    /// How much history each device keeps, and how much the log keeps in total.
+    ///
+    /// One global cap was the whole rule, and it meant the busiest device evicted
+    /// everything else. On this machine 342 of 500 entries were the boot disk and 151
+    /// were Wi-Fi, so the card reader - the device this app exists for - was down to a
+    /// single session, and a week of imports had been pushed out by a fortnight of
+    /// background chatter. A device's own history is now its own: a chatty one fills
+    /// its fifty and stops taking room from anything else.
+    static let perDeviceEntries = 50
+    static let maxEntries = 2000
+
+    /// The log, trimmed. Newest first in, newest first out, per-device limit applied
+    /// first so a quiet device keeps its history whatever else is happening.
+    static func trim(_ sessions: [TransferSession],
+                     perDevice: Int = perDeviceEntries,
+                     total: Int = maxEntries) -> [TransferSession] {
+        var kept: [TransferSession] = []
+        var counts: [String: Int] = [:]
+        for session in sessions {
+            // Per device and volume, not per device: two cards in the same reader are
+            // two different histories, and that is exactly what went missing.
+            let key = session.device + "|" + session.volumes.joined(separator: ",")
+            let seen = counts[key, default: 0]
+            guard seen < perDevice else { continue }
+            counts[key] = seen + 1
+            kept.append(session)
+        }
+        return kept.count > total ? Array(kept.prefix(total)) : kept
+    }
 
     /// Smallest transfer worth remembering. Background chatter - a VPN keeping itself
     /// alive, a sync agent polling - easily clears a few megabytes, and dozens of such
@@ -63,6 +91,49 @@ final class TransferLog {
 
     private(set) var sessions: [TransferSession] = []
 
+    /// The best rate each device has ever reached, kept apart from the sessions.
+    ///
+    /// Trimming the log must not lower a record. "Best ever" is read out of the
+    /// sessions, so capping a device's history at fifty would quietly forget the
+    /// fastest thing it ever did - and the figure would go *down* as the app was used,
+    /// which is not a thing a record does. A few dozen numbers in their own file cost
+    /// nothing and outlive any retention policy.
+    private var records: [String: Double] = [:]
+
+    private var recordsURL: URL {
+        fileURL.deletingLastPathComponent().appendingPathComponent("records.json")
+    }
+
+    private func loadRecords() {
+        if let data = try? Data(contentsOf: recordsURL),
+           let parsed = try? JSONDecoder().decode([String: Double].self, from: data) {
+            records = parsed
+        }
+        // Seeded from whatever history is still on disk, so a log written before this
+        // file existed does not start with every record at zero - and so a record can
+        // only ever be raised by loading, never lowered.
+        var seeded = false
+        for session in sessions where session.peakRate > (records[session.device] ?? 0) {
+            records[session.device] = session.peakRate
+            seeded = true
+        }
+        if seeded { saveRecords() }
+    }
+
+    private func saveRecords() {
+        guard let data = try? JSONEncoder().encode(records) else { return }
+        try? data.write(to: recordsURL, options: .atomic)
+    }
+
+    /// Notes a device's best, and returns true when it is a new record.
+    @discardableResult
+    func noteRecord(device: String, peak: Double) -> Bool {
+        guard peak > (records[device] ?? 0) else { return false }
+        records[device] = peak
+        saveRecords()
+        return true
+    }
+
     /// The best rate ever recorded for each device, across every launch.
     ///
     /// `Row.peak` only knows about this run, so a drive that did 4.6 GB/s yesterday
@@ -74,7 +145,7 @@ final class TransferLog {
     /// its own peak continuously, and a cache that has to be cleared from six mutation
     /// sites is a stale number waiting to happen.
     func bestPeaksByDevice() -> [String: Double] {
-        var peaks: [String: Double] = [:]
+        var peaks = records
         for session in sessions + Array(open.values) {
             peaks[session.device] = max(peaks[session.device] ?? 0, session.peakRate)
         }
@@ -121,6 +192,7 @@ final class TransferLog {
     private convenience init() {
         self.init(persist: true)
         load()
+        loadRecords()
     }
 
     private func load() {
@@ -253,9 +325,10 @@ final class TransferLog {
 
         guard closed.total >= effectiveMinimumSize else { return }
         sessions.insert(closed, at: 0)
-        if sessions.count > TransferLog.maxEntries {
-            sessions.removeLast(sessions.count - TransferLog.maxEntries)
-        }
+        // Before trimming, not after: the record has to survive the sessions that
+        // carried it.
+        noteRecord(device: closed.device, peak: closed.peakRate)
+        sessions = TransferLog.trim(sessions)
         save()
     }
 
@@ -296,9 +369,7 @@ final class TransferLog {
         let returning = parsed.filter { !known.contains($0.id) }
         sessions.append(contentsOf: returning)
         sessions.sort { $0.started > $1.started }
-        if sessions.count > TransferLog.maxEntries {
-            sessions.removeLast(sessions.count - TransferLog.maxEntries)
-        }
+        sessions = TransferLog.trim(sessions)
         try? FileManager.default.removeItem(at: recycleURL)
         save()
         return returning.count
