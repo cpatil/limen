@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "updated": "2026-09-08",
   "entries": [
     {
@@ -27,7 +27,8 @@
       "role": "bus",
       "upgrade": "USB 3.2 Gen 2",
       "appleName": "USB 3.0 SuperSpeed",
-      "alias": "USB 5Gbps · USB 3.0 / USB 3.1 Gen 1"
+      "marketing": "USB 5Gbps",
+      "alias": "USB 3.0, USB 3.1 Gen 1, USB 3.2 Gen 1"
     },
     {
       "name": "USB 3.2 Gen 2",
@@ -37,7 +38,8 @@
       "role": "bus",
       "upgrade": "USB 3.2 Gen 2x2",
       "appleName": "USB 3.1 SuperSpeed+",
-      "alias": "USB 10Gbps · USB 3.1 Gen 2"
+      "marketing": "USB 10Gbps",
+      "alias": "USB 3.1 Gen 2, USB 3.2 Gen 2"
     },
     {
       "name": "USB 3.2 Gen 2x2",
@@ -46,7 +48,8 @@
       "family": "usb",
       "role": "bus",
       "upgrade": "USB4 / Thunderbolt 3",
-      "alias": "USB 20Gbps"
+      "marketing": "USB 20Gbps",
+      "alias": "USB 3.2 Gen 2x2"
     },
     {
       "name": "USB4 / Thunderbolt 3",

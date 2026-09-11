@@ -32,6 +32,9 @@ struct TransferSession: Codable {
     /// the card may be long ejected by the time the log is read. Optional so logs
     /// written before this existed still decode.
     var fsType: String?
+    /// The allocation unit the volume was formatted with, so the log can say what it
+    /// is costing after the card has been ejected.
+    var blockSize: UInt32?
     var journalWrites: Bool?
     var spotlight: Bool?
 
@@ -323,6 +326,7 @@ final class TransferLog {
                                             volumes: row.volumes,
                                             volumeID: row.volumeID.isEmpty ? nil : row.volumeID,
                                             fsType: row.fsType,
+                                            blockSize: row.blockSize == 0 ? nil : row.blockSize,
                                             journalWrites: row.journalWrites,
                                             spotlight: row.spotlight)
                 // The first active sample already includes the bytes moved during

@@ -43,6 +43,13 @@ enum HistoryItem {
                      Analysis.pattern(for: group)] where !text.isEmpty {
             out.append(Advice(text: Palette.marked(text), colour: Palette.inferred))
         }
+        // What the format is costing, where the card said what it was formatted with.
+        if let block = group.sessions.compactMap({ $0.blockSize }).max() {
+            let note = Analysis.allocationNote(blockSize: block, group: group)
+            if !note.isEmpty {
+                out.append(Advice(text: Palette.marked(note), colour: Palette.inferred))
+            }
+        }
         let housekeeping = Analysis.housekeeping(for: group)
         if !housekeeping.isEmpty {
             // Not marked: it opens with a measurement - so many bytes written while

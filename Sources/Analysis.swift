@@ -166,6 +166,37 @@ enum Analysis {
         return out
     }
 
+    /// What the allocation unit is costing, and whether changing it would help.
+    ///
+    /// Two different questions, and the honest answers point opposite ways. Space: a
+    /// 256 KB unit means a 10 KB file occupies 256 KB, so a card of small files can
+    /// lose most of itself to slack, and a smaller unit would win that back. Time: the
+    /// stop-start pattern that makes these transfers slow is per-file overhead -
+    /// opening, seeking, directory work - which a smaller unit does not reduce and may
+    /// slightly worsen.
+    ///
+    /// So this says what is measured, then says which of the two a reformat would
+    /// actually change. It is marked like every other conclusion because the reading
+    /// of "stop-start" as "many small files" is itself an inference.
+    static func allocationNote(blockSize: UInt32, group: Group) -> String {
+        guard blockSize >= 64 * 1024 else { return "" }
+        let unit = Fmt.blockSize(blockSize)
+        let steady = group.sessions.filter { $0.peakRate > 0 }
+            .map { $0.averageRate / $0.peakRate }
+        guard !steady.isEmpty else { return "" }
+        let mean = steady.reduce(0, +) / Double(steady.count)
+        guard mean < 0.45 else {
+            return "Formatted with a \(unit) allocation unit. Nothing here suggests it "
+                + "is costing anything: these transfers run close to their own peak."
+        }
+        return "Formatted with a \(unit) allocation unit, so every file occupies at "
+            + "least that much - a folder of small files can lose most of the card to "
+            + "slack. It is not why this is slow, though: the stop-start pattern is "
+            + "per-file overhead, which a smaller unit would not reduce. Reformatting "
+            + "smaller would win back space, not time; copying an archive instead wins "
+            + "both."
+    }
+
     /// Everything recorded for one device and one volume.
     final class Group: NSObject {
         let key: String

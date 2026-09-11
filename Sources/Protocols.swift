@@ -19,7 +19,9 @@ struct SpeedCatalogue: Codable {
     struct Entry: Codable {
         var name: String            // the neutral, current name
         var appleName: String?      // what Apple calls it, when that differs
-        var alias: String?          // a previous or competing name for the same thing
+        var alias: String?
+    /// What the USB-IF calls it on a box today, which is none of the spec names.
+    var marketing: String?          // a previous or competing name for the same thing
         var line: Double            // advertised signalling rate, bits/sec
         var payload: Double         // realistically sustained, bits/sec
         var family: String          // usb | network | storage
@@ -164,7 +166,7 @@ enum Catalogue {
     /// of its headline number before any protocol framing.
     static let builtInJSON = """
     {
-      "version": 9,
+      "version": 10,
       "updated": "2026-09-08",
       "entries": [
         {
@@ -192,7 +194,8 @@ enum Catalogue {
           "role": "bus",
           "upgrade": "USB 3.2 Gen 2",
           "appleName": "USB 3.0 SuperSpeed",
-          "alias": "USB 5Gbps · USB 3.0 / USB 3.1 Gen 1"
+          "marketing": "USB 5Gbps",
+      "alias": "USB 3.0, USB 3.1 Gen 1, USB 3.2 Gen 1"
         },
         {
           "name": "USB 3.2 Gen 2",
@@ -202,7 +205,8 @@ enum Catalogue {
           "role": "bus",
           "upgrade": "USB 3.2 Gen 2x2",
           "appleName": "USB 3.1 SuperSpeed+",
-          "alias": "USB 10Gbps · USB 3.1 Gen 2"
+          "marketing": "USB 10Gbps",
+      "alias": "USB 3.1 Gen 2, USB 3.2 Gen 2"
         },
         {
           "name": "USB 3.2 Gen 2x2",

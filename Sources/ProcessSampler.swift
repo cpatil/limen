@@ -214,6 +214,10 @@ enum ProcessSampler {
         var readOnly = false
         /// The device node, for anyone who wants to reach past Finder.
         var device = ""
+        /// When the volume was created - which for a card is when it was formatted.
+        /// Often absent: exFAT records no creation time for the volume itself, and
+        /// macOS reports nothing rather than guessing.
+        var created: Date?
         /// Journalled and updating access times: reading writes.
         var journalWrites = false
         var spotlight = false
@@ -253,6 +257,8 @@ enum ProcessSampler {
             traits.blockSize = entry.f_bsize
             traits.readOnly = (entry.f_flags & UInt32(MNT_RDONLY)) != 0
             traits.device = from
+            traits.created = (try? URL(fileURLWithPath: on)
+                .resourceValues(forKeys: [.volumeCreationDateKey]))?.creationDate
             traits.journalWrites = journaled && !noatime
             traits.spotlight = FileManager.default.fileExists(atPath: on + "/.Spotlight-V100")
             traits.neverIndex = FileManager.default.fileExists(atPath: on + "/.metadata_never_index")

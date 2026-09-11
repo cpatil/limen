@@ -368,7 +368,7 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // The facts worth pasting into a note or a shell: the volume's own identity,
         // what it was formatted with, and the device node underneath it.
         if row.blockSize > 0 {
-            parts.append(Fmt.bytes(Double(row.blockSize)) + " allocation unit")
+            parts.append(Fmt.blockSize(row.blockSize) + " allocation unit")
         }
         if row.readOnly { parts.append("write-protected") }
         if !row.deviceNode.isEmpty { parts.append(row.deviceNode) }

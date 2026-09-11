@@ -196,12 +196,24 @@ final class MagnifierView: NSView {
     func volumeFacts(_ row: Row) -> String {
         var parts: [String] = []
         if row.blockSize > 0 {
-            parts.append(Fmt.bytes(Double(row.blockSize)) + " allocation unit")
+            parts.append(Fmt.blockSize(row.blockSize) + " allocation unit")
         }
-        if row.readOnly { parts.append("write-protected") }
+        // Always, not only when locked: "read-write" is the answer to a question
+        // people ask of a card, and silence is not an answer.
+        parts.append(row.readOnly ? "write-protected" : "read-write")
+        // Stated even when absent, because "no date" is itself worth knowing - exFAT
+        // records no creation time for the volume, so a card formatted in a camera
+        // usually has none.
+        parts.append("formatted " + (row.created.map(MagnifierView.day.string(from:)) ?? "—"))
         if !row.deviceNode.isEmpty { parts.append(row.deviceNode) }
         return parts.joined(separator: "  ·  ")
     }
+
+    static let day: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "d MMM yyyy"
+        return f
+    }()
 
     /// What this thing is: vendor, identifier, the volumes it presents. Drawn on its
     /// own rather than as the first of the wrapped blocks, because how full it is
@@ -461,7 +473,7 @@ final class MagnifierView: NSView {
     /// "How it is connected": badge, rates, the other names for the same wire.
     func linkPanelHeight(_ row: Row) -> CGFloat {
         guard hasLinkRow(row) else { return 0 }
-        var h = MagnifierView.captionHeight + (linkRowWraps(row) ? 44 : 26)
+        var h = MagnifierView.captionHeight + 26 + practicalWrappedHeight(row)
         let names = alsoKnownText(row)
         if !names.isEmpty {
             h += Text.wrappedHeight(names, font: smallFont, width: panelWidth) + 4
@@ -482,16 +494,29 @@ final class MagnifierView: NSView {
 
     /// The other names for this link, or empty when there are none.
     private func alsoKnownText(_ row: Row) -> String {
-        let names = [row.alsoKnown, row.appleName].filter { !$0.isEmpty }
-        guard !names.isEmpty else { return "" }
-        // Why one port has four names, which otherwise reads as a contradiction: the
-        // USB-IF renamed this same signalling mode every time a faster one arrived,
-        // and Apple uses its own vocabulary again.
-        return "Also known as " + names.joined(separator: "  \u{00B7}  ")
-            + " \u{2014} one link, renamed each time a faster mode arrived."
+        // Why one port has four names, which otherwise reads as a contradiction. The
+        // spec names are successive - each arrived when a faster mode did, and all of
+        // them still describe this one signalling rate - so they are listed as history
+        // rather than as alternatives, with the name it is sold under first.
+        let current = row.marketingName.isEmpty ? row.badge : row.marketingName
+        guard !current.isEmpty else { return "" }
+        var text = "Also known as " + current
+        if !row.alsoKnown.isEmpty {
+            text += "; historically " + row.alsoKnown
+        }
+        let rate = Fmt.linkSpeed(bitsPerSec: row.linkBits)
+            .replacingOccurrences(of: ".00", with: "")
+        if !rate.isEmpty {
+            text += " \u{2014} successive names for the same " + rate + " mode."
+        } else {
+            text += "."
+        }
+        return text
     }
 
     /// The practical ceiling for this row's link, marked, or nil when there is none.
+    /// The practical ceiling for this row's link, with the qualification that makes
+    /// it honest, as one string - so what is measured is what is drawn.
     private func practicalText(_ row: Row) -> String? {
         guard row.linkTrusted, row.linkBits > 0,
               let ceiling = Reference.ceiling(forLinkBits: row.linkBits,
@@ -499,7 +524,11 @@ final class MagnifierView: NSView {
                                                    ? .network : .usb),
               ceiling.bytes > 0
         else { return nil }
-        return Palette.marked(Fmt.rate(ceiling.bytes, unit: .bytes) + " in practice")
+        // "In practice" read as though it had been measured here. It is the
+        // catalogue's figure for what this class of link sustains, not this reader's.
+        var sentence = Fmt.rate(ceiling.bytes, unit: .bytes) + " practical USB ceiling"
+        if row.removable { sentence += " \u{2014} the reader's link, not the card's rated speed" }
+        return Palette.marked(sentence)
     }
 
     /// Whether the link row needs a second line. Asked by both the height calculation
@@ -514,7 +543,15 @@ final class MagnifierView: NSView {
         }
         x += Text.width(Fmt.linkSpeed(bitsPerSec: row.linkBits), font: bodyFont) + 6
         x += Text.width(MagnifierView.rawTag, font: smallFont) + 8
-        return x + Text.width(practical, font: smallFont) > contentWidth
+        return x + Text.width(practical, font: smallFont) > panelWidth
+    }
+
+    /// The height the practical ceiling needs on its own line, wrapped. It grew a
+    /// clause and stopped being a one-liner, and a line that does not fit is not
+    /// clipped here - it wraps like every other sentence on this card.
+    private func practicalWrappedHeight(_ row: Row) -> CGFloat {
+        guard linkRowWraps(row), let practical = practicalText(row) else { return 0 }
+        return Text.wrappedHeight(practical, font: smallFont, width: panelWidth) + 4
     }
 
     private func hasLinkRow(_ row: Row) -> Bool {
@@ -740,15 +777,23 @@ final class MagnifierView: NSView {
                 // so it is marked like every other estimate - and moved to its own line
                 // when what is left of the card cannot hold it, rather than being drawn
                 // over the edge and clipped by the corner radius.
-                if let practical = practicalText(row).map({
-                    row.removable ? $0 + " \u{2014} the reader's link, not the card" : $0
-                }) {
-                    if x + Text.width(practical, font: smallFont) > inner + panelWidth {
-                        y += 18
-                        x = inner
+                if let practical = practicalText(row) {
+                    if linkRowWraps(row) {
+                        // Its own line, wrapped to the panel, because the sentence is
+                        // longer than a line and clipping it loses the qualification
+                        // that makes it honest.
+                        y += 22
+                        let h = Text.wrappedHeight(practical, font: smallFont,
+                                                   width: panelWidth)
+                        Text.drawWrapped(practical,
+                                         in: NSRect(x: inner, y: y, width: panelWidth,
+                                                    height: h),
+                                         font: smallFont, color: Palette.inferred)
+                        y += h - 22 + 4
+                    } else {
+                        Text.draw(practical, at: NSPoint(x: x, y: y + 5), font: smallFont,
+                                  color: Palette.inferred)
                     }
-                    Text.draw(practical, at: NSPoint(x: x, y: y + 5), font: smallFont,
-                              color: Palette.inferred)
                 }
             }
             y += 26

@@ -20,6 +20,9 @@ struct SpeedRef {
     let name: String
     let appleName: String?
     let alias: String?
+    /// The consumer-facing name - "USB 5Gbps" - which is neither the spec name nor
+    /// Apple's.
+    let marketing: String?
     let line: Double
     let payload: Double
     let family: Family
@@ -50,7 +53,7 @@ enum Reference {
     /// Loaded from the catalogue rather than hardcoded, so new transports arrive by
     /// updating a JSON file instead of shipping a build.
     static let all: [SpeedRef] = Catalogue.load().entries.map { e in
-        SpeedRef(name: e.name, appleName: e.appleName, alias: e.alias,
+        SpeedRef(name: e.name, appleName: e.appleName, alias: e.alias, marketing: e.marketing,
                  line: e.line, payload: e.payload,
                  family: SpeedRef.Family(rawValue: e.family) ?? .usb,
                  role: e.role, upgrade: e.upgrade, upgradeNote: e.upgradeNote,

@@ -39,6 +39,8 @@ struct Row {
     /// Other names the same wire goes by - the USB-IF has renamed it more than once,
     /// and the marketing name on the box ("USB 5Gbps") is not the one in the spec.
     var alsoKnown: String = ""
+    /// What it is sold as today, which is none of the specification names.
+    var marketingName: String = ""
     /// Identity, kept as separate fields rather than one joined subtitle so it can be
     /// shown and copied on its own.
     var vendor: String = ""
@@ -127,6 +129,7 @@ struct Row {
     var blockSize: UInt32 = 0
     var readOnly = false
     var deviceNode: String = ""
+    var created: Date?
     /// The filesystem on the mounted volume, and what it does to itself when read.
     var fsType: String = ""
     var journalWrites: Bool = false
@@ -675,6 +678,7 @@ final class Monitor {
             if let std = Reference.standard(forLinkBits: device.linkSpeedBits) {
                 if let apple = std.appleName, apple != std.name { row.appleName = apple }
                 if let alias = std.alias, alias != std.name { row.alsoKnown = alias }
+                if let marketing = std.marketing { row.marketingName = marketing }
             }
             // How much this device has actually been asked to move, so a verdict on
             // the medium is only offered once there is something to base it on.
@@ -705,6 +709,7 @@ final class Monitor {
                 row.blockSize = t.blockSize
                 row.readOnly = t.readOnly
                 row.deviceNode = t.device
+                row.created = t.created
             }
             if let first = row.mountRoots.first, let t = traits[first] {
                 row.spotlight = t.spotlight

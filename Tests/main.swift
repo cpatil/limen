@@ -197,6 +197,49 @@ do {
           ProcessSampler.combinedSpace(of: ["/Volumes/x"], in: odd)?.used == 100)
 }
 
+// ---- what the allocation unit costs ----------------------------------------------
+// Two questions with opposite answers. Space: a 256 KB unit means a 10 KB file
+// occupies 256 KB, and a card of small files loses most of itself to slack. Time: the
+// stop-start pattern is per-file overhead, which a smaller unit does not reduce. The
+// note has to separate them, or it becomes "reformat to go faster", which is wrong.
+do {
+    func group(steadiness: Double) -> Analysis.Group {
+        let began = Date(timeIntervalSince1970: 1000)
+        let peak = 100_000_000.0
+        let seconds = 10.0
+        let session = TransferSession(
+            id: "s", device: "Reader", section: "USB", started: began,
+            ended: began.addingTimeInterval(seconds),
+            bytesRead: UInt64(peak * steadiness * seconds), bytesWritten: 0,
+            peakRate: peak, linkBits: 0, linkTrusted: false, removable: true,
+            physical: true, wireless: false, processes: [], volumes: ["sd"])
+        return Analysis.Group(key: "k", device: "Reader", section: "USB",
+                              volumes: ["sd"], sessions: [session])
+    }
+    let small = Analysis.allocationNote(blockSize: 262_144, group: group(steadiness: 0.2))
+    check("clusters: a big unit on a stop-start card is worth saying",
+          small.contains("256 KB"), small)
+    // Clusters are powers of two and are quoted that way everywhere; "262 KB" makes a
+    // round number look like a measurement error.
+    check("clusters: an allocation unit is quoted in binary units",
+          Fmt.blockSize(262_144) == "256 KB" && Fmt.blockSize(4096) == "4 KB",
+          Fmt.blockSize(262_144))
+    check("clusters: and the rest of the app stays decimal",
+          Fmt.bytes(262_144).hasPrefix("262"))
+    check("clusters: and it says a reformat buys space, not speed",
+          small.contains("space, not time"), small)
+    check("clusters: and does not blame it for the slowness",
+          small.contains("not why this is slow"), small)
+
+    let steady = Analysis.allocationNote(blockSize: 262_144, group: group(steadiness: 0.9))
+    check("clusters: on a card running near its peak it claims no cost",
+          steady.contains("Nothing here suggests"), steady)
+
+    // A normal 4 KB unit is not worth a paragraph either way.
+    check("clusters: an ordinary unit says nothing at all",
+          Analysis.allocationNote(blockSize: 4096, group: group(steadiness: 0.2)).isEmpty)
+}
+
 // ---- filing a card under the card ------------------------------------------------
 // The same card read through a slow reader and then a fast one is one history with a
 // slow half and a fast half - which is the comparison worth having. Filing by the

@@ -64,6 +64,26 @@ enum Fmt {
         return "\(hours) h ago"
     }
 
+    /// An allocation unit, in the units allocation units are quoted in.
+    ///
+    /// Everything else here is decimal, to match Finder and every advertised figure.
+    /// A cluster is the exception: it is a power of two by construction, every tool
+    /// that reports one calls 262,144 bytes "256 KB", and rendering it as "262 KB"
+    /// makes a round number look like a measurement error.
+    static func blockSize(_ bytes: UInt32) -> String {
+        guard bytes > 0 else { return "" }
+        let units = ["bytes", "KB", "MB"]
+        var value = Double(bytes)
+        var unit = 0
+        while value >= 1024, unit < units.count - 1 {
+            value /= 1024
+            unit += 1
+        }
+        return value == value.rounded()
+            ? String(format: "%.0f %@", value, units[unit])
+            : String(format: "%.1f %@", value, units[unit])
+    }
+
     /// The filesystem as people name it, not as statfs spells it.
     ///
     /// "msdos" becomes FAT rather than FAT32: the kernel reports one name for both
