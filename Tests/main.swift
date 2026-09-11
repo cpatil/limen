@@ -115,8 +115,21 @@ check("sd: 64 GB is SDXC", family(64_088_965_120).hasPrefix("SDXC"), family(64_0
 check("sd: 4 TB is SDUC", family(4_000_000_000_000).hasPrefix("SDUC"), family(4_000_000_000_000))
 check("sd: a fixed disk gets no card label",
       Reference.mediumClass(bytes: 64_000_000_000, deviceName: "Elements 2621", removable: false).isEmpty)
-check("sd: a non-reader removable gets no card label",
-      Reference.mediumClass(bytes: 64_000_000_000, deviceName: "Generic Flash Disk", removable: true).isEmpty)
+// A reader whose product string is "USB Storage" holds cards like any other. The
+// evidence is that it reports removable media - a flash drive does not, because a
+// flash drive is its own medium - and that evidence is worth acting on and worth
+// stating. Requiring the name to say "card" hid a 394 GB SDXC behind a generic
+// string, with no class and no comparison.
+check("sd: a removable medium is a card whatever the reader calls itself",
+      Reference.mediumClass(bytes: 394_000_000_000, deviceName: "USB Storage",
+                            removable: true).hasPrefix("SDXC"))
+check("sd: but the app knows that rests on the removable flag alone",
+      Reference.mediumClassIsAssumed(deviceName: "USB Storage"))
+check("sd: whereas a reader that says so needs no assumption",
+      !Reference.mediumClassIsAssumed(deviceName: "USB3.0 Card Reader"))
+check("sd: fixed media is still not a card",
+      Reference.mediumClass(bytes: 64_000_000_000, deviceName: "Generic Flash Disk",
+                            removable: false).isEmpty)
 
 // The SD standard's capacity boundaries are decimal GB, not GiB. Reading them as GiB
 // pushed every boundary up by 7%: a 32 GB card - SDHC by the standard - came out SDXC.
@@ -135,6 +148,22 @@ check("sd: 2 GB is the largest SDSC",
 check("sd: above 2 TB is SDUC",
       Reference.mediumClass(bytes: 4_000_000_000_000, deviceName: "SD Card Reader",
                             removable: true).hasPrefix("SDUC"))
+
+// ---- what belongs in the storage list --------------------------------------------
+// The subject is what holds the data. A hub and an empty reader are how it is
+// attached, which the card's own row already says in its badge - listing them as well
+// turned three cards into six rows of plumbing with the contents mixed in.
+do {
+    func device(mounts: [String]) -> Row {
+        var row = Row(id: "d", title: "d", subtitle: "", badge: "")
+        row.allMounts = mounts
+        return row
+    }
+    check("list: a card in a reader belongs", device(mounts: ["/Volumes/sd-19"]).carriesMedium)
+    check("list: the boot drive belongs, mounted at /", device(mounts: ["/"]).carriesMedium)
+    check("list: an empty reader does not", !device(mounts: []).carriesMedium)
+    check("list: nor does a hub", !device(mounts: []).carriesMedium)
+}
 
 // ---- a badge that does not fit ---------------------------------------------------
 // "via USB 3..." is a pill containing an ellipsis: it takes the width of a fact and

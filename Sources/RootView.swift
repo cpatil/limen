@@ -366,7 +366,11 @@ final class RootView: NSView, NSSplitViewDelegate {
         usbColumn.accessory = Self.orderControls(storageResort, storageSort)
         netColumn.accessory = Self.orderControls(networkResort, networkSort)
         inactiveToggle.state = UserDefaults.standard.bool(forKey: Pref.showAll) ? .on : .off
-        inactiveToggle.toolTip = "Include things that are not real hardware.\n\n"
+        inactiveToggle.toolTip = "Include devices that hold nothing and interfaces "
+            + "that are not real hardware.\n\n"
+            + "A hub and an empty card reader are how something is attached, not the "
+            + "thing itself - the card's own row already names the link it came "
+            + "through. Turning this on lists them anyway.\n\n"
             + "Normally the lists show physical devices only. A VPN tunnel or a bridge "
             + "carries traffic that is also counted on the interface underneath it, so "
             + "showing both puts the same bytes on screen twice.\n\n"
@@ -518,6 +522,19 @@ final class RootView: NSView, NSSplitViewDelegate {
         dirtyRect.fill()
         Palette.hairline.setFill()
         NSRect(x: 0, y: bounds.maxY - headerHeight, width: bounds.width, height: 1).fill()
+    }
+
+    /// A thin divider is one point of drawn line and, by default, one point of target.
+    ///
+    /// It looks right and is nearly impossible to grab - particularly this one, which
+    /// sits directly above the SESSIONS heading, so a miss lands on the band and
+    /// nothing happens. The line stays one point; the area that responds to the
+    /// pointer is nine.
+    func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect,
+                   forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
+        splitView.isVertical
+            ? drawnRect.insetBy(dx: -4, dy: 0)
+            : drawnRect.insetBy(dx: 0, dy: -4)
     }
 
     // Keep either column from being dragged away entirely.

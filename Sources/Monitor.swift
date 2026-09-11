@@ -96,6 +96,15 @@ struct Row {
     /// What the medium is, when the system says: ssd, spinning or flash. Empty when
     /// it does not, in which case the class is inferred from what the device has done.
     var mediumKinds: [String] = []
+    /// Whether this row is a thing that holds data, rather than something data passes
+    /// through.
+    ///
+    /// A hub and an empty card reader are both real USB devices and neither is the
+    /// subject of anything: the subject is the card, and the reader is how the card is
+    /// attached - which the row already says in its badge. Six rows for three cards,
+    /// two readers and a hub is a list of plumbing with the contents mixed in.
+    var carriesMedium: Bool { !allMounts.isEmpty }
+
     /// Whether there is a class of device in the catalogue this row can honestly be
     /// measured against. A drive or a card has one; a Wi-Fi interface does not, and
     /// matching it to the nearest wired standard says nothing except that a number
@@ -727,8 +736,11 @@ final class Monitor {
         rows = Monitor.ordered(rows, by: storageSort, manual: storageOrder,
                                pinned: storagePinned)
 
+        // What is recorded is unaffected: a hub with counters is still measured, and
+        // hiding it from the list does not stop it being logged.
         recordableUSBRows = rows
-        usbRows = Hidden.visible(rows) { $0.id }
+        let carrying = showInactive ? rows : rows.filter { $0.carriesMedium }
+        usbRows = Hidden.visible(carrying) { $0.id }
         if storageSort == .activeFirst, storagePinned.isEmpty, !usbRows.isEmpty {
             storagePinned = usbRows.map { $0.id }
         }

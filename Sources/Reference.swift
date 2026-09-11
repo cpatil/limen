@@ -285,15 +285,23 @@ enum Reference {
     /// about UHS-I, UHS-II, U3 or V30 crosses a USB mass-storage bridge, so the only
     /// honest source for it is what the card actually sustains - which is what the
     /// advice below infers from measurement.
+    /// Whether calling this an SD card rests on more than the device's own name.
+    ///
+    /// A reader that says "USB3.0 Card Reader" tells you what it holds. One that says
+    /// "USB Storage" does not, and the only evidence is that it reports removable
+    /// media - which a card reader does and a flash drive does not, since a flash
+    /// drive *is* its medium. Strong evidence, not proof, and the card says which it
+    /// is rather than presenting both the same way.
+    static func mediumClassIsAssumed(deviceName: String) -> Bool {
+        let name = deviceName.lowercased()
+        return !(name.contains("card") || name.contains("reader") || name.contains("sd"))
+    }
+
     static func mediumClass(bytes: UInt64, deviceName: String, removable: Bool) -> String {
         // Only for media that is genuinely removable and sits in something that reads
         // cards. A 64 GB USB stick is also removable-ish, and calling it "SDXC" would
         // be a confident falsehood.
         guard removable, bytes > 0 else { return "" }
-        let name = deviceName.lowercased()
-        guard name.contains("card") || name.contains("reader") || name.contains("sd") else {
-            return ""
-        }
         // The SD Association states these boundaries in decimal GB, and the card's
         // capacity is quoted the same way. Using GiB moved every boundary up by 7%,
         // which misfiled anything between 32.0 GB and 32 GiB - a 32 GB card, which is

@@ -106,7 +106,14 @@ final class MagnifierView: NSView {
                 ? "the card's " + Fmt.bytes(Double(row.capacityBytes)) + " capacity"
                 : "the card's capacity"
             let family = row.mediumClass.split(separator: " ").first.map(String.init) ?? ""
-            out.append((Palette.marked("Likely \(family), based on \(capacity). Most USB "
+            // Where the reader's own name does not say what it holds, the assumption
+            // is named before the conclusion that rests on it.
+            let basis = Reference.mediumClassIsAssumed(deviceName: row.title)
+                ? "This reader does not say what it holds, but it reports removable "
+                    + "media, which a flash drive does not - a flash drive is its own "
+                    + "medium. On that reading it is a card, and "
+                : ""
+            out.append((Palette.marked(basis + "Likely \(family), based on \(capacity). Most USB "
                         + "card readers expose the card to macOS as generic storage, "
                         + "without its SD-specific metadata, so Bottleneck cannot tell which "
                         + "bus interface (UHS-I, say) or rated speed class (V30) the "
