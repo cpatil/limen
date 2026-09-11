@@ -23,11 +23,10 @@ final class MagnifierView: NSView {
 
     /// Set when the card cannot fit in the window at its natural size.
     ///
-    /// The alternative was what it did before: stay full height, get clamped to the
-    /// bottom of the window, and run off the top - so the device's own name, which is
-    /// the first thing on it, was the first thing lost. Shortening is better than
-    /// overflowing, and what it sheds is the prose: the chart shrinks, the
-    /// explanations go, and the figures stay.
+    /// It tightens; it does not shed. An earlier version dropped the explanations to
+    /// make room, which threw away the part that answers "how do you know?" - the
+    /// reason the card is worth hovering at all. Only the chart gives ground, and the
+    /// rest is reached by clicking the row, which pins the card and lets it scroll.
     var compact = false
 
     private var chartHeight: CGFloat {
@@ -95,7 +94,6 @@ final class MagnifierView: NSView {
     /// What belongs under "what is in the reader": the evidence for the card badge.
     private func cardBlocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
         var out: [(String, NSFont, NSColor)] = []
-        guard !compact else { return out }
         // The card badge above carries the mark. This is what the mark stands for -
         // the evidence, so it can be disagreed with.
         if !row.mediumClass.isEmpty {
@@ -122,9 +120,6 @@ final class MagnifierView: NSView {
     /// that is worth saying about.
     private func blocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
         var out: [(String, NSFont, NSColor)] = []
-        // In a window too short for the whole card, the paragraphs are what goes: a
-        // rate you cannot see is worse than a reason you have to hover again for.
-        guard !compact else { return out }
 
         // Same rule as the row: where the bar already answers "how does this compare",
         // a second comparison beside it is noise, and the one this produced named a
@@ -154,7 +149,6 @@ final class MagnifierView: NSView {
 
     private func footerBlocks(for row: Row) -> [(text: String, font: NSFont, color: NSColor)] {
         var out: [(String, NSFont, NSColor)] = []
-        guard !compact else { return out }
 
 
         if !row.actors.isEmpty {
@@ -202,12 +196,17 @@ final class MagnifierView: NSView {
     /// not one more figure among its rates.
     func identityLine(_ row: Row) -> String {
         var identity: [String] = []
-        if !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
-        if !row.deviceID.isEmpty { identity.append(row.deviceID) }
+        // A card's panel is about the card. The reader's maker and USB id describe the
+        // holder, and they belong with the holder, under the connection.
+        let aboutACard = !row.mediumClass.isEmpty
+        if !aboutACard, !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
+        if !aboutACard, !row.deviceID.isEmpty { identity.append(row.deviceID) }
         if !row.volumes.isEmpty, row.mediumClass.isEmpty {
             identity.append(row.volumes.joined(separator: ", "))
         }
-        if identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
+        // The subtitle is the reader's own description - "Generic" - which is the
+        // holder again. Only useful when the row is about the device itself.
+        if !aboutACard, identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
         // What it is formatted as belongs with what it is, not among its rates.
         let format = Fmt.fsName(row.fsType)
         if !format.isEmpty { identity.append(format) }
@@ -330,7 +329,10 @@ final class MagnifierView: NSView {
     }
 
     private func cardText(_ row: Row) -> String {
-        Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
+        // Without the volume name when that is already the headline: a badge that
+        // repeats the title tells you nothing twice.
+        guard headline(row) != row.volumes.first else { return row.mediumClass }
+        return Row.cardLabel(class: row.mediumClass, volumes: row.volumes)
     }
 
     static let rawTag = "raw signalling"
@@ -349,10 +351,22 @@ final class MagnifierView: NSView {
     private var panelWidth: CGFloat { contentWidth - panelInset * 2 }
     private let panelInset: CGFloat = 10
 
+    /// What this row is about.
+    ///
+    /// For a reader, the card - "sd-21", or "SD card" before it is named. The reader
+    /// itself is how the card is attached, which is what the connection panel is for;
+    /// leading with "USB3.0 Card Reader" put the holder where the contents belong and
+    /// left the card as a footnote to its own row.
+    func headline(_ row: Row) -> String {
+        guard !row.mediumClass.isEmpty else { return row.title }
+        if let volume = row.volumes.first, !volume.isEmpty { return volume }
+        return row.mediumClass.split(separator: " ").first.map(String.init) ?? row.title
+    }
+
     /// What to call the first panel. A reader is a holder for something else, so its
     /// panel is about the card; everything else is about itself.
     func devicePanelCaption(_ row: Row) -> String {
-        if !cardText(row).isEmpty { return "WHAT IS IN THE READER" }
+        if !cardText(row).isEmpty { return "THE CARD" }
         return row.section == "Network" ? "THE INTERFACE" : "THE DRIVE"
     }
 
@@ -412,7 +426,6 @@ final class MagnifierView: NSView {
 
     /// The other names for this link, or empty when there are none.
     private func alsoKnownText(_ row: Row) -> String {
-        guard !compact else { return "" }
         let names = [row.alsoKnown, row.appleName].filter { !$0.isEmpty }
         guard !names.isEmpty else { return "" }
         // Why one port has four names, which otherwise reads as a contradiction: the
@@ -472,7 +485,6 @@ final class MagnifierView: NSView {
         if let gauge = usage(row) { height += gaugeLabelWraps(gauge) ? 46 : 28 }
         height += 8 + 12 + chartHeight + 8        // scale labels + chart
         height += 36                                             // the two rates
-        if compact { height += 14 }
         // The grid, then the one line saying where its counters come from.
         let statCount = stats(for: row).count
         if statCount > 0 {
@@ -523,7 +535,7 @@ final class MagnifierView: NSView {
 
         Icons.draw(row.icon, in: NSRect(x: left, y: y, width: 20, height: 20),
                    color: Palette.secondary)
-        Text.draw(row.title, at: NSPoint(x: left + 28, y: y + 1),
+        Text.draw(headline(row), at: NSPoint(x: left + 28, y: y + 1),
                   font: titleFont, color: NSColor.labelColor)
         y += 24
 
@@ -606,6 +618,15 @@ final class MagnifierView: NSView {
                       at: NSPoint(x: inner, y: y),
                       font: NSFont.systemFont(ofSize: 9, weight: .semibold),
                       color: Palette.faint, tracking: 0.7)
+            // The reader is part of the answer to "how is this attached", which is why
+            // it is here rather than at the top: a card in a reader on a cable is
+            // three things, and only the first of them is the subject.
+            if !row.mediumClass.isEmpty {
+                let holder = [row.title, row.vendor].filter { !$0.isEmpty && $0 != row.vendor }
+                Text.draw(holder.first ?? row.title,
+                          at: NSPoint(x: inner + 150, y: y - 1),
+                          font: smallFont, color: Palette.secondary)
+            }
             // Advance past it rather than drawing above the cursor: written above, it
             // landed on top of whatever block ended there.
             y += MagnifierView.captionHeight
@@ -738,12 +759,6 @@ final class MagnifierView: NSView {
                            : (used >= 0.85 ? NSColor.systemOrange
                                            : Palette.secondary))
             y += wraps ? 46 : 28
-        }
-
-        if compact {
-            Text.draw("More in a taller window.", at: NSPoint(x: left, y: y),
-                      font: tickFont, color: Palette.faint)
-            y += 14
         }
 
         // ---- the figures, as a grid ----------------------------------------
