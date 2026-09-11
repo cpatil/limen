@@ -86,6 +86,9 @@ final class HistoryView: NSView {
     /// rebuilt rather than per row: it is a pass over every session, and both the
     /// height calculation and the drawing need the same answer.
     static var routes: [String: Analysis.Route] = [:]
+    /// Which groups contain sessions from more than one device, so a session can say
+    /// which reader it came through only where that varies.
+    static var spanningGroups: [String: Bool] = [:]
 
     static let rowHeight: CGFloat = 66
     /// Most recent sessions shown per device; the header states the true total.
@@ -109,6 +112,8 @@ final class HistoryView: NSView {
         // happened, and the point of hiding a chatty tunnel is that it stops being
         // bumped to the top every time it twitches, not that its history is lost.
         HistoryView.routes = Analysis.routes(from: sessions)
+        HistoryView.spanningGroups = Dictionary(
+            uniqueKeysWithValues: Analysis.groups(from: sessions).map { ($0.key, $0.spansDevices) })
         items = Hidden.sink(Analysis.groups(from: sessions,
                                             records: TransferLog.shared.bestPeaks()),
                             name: { $0.device })
@@ -364,11 +369,22 @@ final class HistoryView: NSView {
                    in: NSRect(x: 16, y: rect.minY + 10, width: 18, height: 18),
                    color: Palette.secondary)
 
-        var title = group.device
+        // A card is titled by the card. The readers it came through are named on the
+        // sessions themselves, where the difference between them can be read off.
+        var title = group.volumes.isEmpty || !group.removable ? group.device
+                                                             : group.volumes.joined(separator: ", ")
         // Named where it is known. Where it is not, say so rather than showing the
         // device alone, which reads as "the reader itself" and is indistinguishable
         // from a group whose name simply did not fit.
-        if !group.volumes.isEmpty {
+        if group.removable, !group.volumes.isEmpty {
+            // Titled by the card already: what is worth adding is which readers it
+            // came through, since that is what the sessions differ by.
+            if group.spansDevices {
+                title += "  ·  through \(group.devices.count) readers"
+            } else if let reader = group.devices.first {
+                title += "  ·  " + reader
+            }
+        } else if !group.volumes.isEmpty {
             title += "  ·  " + group.volumes.joined(separator: ", ")
         } else if group.removable {
             // "Recorded" pointed at the bookkeeping. Volumes are filled in throughout
@@ -423,6 +439,11 @@ final class HistoryView: NSView {
         // Relative while it is still today's business, absolute once it is history.
         let when = Fmt.relative(s.started) ?? HistoryView.clock.string(from: s.started)
         var line = when + "  ·  " + duration(s.duration)
+        // Which reader this one came through, when the card has been read through
+        // more than one. That difference is the whole reason for filing by card.
+        if let group = HistoryView.spanningGroups[Analysis.groupKey(for: s)], group {
+            line += "  ·  " + s.device
+        }
         // Repeat the volume here: the group heading scrolls away, and "which card was
         // that" is the first thing you want from a row.
         if !s.volumes.isEmpty { line += "  ·  " + s.volumes.joined(separator: ", ") }

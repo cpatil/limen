@@ -365,6 +365,14 @@ final class TrafficListView: NSView, NSViewToolTipOwner {
         // - a fact you can see but not copy is a fact you have to retype.
         let format = Fmt.fsName(row.fsType)
         if !format.isEmpty { parts.append(format) }
+        // The facts worth pasting into a note or a shell: the volume's own identity,
+        // what it was formatted with, and the device node underneath it.
+        if row.blockSize > 0 {
+            parts.append(Fmt.bytes(Double(row.blockSize)) + " allocation unit")
+        }
+        if row.readOnly { parts.append("write-protected") }
+        if !row.deviceNode.isEmpty { parts.append(row.deviceNode) }
+        if !row.volumeID.isEmpty { parts.append(row.volumeID) }
         if row.capacityBytes > 0 {
             parts.append(Fmt.bytes(Double(row.capacityBytes - row.usedBytes)) + " free of "
                          + Fmt.bytes(Double(row.capacityBytes)))

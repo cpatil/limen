@@ -188,6 +188,18 @@ enum Analysis {
         /// the fastest session had been trimmed away, and the two disagreed.
         var record: Double = 0
 
+        /// The devices these sessions came through, newest first. More than one means
+        /// the same card was read through different readers, which is the point of
+        /// filing it under the card.
+        var devices: [String] {
+            var seen: [String] = []
+            for session in sessions where !seen.contains(session.device) {
+                seen.append(session.device)
+            }
+            return seen
+        }
+        var spansDevices: Bool { devices.count > 1 }
+
         var total: UInt64 { sessions.reduce(0) { $0 + $1.total } }
         var bestPeak: Double { max(record, sessions.map { $0.peakRate }.max() ?? 0) }
         var removable: Bool { sessions.contains { $0.removable == true } }
@@ -202,12 +214,25 @@ enum Analysis {
     /// Grouped rather than listed flat because advice belongs to a piece of hardware,
     /// not to one copy: telling you to buy a faster card once is useful, telling you
     /// on every line is nagging.
+    /// What a session is filed under.
+    ///
+    /// A removable volume is filed under itself, not under whatever it was plugged
+    /// into, so the same card read through a USB 2 reader and then a USB 3 one is one
+    /// history with a slow half and a fast half - which is the comparison worth having.
+    /// Everything else is filed under the device and the volumes it presented.
+    static func groupKey(for session: TransferSession) -> String {
+        if session.removable == true, let id = session.volumeID, !id.isEmpty {
+            return "volume:" + id
+        }
+        return session.device + "|" + session.volumes.joined(separator: ",")
+    }
+
     static func groups(from sessions: [TransferSession],
                       records: [String: Double] = [:]) -> [Group] {
         var order: [String] = []
         var byKey: [String: Group] = [:]
         for s in sessions {
-            let key = s.device + "|" + s.volumes.joined(separator: ",")
+            let key = Analysis.groupKey(for: s)
             if byKey[key] == nil {
                 order.append(key)
                 byKey[key] = Group(key: key, device: s.device, section: s.section,
@@ -218,7 +243,14 @@ enum Analysis {
         let groups = order.compactMap { byKey[$0] }
         // By the group's own key, not the device's: a reader holds different cards,
         // and one card's record is not another's.
-        for group in groups { group.record = records[group.key] ?? 0 }
+        // A group filed under a card spans readers, and records are filed per reader
+        // and volume, so its record is the best of the ones it contains.
+        for group in groups {
+            group.record = group.sessions.reduce(records[group.key] ?? 0) { best, session in
+                max(best, records[TransferLog.recordKey(device: session.device,
+                                                        volumes: session.volumes)] ?? 0)
+            }
+        }
         return groups
     }
 

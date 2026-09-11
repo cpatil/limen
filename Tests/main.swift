@@ -197,6 +197,51 @@ do {
           ProcessSampler.combinedSpace(of: ["/Volumes/x"], in: odd)?.used == 100)
 }
 
+// ---- filing a card under the card ------------------------------------------------
+// The same card read through a slow reader and then a fast one is one history with a
+// slow half and a fast half - which is the comparison worth having. Filing by the
+// reader made it two unrelated histories, and filing by volume *name* would merge two
+// different cards, since a freshly formatted one is "Untitled" or "NO NAME".
+do {
+    func session(_ id: String, device: String, volume: String, uuid: String?,
+                 removable: Bool = true) -> TransferSession {
+        let began = Date(timeIntervalSince1970: 1000)
+        return TransferSession(id: id, device: device, section: "USB", started: began,
+                               ended: began.addingTimeInterval(10),
+                               bytesRead: 1_000_000_000, bytesWritten: 0, peakRate: 1,
+                               linkBits: 0, linkTrusted: false, removable: removable,
+                               physical: true, wireless: false, processes: [],
+                               volumes: [volume], volumeID: uuid)
+    }
+    let slow = session("a", device: "USB2 Reader", volume: "sd-19", uuid: "CARD-1")
+    let fast = session("b", device: "USB3 Reader", volume: "sd-19", uuid: "CARD-1")
+    check("cards: the same card through two readers is one group",
+          Analysis.groupKey(for: slow) == Analysis.groupKey(for: fast))
+
+    let groups = Analysis.groups(from: [fast, slow])
+    check("cards: and it is one group in the log", groups.count == 1)
+    check("cards: which knows it spans readers", groups.first?.spansDevices == true)
+    check("cards: and lists them newest first",
+          groups.first?.devices == ["USB3 Reader", "USB2 Reader"])
+
+    // Two blank cards in the same reader are two cards.
+    let blankA = session("c", device: "USB3 Reader", volume: "Untitled", uuid: "CARD-A")
+    let blankB = session("d", device: "USB3 Reader", volume: "Untitled", uuid: "CARD-B")
+    check("cards: two cards with the same name stay apart",
+          Analysis.groupKey(for: blankA) != Analysis.groupKey(for: blankB))
+
+    // Without an identity - an old log entry - it falls back to the device.
+    let legacy = session("e", device: "USB3 Reader", volume: "sd-19", uuid: nil)
+    check("cards: a session with no identity is filed as before",
+          Analysis.groupKey(for: legacy) == "USB3 Reader|sd-19")
+
+    // A drive is not a card: it is filed under itself whatever its volumes are called.
+    let drive = session("f", device: "APPLE SSD", volume: "Macintosh HD", uuid: "X",
+                        removable: false)
+    check("cards: fixed media is still filed by device",
+          Analysis.groupKey(for: drive) == "APPLE SSD|Macintosh HD")
+}
+
 // ---- which mounts are volumes --------------------------------------------------
 // "/Volumes/..." is the obvious spelling and not the only one: with the sealed system
 // volume macOS also reports the same place under /System/Volumes/Data/Volumes. Testing

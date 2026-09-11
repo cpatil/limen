@@ -190,6 +190,19 @@ final class MagnifierView: NSView {
         let colour: NSColor
     }
 
+    /// The facts about a volume that nothing else on a Mac puts in front of you: its
+    /// own identity, the allocation unit it was formatted with, whether it is locked,
+    /// and the device node underneath it.
+    func volumeFacts(_ row: Row) -> String {
+        var parts: [String] = []
+        if row.blockSize > 0 {
+            parts.append(Fmt.bytes(Double(row.blockSize)) + " allocation unit")
+        }
+        if row.readOnly { parts.append("write-protected") }
+        if !row.deviceNode.isEmpty { parts.append(row.deviceNode) }
+        return parts.joined(separator: "  ·  ")
+    }
+
     /// What this thing is: vendor, identifier, the volumes it presents. Drawn on its
     /// own rather than as the first of the wrapped blocks, because how full it is
     /// belongs directly underneath it - a device's capacity is part of what it is,
@@ -404,6 +417,15 @@ final class MagnifierView: NSView {
 
     /// What this device is: the badge where there is one, then identity, capacity and
     /// any evidence for what the badge claims.
+    /// The lines under the identity: the volume's facts, then its UUID.
+    func volumeLines(_ row: Row) -> [String] {
+        var lines: [String] = []
+        let facts = volumeFacts(row)
+        if !facts.isEmpty { lines.append(facts) }
+        if !row.volumeID.isEmpty { lines.append(row.volumeID) }
+        return lines
+    }
+
     func cardPanelHeight(_ row: Row) -> CGFloat {
         let hasCard = !cardText(row).isEmpty
         // A panel earns its place by grouping more than one thing. A box round a
@@ -421,6 +443,9 @@ final class MagnifierView: NSView {
         let identity = identityLine(row)
         if !identity.isEmpty {
             h += Text.wrappedHeight(identity, font: bodyFont, width: panelWidth) + 5
+        }
+        for line in volumeLines(row) {
+            h += Text.wrappedHeight(line, font: smallFont, width: panelWidth) + 3
         }
         let capacity = capacityStats(for: row)
         if !capacity.isEmpty, !capacityFitsBeside(row) {
@@ -609,6 +634,13 @@ final class MagnifierView: NSView {
                                  font: bodyFont, color: NSColor.labelColor)
                 py += h + 5
             }
+            for line in volumeLines(row) {
+                let h = Text.wrappedHeight(line, font: smallFont, width: innerWidth)
+                Text.drawWrapped(line, in: NSRect(x: inner, y: py, width: innerWidth, height: h),
+                                 font: smallFont, color: Palette.faint)
+                py += h + 3
+            }
+
             // Directly under what the device is, because that is what it answers.
             let capacity = capacityStats(for: row)
             if !capacity.isEmpty, !besideCapacity {

@@ -25,6 +25,9 @@ struct TransferSession: Codable {
     var wireless: Bool?
     var processes: [String]
     var volumes: [String]
+    /// What the volume is, rather than what it is called or what it is plugged into.
+    /// Optional so logs written before it existed still decode.
+    var volumeID: String?
     /// What the volume did to itself while being read, captured when the session ran -
     /// the card may be long ejected by the time the log is read. Optional so logs
     /// written before this existed still decode.
@@ -294,6 +297,9 @@ final class TransferLog {
                 if (session.fsType ?? "").isEmpty, !row.fsType.isEmpty {
                     session.fsType = row.fsType
                 }
+                if (session.volumeID ?? "").isEmpty, !row.volumeID.isEmpty {
+                    session.volumeID = row.volumeID
+                }
                 if session.journalWrites != true { session.journalWrites = row.journalWrites }
                 if session.spotlight != true { session.spotlight = row.spotlight }
                 open[key] = session
@@ -315,6 +321,7 @@ final class TransferLog {
                                             wireless: row.wireless,
                                             processes: row.actors.map { $0.display },
                                             volumes: row.volumes,
+                                            volumeID: row.volumeID.isEmpty ? nil : row.volumeID,
                                             fsType: row.fsType,
                                             journalWrites: row.journalWrites,
                                             spotlight: row.spotlight)

@@ -119,6 +119,14 @@ struct Row {
     var indexingWorthReporting: Bool {
         section != "Network" && !internalMedium && !mountRoots.isEmpty
     }
+    /// The volume's own identity, independent of the reader or port it arrived
+    /// through - so a card's history follows the card.
+    var volumeID: String = ""
+    /// The allocation unit, the lock switch, and the device node: three facts about a
+    /// card that nothing on a Mac normally shows you.
+    var blockSize: UInt32 = 0
+    var readOnly = false
+    var deviceNode: String = ""
     /// The filesystem on the mounted volume, and what it does to itself when read.
     var fsType: String = ""
     var journalWrites: Bool = false
@@ -694,10 +702,14 @@ final class Monitor {
             if let first = row.allMounts.first, let t = traits[first] {
                 row.fsType = t.fsType
                 row.journalWrites = t.journalWrites
+                row.blockSize = t.blockSize
+                row.readOnly = t.readOnly
+                row.deviceNode = t.device
             }
             if let first = row.mountRoots.first, let t = traits[first] {
                 row.spotlight = t.spotlight
                 row.indexingDisabled = t.neverIndex
+                row.volumeID = ProcessSampler.volumeIdentity(of: first) ?? ""
             }
             if combinedActive(down, up), !row.mountRoots.isEmpty {
                 row.actors = actors(under: row.mountRoots, elapsed: elapsed)

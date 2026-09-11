@@ -203,6 +203,17 @@ enum ProcessSampler {
     /// rather than assumed, so the advice can name the actual cause.
     struct VolumeTraits {
         var fsType = ""
+        /// The allocation unit: the smallest amount of space a file can occupy.
+        ///
+        /// Rarely shown anywhere, and on a card it explains more than almost anything
+        /// else on screen. This one is formatted with 256 KB clusters, so a thousand
+        /// small files occupy at least 256 MB and are copied in a thousand separate
+        /// reads - which is exactly what "averaged 19% of its peak" looks like.
+        var blockSize: UInt32 = 0
+        /// The lock switch, or a filesystem mounted read-only for any other reason.
+        var readOnly = false
+        /// The device node, for anyone who wants to reach past Finder.
+        var device = ""
         /// Journalled and updating access times: reading writes.
         var journalWrites = false
         var spotlight = false
@@ -234,14 +245,35 @@ enum ProcessSampler {
             }
             let journaled = (entry.f_flags & UInt32(MNT_JOURNALED)) != 0
             let noatime = (entry.f_flags & UInt32(MNT_NOATIME)) != 0
+            let from = withUnsafeBytes(of: &entry.f_mntfromname) { raw -> String in
+                String(cString: raw.baseAddress!.assumingMemoryBound(to: CChar.self))
+            }
             var traits = VolumeTraits()
             traits.fsType = fs
+            traits.blockSize = entry.f_bsize
+            traits.readOnly = (entry.f_flags & UInt32(MNT_RDONLY)) != 0
+            traits.device = from
             traits.journalWrites = journaled && !noatime
             traits.spotlight = FileManager.default.fileExists(atPath: on + "/.Spotlight-V100")
             traits.neverIndex = FileManager.default.fileExists(atPath: on + "/.metadata_never_index")
             map[on] = traits
         }
         return map
+    }
+
+    /// The volume's own identity, which does not depend on what it is plugged into.
+    ///
+    /// macOS gives every mounted volume a UUID - for exFAT and FAT it derives one from
+    /// the volume serial written on the medium itself - so the same card reports the
+    /// same identity through any reader. That is what makes "this card, through the
+    /// old reader and the new one" a comparison rather than two unrelated histories.
+    ///
+    /// Names cannot do this job: a freshly formatted card is "Untitled" or "NO NAME",
+    /// and two of them would merge into one history.
+    static func volumeIdentity(of mount: String) -> String? {
+        let keys: Set<URLResourceKey> = [.volumeUUIDStringKey]
+        return (try? URL(fileURLWithPath: mount).resourceValues(forKeys: keys))?
+            .volumeUUIDString
     }
 
     /// Whether a mount point is a volume the user sees in Finder.
