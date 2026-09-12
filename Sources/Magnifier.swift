@@ -213,16 +213,19 @@ final class MagnifierView: NSView {
         var parts: [String] = []
         // The reader's own name, but only when the title above is the card rather
         // than the reader - otherwise this repeats the heading.
-        if !row.mediumClass.isEmpty, !row.title.isEmpty { parts.append(row.title) }
-        if !row.vendor.isEmpty, row.vendor != row.title { parts.append(row.vendor) }
+        // Both of these describe the reader, and only when there is one: a drive's
+        // own maker sits beside its name in the title, because there it is the maker
+        // of the subject rather than of the thing holding it.
+        if !row.mediumClass.isEmpty {
+            if !row.title.isEmpty { parts.append(row.title) }
+            if !row.vendor.isEmpty, row.vendor != row.title { parts.append(row.vendor) }
+        }
         if !row.deviceID.isEmpty { parts.append(row.deviceID) }
         return parts.joined(separator: "  ·  ")
     }
 
     // ---- the device panel: a band, then one block per volume ----------------
 
-    /// Width reserved on the right of the band for the bar and its two figures.
-    var capacityBarBlock: CGFloat { 150 }
     private var capacityBarWidth: CGFloat { 9 }
 
     /// The band at the top of the device panel: the card badge on the left, how full
@@ -257,8 +260,24 @@ final class MagnifierView: NSView {
     /// Counted once per container. Several volumes of one disk share its space, and
     /// each of them reports the whole disk's figures as its own - summing them is how
     /// a 4 TB drive came to claim 3.58 TB used.
-    func drawCapacityBar(_ row: Row, at origin: NSPoint, height: CGFloat) {
+    /// The figures beside the bar decide how wide the block is, so it can be hung off
+    /// the panel's right edge instead of guessing at a fixed reservation. The old
+    /// fixed 150pt left a ragged gap between "used" and the edge, out of line with the
+    /// volume column underneath it.
+    func capacityBlockWidth(_ row: Row) -> CGFloat {
+        guard row.capacityBytes > 0 else { return 0 }
+        let value = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        let used = Double(row.usedBytes)
+        let widest = [(Fmt.bytes(used), "used"),
+                      (Fmt.bytes(Double(row.capacityBytes) - used), "free")]
+            .map { Text.width($0.0, font: value) + 5 + Text.width($0.1, font: smallFont) }
+            .max() ?? 0
+        return capacityBarWidth + 10 + widest
+    }
+
+    func drawCapacityBar(_ row: Row, rightEdge: CGFloat, top: CGFloat, height: CGFloat) {
         guard row.capacityBytes > 0 else { return }
+        let origin = NSPoint(x: rightEdge - capacityBlockWidth(row), y: top)
         let fraction = row.fullness ?? 0
         let bar = NSRect(x: origin.x, y: origin.y + 2,
                          width: capacityBarWidth, height: max(8, height - 8))
@@ -297,18 +316,8 @@ final class MagnifierView: NSView {
     /// drive showing three volume names described exactly one of them.
     func volumeBlocks(_ row: Row) -> [Row.VolumeDetail] { row.volumeDetails }
 
-    /// The UUID earns its line when there is one volume - it is the card's identity,
-    /// and it is there to be copied. Across several volumes it is four lines of hex
-    /// nobody asked for.
-    func showsVolumeUUID(_ row: Row) -> Bool {
-        row.volumeDetails.count == 1 && !(row.volumeDetails.first?.uuid.isEmpty ?? true)
-    }
-
     func volumeBlockHeight(_ row: Row) -> CGFloat {
-        guard !row.volumeDetails.isEmpty else { return 0 }
-        var h = CGFloat(row.volumeDetails.count) * 36
-        if showsVolumeUUID(row) { h += 17 }
-        return h
+        row.volumeDetails.reduce(0) { $0 + volumeHeight($1) }
     }
 
     /// Whether this volume can be written to, said either way.
@@ -319,18 +328,30 @@ final class MagnifierView: NSView {
         volume.readOnly ? "write-protected" : "read-write"
     }
 
-    /// The line under a volume's name: where it is and what it is formatted as.
-    func volumeUnderLine(_ volume: Row.VolumeDetail) -> String {
-        var under = volume.device
-        let format = Fmt.fsName(volume.fsType)
-        if !format.isEmpty { under += under.isEmpty ? format : "  ·  " + format }
+    /// What it is formatted as, and when - opposite its permissions.
+    func volumeFormatLine(_ volume: Row.VolumeDetail) -> String {
+        var line = Fmt.fsName(volume.fsType)
         // Only when there is one. exFAT records no creation time for the volume, so
         // this is silent rather than a dash taking a third of a line to say nothing -
         // and on a card, when it is there, it is when the card was formatted.
         if let created = volume.created {
-            under += "  ·  formatted " + MagnifierView.day.string(from: created)
+            line += (line.isEmpty ? "formatted " : "  ·  formatted ")
+                + MagnifierView.day.string(from: created)
         }
-        return under
+        return line
+    }
+
+    /// The allocation unit, spelled out rather than abbreviated to "clusters": this
+    /// column has the panel's right edge to itself now, and the full name is the one
+    /// people search for.
+    func volumeAllocation(_ volume: Row.VolumeDetail) -> String {
+        volume.blockSize > 0 ? Fmt.blockSize(volume.blockSize) + " allocation unit" : ""
+    }
+
+    /// Height of one volume's block: its name, where it is, what it is, and its own
+    /// identity when it has one.
+    func volumeHeight(_ volume: Row.VolumeDetail) -> CGFloat {
+        19 + 17 + 17 + (volume.uuid.isEmpty ? 0 : 17) + 6
     }
 
     /// Name and permissions on the first line, node and format under it with the
@@ -340,31 +361,33 @@ final class MagnifierView: NSView {
         var y = origin.y
         let rightEdge = origin.x + width
         for volume in row.volumeDetails {
+            // The name heads its own line. It is what the volume is called, and
+            // pairing it with a fact would make that fact look like part of the name.
             Text.draw(volume.name.isEmpty ? volume.mount : volume.name,
                       at: NSPoint(x: origin.x, y: y), font: bodyFont,
                       color: NSColor.labelColor)
-            // Always, not only when locked: "read-write" is the answer to a question
-            // people ask of a card, and silence is not an answer.
-            Text.draw(volumeAccess(volume),
-                      at: NSPoint(x: 0, y: y + 2), font: smallFont,
+            y += 19
+            // Where it is, against how much space the smallest file on it costs.
+            Text.draw(volume.device, at: NSPoint(x: origin.x, y: y),
+                      font: smallFont, color: Palette.faint)
+            Text.draw(volumeAllocation(volume), at: NSPoint(x: 0, y: y),
+                      font: smallFont, color: Palette.faint, alignRight: rightEdge)
+            y += 17
+            // What it is, against whether it will take a write. Always said either
+            // way: "read-write" is the answer to a question people ask of a card,
+            // and silence is not an answer.
+            Text.draw(volumeFormatLine(volume), at: NSPoint(x: origin.x, y: y),
+                      font: smallFont, color: Palette.faint)
+            Text.draw(volumeAccess(volume), at: NSPoint(x: 0, y: y), font: smallFont,
                       color: volume.readOnly ? Palette.warning : Palette.faint,
                       alignRight: rightEdge)
-            y += 18
-            Text.draw(volumeUnderLine(volume), at: NSPoint(x: origin.x, y: y),
-                      font: smallFont, color: Palette.faint)
-            if volume.blockSize > 0 {
-                // "clusters" rather than "allocation unit": same thing, a third the
-                // width, and this line has a column beside it.
-                Text.draw(Fmt.blockSize(volume.blockSize) + " clusters",
-                          at: NSPoint(x: 0, y: y), font: smallFont,
-                          color: Palette.faint, alignRight: rightEdge)
-            }
-            y += 18
-        }
-        if showsVolumeUUID(row), let uuid = row.volumeDetails.first?.uuid {
-            Text.draw(uuid, at: NSPoint(x: origin.x, y: y), font: smallFont,
-                      color: Palette.faint)
             y += 17
+            if !volume.uuid.isEmpty {
+                Text.draw(volume.uuid, at: NSPoint(x: origin.x, y: y),
+                          font: smallFont, color: Palette.faint)
+                y += 17
+            }
+            y += 6
         }
         return y - origin.y
     }
@@ -714,6 +737,15 @@ final class MagnifierView: NSView {
                    color: Palette.secondary)
         Text.draw(headline(row), at: NSPoint(x: left + 28, y: y + 1),
                   font: titleFont, color: NSColor.labelColor)
+        // Who made the thing, beside what it is called - "Elements 2621" is a model,
+        // and the model alone does not say whose. For a card this is the *reader's*
+        // maker, which describes the holder rather than the card, so that case keeps
+        // it under how it is connected instead.
+        if row.mediumClass.isEmpty, !row.vendor.isEmpty, row.vendor != headline(row) {
+            let x = left + 28 + Text.width(headline(row), font: titleFont) + 10
+            Text.draw(row.vendor, at: NSPoint(x: x, y: y + 6),
+                      font: smallFont, color: Palette.secondary)
+        }
         y += 24
 
         // The card gets a badge of its own, directly under the device it is sitting in
@@ -731,9 +763,7 @@ final class MagnifierView: NSView {
             // The band: what the card is on the left, how full it is on the right.
             let band = bandHeight(row)
             if band > 0 {
-                drawCapacityBar(row,
-                                at: NSPoint(x: inner + innerWidth - capacityBarBlock, y: py),
-                                height: band)
+                drawCapacityBar(row, rightEdge: inner + innerWidth, top: py, height: band)
                 if !cardText(row).isEmpty {
                     _ = Text.drawBadge(Palette.mark + cardText(row),
                                        at: NSPoint(x: inner, y: py + 2),

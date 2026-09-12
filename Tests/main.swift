@@ -1636,30 +1636,39 @@ do {
     check("volumes: a locked volume is not described by its neighbour",
           view.volumeAccess(wd.volumeDetails[1]) == "write-protected"
               && view.volumeAccess(wd.volumeDetails[0]) == "read-write")
-    check("volumes: each keeps its own node and format",
-          view.volumeUnderLine(wd.volumeDetails[1]).contains("/dev/disk3s3")
-              && view.volumeUnderLine(wd.volumeDetails[1]).contains("exFAT"),
-          view.volumeUnderLine(wd.volumeDetails[1]))
+    check("volumes: each keeps its own node",
+          wd.volumeDetails[1].device == "/dev/disk3s3")
+    check("volumes: each keeps its own format",
+          view.volumeFormatLine(wd.volumeDetails[1]).contains("exFAT"),
+          view.volumeFormatLine(wd.volumeDetails[1]))
     check("volumes: and is not given the first one's format",
-          !view.volumeUnderLine(wd.volumeDetails[1]).contains("APFS"),
-          view.volumeUnderLine(wd.volumeDetails[1]))
+          !view.volumeFormatLine(wd.volumeDetails[1]).contains("APFS"),
+          view.volumeFormatLine(wd.volumeDetails[1]))
+    check("volumes: each keeps its own allocation unit",
+          view.volumeAllocation(wd.volumeDetails[1]).contains("128 KB")
+              && view.volumeAllocation(wd.volumeDetails[0]).contains("4 KB"),
+          view.volumeAllocation(wd.volumeDetails[1]))
 
     // The maker and the USB id describe the enclosure, so they moved out of the
     // device panel and under how it is connected.
-    check("holder: the maker and USB id are on the connection line",
-          view.holderLine(wd).contains("Western Digital")
-              && view.holderLine(wd).contains("1058:2621"), view.holderLine(wd))
-    check("holder: a drive's own title is not repeated there",
+    // A drive's maker is the maker of the subject, so it sits beside the title; only
+    // the USB id, which is about the attachment, stays on the connection line.
+    check("holder: a drive's USB id is on the connection line",
+          view.holderLine(wd).contains("1058:2621"), view.holderLine(wd))
+    check("holder: a drive's own maker is not exiled to the connection",
+          !view.holderLine(wd).contains("Western Digital"), view.holderLine(wd))
+    check("holder: nor is its title repeated there",
           !view.holderLine(wd).contains("My Passport"), view.holderLine(wd))
 
-    // Four lines of hex nobody asked for, versus the card identity that is there to
-    // be copied: the UUID earns its line only when there is one volume.
-    check("volumes: no UUID line when there are several", !view.showsVolumeUUID(wd))
+    // The UUID is the volume's own identity and belongs to the volume that has it.
+    check("volumes: a volume with a UUID is taller than one without",
+          view.volumeHeight(wd.volumeDetails[0]) > view.volumeHeight(detail(
+              "bare", "/dev/disk9s1", "apfs", 4096, false, "")),
+          "\(view.volumeHeight(wd.volumeDetails[0]))")
     var one = wd
     one.volumeDetails = [detail("sd-19", "/dev/disk5s1", "exfat", 131_072, true,
                                 "F1860868-2085-3021-B992-E6D84DE42A69")]
     one.volumes = ["sd-19"]
-    check("volumes: the card's UUID keeps its line", view.showsVolumeUUID(one))
     check("volumes: three blocks are taller than one",
           view.volumeBlockHeight(wd) > view.volumeBlockHeight(one),
           "\(view.volumeBlockHeight(wd)) vs \(view.volumeBlockHeight(one))")
