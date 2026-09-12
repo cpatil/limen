@@ -103,21 +103,22 @@ final class MagnifierView: NSView {
             // reason the rest is unavailable is what readers usually do, not a law -
             // a vendor-specific reader and driver can expose more.
             let capacity = row.capacityBytes > 0
-                ? "the card's " + Fmt.bytes(Double(row.capacityBytes)) + " capacity"
-                : "the card's capacity"
+                ? "its " + Fmt.bytes(Double(row.capacityBytes)) + " capacity"
+                : "its capacity"
             let family = row.mediumClass.split(separator: " ").first.map(String.init) ?? ""
             // Where the reader's own name does not say what it holds, the assumption
             // is named before the conclusion that rests on it.
             let basis = Reference.mediumClassIsAssumed(deviceName: row.title)
-                ? "This reader does not say what it holds, but it reports removable "
-                    + "media, which a flash drive does not - a flash drive is its own "
-                    + "medium. On that reading it is a card, and "
+                ? "Reported as removable media, which a flash drive is not, so: a card. "
                 : ""
-            out.append((Palette.marked(basis + "Likely \(family), based on \(capacity). Most USB "
-                        + "card readers expose the card to macOS as generic storage, "
-                        + "without its SD-specific metadata, so Bottleneck cannot tell which "
-                        + "bus interface (UHS-I, say) or rated speed class (V30) the "
-                        + "card supports from what is available here."),
+            // Short on purpose. This is the evidence for the badge above it - the
+            // claim, what it rests on, and what stops it going further - and it is
+            // read while hovering. The general case for how Bottleneck infers
+            // anything lives in the colour key, which says all of this once and at
+            // length; repeating it on every card charged the reader twice.
+            out.append((Palette.marked(basis + "Likely \(family), from \(capacity). "
+                        + "Bus interface and speed class are not exposed through a "
+                        + "normal reader."),
                         smallFont, Palette.inferred))
         }
         return out
