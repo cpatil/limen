@@ -237,16 +237,79 @@ final class MagnifierView: NSView {
         let aboutACard = !row.mediumClass.isEmpty
         if !aboutACard, !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
         if !aboutACard, !row.deviceID.isEmpty { identity.append(row.deviceID) }
-        if !row.volumes.isEmpty, row.mediumClass.isEmpty {
-            identity.append(row.volumes.joined(separator: ", "))
-        }
+        // The volumes used to sit here, between the USB id and the format, joined by
+        // ", " inside a line joined by " \u{00B7} ". A list inside a list needs either a
+        // separator the outer list does not use or a line of its own, and it had
+        // neither: "nam DDLJ, necromancer, media \u{00B7} APFS" read as four volumes, the
+        // last of them called APFS. They now have their own labelled line.
+        //
         // The subtitle is the reader's own description - "Generic" - which is the
-        // holder again. Only useful when the row is about the device itself.
-        if !aboutACard, identity.isEmpty, !row.subtitle.isEmpty { identity.append(row.subtitle) }
+        // holder again. Only useful when the row is about the device itself, and not
+        // when the volume line already says what this is: the subtitle is built from
+        // the same disks, so showing both restates the list in two shapes.
+        if !aboutACard, identity.isEmpty, volumeList(row).isEmpty, !row.subtitle.isEmpty {
+            identity.append(row.subtitle)
+        }
         // What it is formatted as belongs with what it is, not among its rates.
         let format = Fmt.fsName(row.fsType)
         if !format.isEmpty { identity.append(format) }
         return identity.joined(separator: "  ·  ")
+    }
+
+    /// The volumes this device presents, for the line of their own they now get.
+    ///
+    /// Empty for a card: a card's panel is about the card, and its volume is already
+    /// the title above the panel.
+    func volumeList(_ row: Row) -> String {
+        guard row.mediumClass.isEmpty else { return "" }
+        return row.volumes.joined(separator: ", ")
+    }
+
+    /// Singular when there is one, so the label carries the count and the reader does
+    /// not have to count commas to get it.
+    func volumeListLabel(_ row: Row) -> String {
+        row.volumes.count == 1 ? "VOLUME" : "VOLUMES"
+    }
+
+    private static let listLabelTracking: CGFloat = 0.7
+    private var listLabelFont: NSFont { NSFont.systemFont(ofSize: 9, weight: .semibold) }
+
+    /// The gutter the names hang in, clear of the label.
+    private func listLabelGutter(_ row: Row) -> CGFloat {
+        let label = volumeListLabel(row)
+        // Tracking is applied per character when drawing and is not counted by
+        // Text.width, so it is added back here. Without it the first name starts
+        // under the tail of the label.
+        return Text.width(label, font: listLabelFont)
+            + MagnifierView.listLabelTracking * CGFloat(label.count) + 12
+    }
+
+    /// Height of the volume line. Asked by the sizing and the drawing alike, so the
+    /// panel cannot be measured for one layout and painted in another.
+    func volumeListHeight(_ row: Row, width: CGFloat) -> CGFloat {
+        let list = volumeList(row)
+        guard !list.isEmpty else { return 0 }
+        let available = width - listLabelGutter(row)
+        // Never shorter than the label itself, or a single short name would let the
+        // line collapse to less than the thing labelling it.
+        return max(Text.wrappedHeight(list, font: bodyFont, width: available), 14)
+    }
+
+    /// Draws the label and the names, returning the height consumed.
+    @discardableResult
+    func drawVolumeList(_ row: Row, at origin: NSPoint, width: CGFloat) -> CGFloat {
+        let list = volumeList(row)
+        guard !list.isEmpty else { return 0 }
+        let h = volumeListHeight(row, width: width)
+        Text.draw(volumeListLabel(row), at: NSPoint(x: origin.x, y: origin.y + 2),
+                  font: listLabelFont, color: Palette.faint,
+                  tracking: MagnifierView.listLabelTracking)
+        let gutter = listLabelGutter(row)
+        Text.drawWrapped(list,
+                         in: NSRect(x: origin.x + gutter, y: origin.y,
+                                    width: width - gutter, height: h),
+                         font: bodyFont, color: NSColor.labelColor)
+        return h
     }
 
     /// How full the device is, as the pair that used to sit at the bottom of the grid.
@@ -456,6 +519,7 @@ final class MagnifierView: NSView {
         // caption, a border and twenty points of padding to say nothing. So: a card
         // with something known about it, or a volume with space to report.
         let parts = (hasCard ? 1 : 0) + (identityLine(row).isEmpty ? 0 : 1)
+            + (volumeList(row).isEmpty ? 0 : 1)
             + (capacityStats(for: row).isEmpty ? 0 : 1) + cardBlocks(for: row).count
         guard parts > 1 else { return 0 }
         // No caption: the title above it already names the subject, and the panel's
@@ -470,6 +534,12 @@ final class MagnifierView: NSView {
         let identity = identityLine(row)
         if !identity.isEmpty {
             h += Text.wrappedHeight(identity, font: bodyFont, width: textWidth) + 5
+        }
+        // Same narrowed width as the identity above it: the capacity block is 34pt
+        // tall but the badge only lifts the cursor 28, so the line under the identity
+        // can still be beside the figures.
+        if !volumeList(row).isEmpty {
+            h += volumeListHeight(row, width: textWidth) + 5
         }
         for line in volumeLines(row) {
             h += Text.wrappedHeight(line, font: smallFont, width: panelWidth) + 3
@@ -587,6 +657,9 @@ final class MagnifierView: NSView {
                 height += Text.wrappedHeight(identityLine(row), font: bodyFont,
                                              width: contentWidth) + 5
             }
+            if !volumeList(row).isEmpty {
+                height += volumeListHeight(row, width: contentWidth) + 5
+            }
             for block in cardBlocks(for: row) {
                 height += Text.wrappedHeight(block.text, font: block.font,
                                              width: contentWidth) + 5
@@ -688,6 +761,10 @@ final class MagnifierView: NSView {
                                  font: bodyFont, color: NSColor.labelColor)
                 py += h + 5
             }
+            if !volumeList(row).isEmpty {
+                py += drawVolumeList(row, at: NSPoint(x: inner, y: py),
+                                     width: textWidth) + 5
+            }
             // Full width again: the capacity block is one row tall and the badge and
             // identity above have already cleared it, so these lines have the panel to
             // themselves. Wrapping them into the narrow column broke a device node in
@@ -728,6 +805,9 @@ final class MagnifierView: NSView {
                 Text.drawWrapped(identity, in: NSRect(x: left, y: y, width: width, height: h),
                                  font: bodyFont, color: NSColor.labelColor)
                 y += h + 5
+            }
+            if !volumeList(row).isEmpty {
+                y += drawVolumeList(row, at: NSPoint(x: left, y: y), width: width) + 5
             }
             // The evidence survives the panel. Losing the paragraph that says how the
             // card was identified, because there was too little else to box, would
