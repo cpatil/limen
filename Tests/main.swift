@@ -1599,65 +1599,90 @@ if !runningLight {
 }
 }
 
-// ---- the hover panel: volumes are not one more item in the identity list -------
+// ---- the hover panel: one block per volume, not one set of fields per device ----
 //
-// The line read "Western Digital  ·  1058:2621  ·  nam DDLJ, necromancer, media  ·
-// APFS" - a comma-joined list nested inside a middot-joined one, so the format
-// scanned as a fourth volume called APFS. Volumes now take a labelled line of their
-// own, and these checks are what stops them drifting back into the list.
+// The panel used to take allMounts.first and label its format, cluster size,
+// permissions and UUID as the device's. A drive listing three volume names was
+// therefore describing exactly one of them - and on this very Mac the sealed system
+// volume is read-only while the Data volume on the same disk is not, so the flattened
+// answer is not merely imprecise, it is wrong for every volume but the first.
 do {
     let view = MagnifierView(frame: NSRect(x: 0, y: 0,
                                            width: MagnifierView.width, height: 400))
-    var wd = Row(id: "usb:9", title: "My Passport",
-                 subtitle: "Western Digital · 1058:2621 · nam DDLJ, necromancer, media",
-                 badge: "")
+    func detail(_ name: String, _ node: String, _ fs: String, _ block: UInt32,
+                _ ro: Bool, _ uuid: String) -> Row.VolumeDetail {
+        var d = Row.VolumeDetail()
+        d.name = name; d.mount = "/Volumes/" + name; d.device = node
+        d.fsType = fs; d.blockSize = block; d.readOnly = ro; d.uuid = uuid
+        return d
+    }
+
+    var wd = Row(id: "usb:9", title: "My Passport", subtitle: "", badge: "")
     wd.vendor = "Western Digital"
     wd.deviceID = "1058:2621"
     wd.volumes = ["nam DDLJ", "necromancer", "media"]
     wd.fsType = "apfs"
     wd.capacityBytes = 4_000_751_529_984
     wd.usedBytes = 2_459_539_628_032
+    // Deliberately mixed, which is the case the old layout could not express:
+    // one volume locked and formatted differently from the two beside it.
+    wd.volumeDetails = [
+        detail("nam DDLJ", "/dev/disk3s2", "apfs", 4096, false, "AAAA-1"),
+        detail("necromancer", "/dev/disk3s3", "exfat", 131_072, true, "BBBB-2"),
+        detail("media", "/dev/disk3s4", "apfs", 4096, false, "CCCC-3"),
+    ]
 
-    let identity = view.identityLine(wd)
-    check("volumes: the identity line still says who made it and what it is",
-          identity.contains("Western Digital") && identity.contains("1058:2621")
-              && identity.contains("APFS"), identity)
-    for volume in wd.volumes {
-        check("volumes: \(volume) is no longer in the identity line",
-              !identity.contains(volume), identity)
-    }
-    // The exact misreading, named: a volume immediately followed by the format.
-    check("volumes: the format never trails the volume list",
-          !identity.contains("media  ·  APFS"), identity)
+    check("volumes: every volume gets its own block", view.volumeBlocks(wd).count == 3)
+    check("volumes: a locked volume is not described by its neighbour",
+          view.volumeAccess(wd.volumeDetails[1]) == "write-protected"
+              && view.volumeAccess(wd.volumeDetails[0]) == "read-write")
+    check("volumes: each keeps its own node and format",
+          view.volumeUnderLine(wd.volumeDetails[1]).contains("/dev/disk3s3")
+              && view.volumeUnderLine(wd.volumeDetails[1]).contains("exFAT"),
+          view.volumeUnderLine(wd.volumeDetails[1]))
+    check("volumes: and is not given the first one's format",
+          !view.volumeUnderLine(wd.volumeDetails[1]).contains("APFS"),
+          view.volumeUnderLine(wd.volumeDetails[1]))
 
-    check("volumes: they get a line of their own",
-          view.volumeList(wd) == "nam DDLJ, necromancer, media", view.volumeList(wd))
-    check("volumes: the label carries the count", view.volumeListLabel(wd) == "VOLUMES")
+    // The maker and the USB id describe the enclosure, so they moved out of the
+    // device panel and under how it is connected.
+    check("holder: the maker and USB id are on the connection line",
+          view.holderLine(wd).contains("Western Digital")
+              && view.holderLine(wd).contains("1058:2621"), view.holderLine(wd))
+    check("holder: a drive's own title is not repeated there",
+          !view.holderLine(wd).contains("My Passport"), view.holderLine(wd))
+
+    // Four lines of hex nobody asked for, versus the card identity that is there to
+    // be copied: the UUID earns its line only when there is one volume.
+    check("volumes: no UUID line when there are several", !view.showsVolumeUUID(wd))
     var one = wd
-    one.volumes = ["media"]
-    check("volumes: singular when there is one", view.volumeListLabel(one) == "VOLUME")
+    one.volumeDetails = [detail("sd-19", "/dev/disk5s1", "exfat", 131_072, true,
+                                "F1860868-2085-3021-B992-E6D84DE42A69")]
+    one.volumes = ["sd-19"]
+    check("volumes: the card's UUID keeps its line", view.showsVolumeUUID(one))
+    check("volumes: three blocks are taller than one",
+          view.volumeBlockHeight(wd) > view.volumeBlockHeight(one),
+          "\(view.volumeBlockHeight(wd)) vs \(view.volumeBlockHeight(one))")
 
-    // A card's panel is about the card, and its volume is the title above the panel.
-    var card = wd
+    // Only a card gets a badge, so a plain drive needs something in the left half of
+    // the band or the bar sits alone against an empty space.
+    check("band: a drive says how big it is and how many volumes it carries",
+          view.bandSummary(wd).contains("4.00 TB")
+              && view.bandSummary(wd).contains("3 volumes"), view.bandSummary(wd))
+    check("band: singular for one volume", view.bandSummary(one).contains("1 volume")
+              && !view.bandSummary(one).contains("1 volumes"), view.bandSummary(one))
+    var card = one
     card.mediumClass = "SDXC 256 GB"
-    check("volumes: a card's panel does not repeat its own volume",
-          view.volumeList(card).isEmpty, view.volumeList(card))
+    card.title = "USB3.0 Card Reader"
+    check("band: a card shows its badge instead of the summary",
+          view.bandSummary(card).isEmpty, view.bandSummary(card))
+    check("holder: a card's reader is named on the connection line",
+          view.holderLine(card).contains("USB3.0 Card Reader"), view.holderLine(card))
 
-    // The panel has to grow by the line it gained, or it clips what it draws.
-    var bare = wd
-    bare.volumes = []
-    check("volumes: the panel is taller for carrying them",
-          view.cardPanelHeight(wd) > view.cardPanelHeight(bare),
-          "\(view.cardPanelHeight(wd)) vs \(view.cardPanelHeight(bare))")
-
-    // The subtitle is built from the same disk names. Falling back to it while the
-    // volume line is already showing them would restate the list in two shapes.
-    var plain = wd
-    plain.vendor = ""
-    plain.deviceID = ""
-    plain.fsType = ""
-    check("volumes: the subtitle fallback does not restate them",
-          view.identityLine(plain).isEmpty, view.identityLine(plain))
+    // The panel has to be as tall as what it draws, or it clips it.
+    check("volumes: the panel grows with the blocks it carries",
+          view.cardPanelHeight(wd) > view.cardPanelHeight(one),
+          "\(view.cardPanelHeight(wd)) vs \(view.cardPanelHeight(one))")
 }
 
 

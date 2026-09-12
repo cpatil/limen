@@ -130,8 +130,35 @@ struct Row {
     var indexingWorthReporting: Bool {
         section != "Network" && !internalMedium && !mountRoots.isEmpty
     }
-    /// The volume's own identity, independent of the reader or port it arrived
+    /// One mounted volume's own facts.
+    ///
+    /// Per volume, because that is what they are. A disk can carry an exFAT partition
+    /// beside an APFS one, and on every modern Mac the sealed system volume is
+    /// read-only while the Data volume on the same disk is not. Reporting one of them
+    /// as "the device's format" is a statement about a volume wearing a device's name.
+    struct VolumeDetail {
+        /// What Finder calls it - the name in the volume list.
+        var name: String = ""
+        var mount: String = ""
+        var device: String = ""
+        var fsType: String = ""
+        var blockSize: UInt32 = 0
+        var readOnly = false
+        var uuid: String = ""
+        var created: Date?
+    }
+
+    /// Every mounted volume of this device, each with its own facts. The panel draws
+    /// these as rows; a card is simply the case where there is one.
+    var volumeDetails: [VolumeDetail] = []
+
+    /// The first volume's identity, independent of the reader or port it arrived
     /// through - so a card's history follows the card.
+    ///
+    /// These next few are the FIRST volume's facts, not the device's. They are kept
+    /// because a session belongs to one volume and the log needs a single value to
+    /// file it under; for the many devices that carry exactly one volume they are
+    /// exact. Anything that means to describe the whole device reads volumeDetails.
     var volumeID: String = ""
     /// The allocation unit, the lock switch, and the device node: three facts about a
     /// card that nothing on a Mac normally shows you.
@@ -712,6 +739,28 @@ final class Monitor {
             // Two lookups, because they answer different questions. What a device is
             // formatted as holds wherever it is mounted; what Spotlight has been told
             // about it is only reported for the removable volumes under /Volumes.
+            // One record per mounted volume. The Finder volumes when there are any,
+            // so the table matches the names the user knows; every mount otherwise,
+            // which is what lets the boot drive say anything at all about itself -
+            // its volumes are not under /Volumes.
+            let detailed = row.mountRoots.isEmpty ? row.allMounts : row.mountRoots
+            row.volumeDetails = detailed.compactMap { mount in
+                guard let t = traits[mount] else { return nil }
+                var d = Row.VolumeDetail()
+                d.mount = mount
+                // The mount point's own last component is the name almost always.
+                // The startup disk is the exception: it is mounted at "/".
+                let short = (ProcessSampler.finderPath(mount) as NSString).lastPathComponent
+                d.name = (short.isEmpty || short == "/")
+                    ? (t.name.isEmpty ? mount : t.name) : short
+                d.device = t.device
+                d.fsType = t.fsType
+                d.blockSize = t.blockSize
+                d.readOnly = t.readOnly
+                d.created = t.created
+                d.uuid = t.uuid
+                return d
+            }
             if let first = row.allMounts.first, let t = traits[first] {
                 row.fsType = t.fsType
                 row.journalWrites = t.journalWrites
@@ -723,7 +772,9 @@ final class Monitor {
             if let first = row.mountRoots.first, let t = traits[first] {
                 row.spotlight = t.spotlight
                 row.indexingDisabled = t.neverIndex
-                row.volumeID = ProcessSampler.volumeIdentity(of: first) ?? ""
+                // From the traits map rather than a fresh lookup: that map is rebuilt
+                // every fifth sample at most, and this ran on every one of them.
+                row.volumeID = t.uuid
             }
             if combinedActive(down, up), !row.mountRoots.isEmpty {
                 row.actors = actors(under: row.mountRoots, elapsed: elapsed)

@@ -53,16 +53,34 @@ func drive() -> Row {
     r.removable = true
     r.isPhysical = true
     r.linkBits = 10_000_000_000
-    r.deviceNode = "/dev/disk3"
-    r.volumeID = "DE61964A-B31F-4E52-8DEB-41D0FC26FD12"
+    r.deviceNode = "/dev/disk3s2"
+    r.volumeID = "49BEB94C-F062-4D52-B20D-B2031E408AD9"
     r.blockSize = 4096
+    r.volumeDetails = [
+        detail("nam DDLJ", "/dev/disk3s2", "apfs", 4096, false,
+               "49BEB94C-F062-4D52-B20D-B2031E408AD9"),
+        detail("necromancer", "/dev/disk3s3", "apfs", 4096, false,
+               "F077C830-31FF-4105-9F36-0869E0DC11AE"),
+        detail("media", "/dev/disk3s4", "apfs", 4096, false,
+               "725B5E5A-6209-4EFF-B924-9ED471FE7E13"),
+    ]
     return r
+}
+
+func detail(_ name: String, _ node: String, _ fs: String, _ block: UInt32,
+            _ readOnly: Bool, _ uuid: String) -> Row.VolumeDetail {
+    var d = Row.VolumeDetail()
+    d.name = name; d.mount = "/Volumes/" + name; d.device = node
+    d.fsType = fs; d.blockSize = block; d.readOnly = readOnly; d.uuid = uuid
+    return d
 }
 
 func singleVolume() -> Row {
     var r = drive()
     r.title = "Elements"
     r.volumes = ["media"]
+    r.volumeDetails = [detail("media", "/dev/disk4s2", "apfs", 4096, false,
+                              "725B5E5A-6209-4EFF-B924-9ED471FE7E13")]
     return r
 }
 
@@ -78,6 +96,28 @@ func card() -> Row {
     r.blockSize = 131_072
     r.linkBits = 5_000_000_000
     r.deviceNode = "/dev/disk5s1"
+    r.vendor = "Generic"
+    r.deviceID = "05e3:0751"
+    r.volumeDetails = [detail("sd-19", "/dev/disk5s1", "exfat", 131_072, true,
+                              "F1860868-2085-3021-B992-E6D84DE42A69")]
+    return r
+}
+
+/// A partitioned drive whose volumes disagree: different formats, different
+/// allocation units, one of them locked. The old panel described the first of these
+/// and put the device's name on the answer.
+func mixed() -> Row {
+    var r = drive()
+    r.title = "Backup HDD"
+    r.volumes = ["Archive", "Scratch"]
+    r.capacityBytes = 2_000_398_934_016
+    r.usedBytes = 1_810_000_000_000
+    r.volumeDetails = [
+        detail("Archive", "/dev/disk6s1", "exfat", 131_072, true,
+               "11111111-2222-3333-4444-555555555555"),
+        detail("Scratch", "/dev/disk6s2", "hfs", 4096, false,
+               "66666666-7777-8888-9999-000000000000"),
+    ]
     return r
 }
 
@@ -85,7 +125,8 @@ let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "build/ca
 try? FileManager.default.createDirectory(atPath: out,
                                          withIntermediateDirectories: true)
 
-for (name, row) in [("drive", drive()), ("single", singleVolume()), ("card", card())] {
+for (name, row) in [("drive", drive()), ("single", singleVolume()),
+                    ("card", card()), ("mixed", mixed())] {
     for (suffix, light) in [("light", true), ("dark", false)] {
         render(row, light: light, to: "\(out)/\(name)-\(suffix).png")
     }

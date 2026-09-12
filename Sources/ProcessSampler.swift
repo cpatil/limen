@@ -257,6 +257,15 @@ enum ProcessSampler {
         /// Often absent: exFAT records no creation time for the volume itself, and
         /// macOS reports nothing rather than guessing.
         var created: Date?
+        /// The volume's own identity. Carried here rather than looked up per tick by
+        /// the monitor: this map is rebuilt every fifth sample at most, and the
+        /// creation date beside it is already fetched in the same call, so the UUID
+        /// rides along for nothing.
+        var uuid: String = ""
+        /// The name Finder shows. Only needed for the volumes whose mount point does
+        /// not carry it - the startup disk is mounted at "/", whose last path
+        /// component is "/" and says nothing.
+        var name: String = ""
         /// Journalled and updating access times: reading writes.
         var journalWrites = false
         var spotlight = false
@@ -296,8 +305,11 @@ enum ProcessSampler {
             traits.blockSize = entry.f_bsize
             traits.readOnly = (entry.f_flags & UInt32(MNT_RDONLY)) != 0
             traits.device = from
-            traits.created = (try? URL(fileURLWithPath: on)
-                .resourceValues(forKeys: [.volumeCreationDateKey]))?.creationDate
+            let values = try? URL(fileURLWithPath: on).resourceValues(
+                forKeys: [.volumeCreationDateKey, .volumeUUIDStringKey, .volumeNameKey])
+            traits.created = values?.creationDate
+            traits.uuid = values?.volumeUUIDString ?? ""
+            traits.name = values?.volumeName ?? ""
             traits.journalWrites = journaled && !noatime
             traits.spotlight = FileManager.default.fileExists(atPath: on + "/.Spotlight-V100")
             traits.neverIndex = FileManager.default.fileExists(atPath: on + "/.metadata_never_index")

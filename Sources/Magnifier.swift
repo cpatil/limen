@@ -197,133 +197,176 @@ final class MagnifierView: NSView {
         let colour: NSColor
     }
 
-    /// The facts about a volume that nothing else on a Mac puts in front of you: its
-    /// own identity, the allocation unit it was formatted with, whether it is locked,
-    /// and the device node underneath it.
-    func volumeFacts(_ row: Row) -> String {
-        var parts: [String] = []
-        if row.blockSize > 0 {
-            // "clusters" rather than "allocation unit": same thing, a third the width,
-            // and this line has a capacity block sitting beside it.
-            parts.append(Fmt.blockSize(row.blockSize) + " clusters")
-        }
-        // Always, not only when locked: "read-write" is the answer to a question
-        // people ask of a card, and silence is not an answer.
-        parts.append(row.readOnly ? "write-protected" : "read-write")
-        // Only when there is one. exFAT records no creation time for the volume, so
-        // "formatted —" was a dash taking a third of a line to say nothing; the
-        // absence is worth knowing once, in the tooltip, not on every card.
-        if let created = row.created {
-            parts.append("formatted " + MagnifierView.day.string(from: created))
-        }
-        if !row.deviceNode.isEmpty { parts.append(row.deviceNode) }
-        return parts.joined(separator: "  ·  ")
-    }
-
     static let day: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "d MMM yyyy"
         return f
     }()
 
-    /// What this thing is: vendor, identifier, the volumes it presents. Drawn on its
-    /// own rather than as the first of the wrapped blocks, because how full it is
-    /// belongs directly underneath it - a device's capacity is part of what it is,
-    /// not one more figure among its rates.
-    func identityLine(_ row: Row) -> String {
-        var identity: [String] = []
-        // A card's panel is about the card. The reader's maker and USB id describe the
-        // holder, and they belong with the holder, under the connection.
-        let aboutACard = !row.mediumClass.isEmpty
-        if !aboutACard, !row.vendor.isEmpty, row.vendor != row.title { identity.append(row.vendor) }
-        if !aboutACard, !row.deviceID.isEmpty { identity.append(row.deviceID) }
-        // The volumes used to sit here, between the USB id and the format, joined by
-        // ", " inside a line joined by " \u{00B7} ". A list inside a list needs either a
-        // separator the outer list does not use or a line of its own, and it had
-        // neither: "nam DDLJ, necromancer, media \u{00B7} APFS" read as four volumes, the
-        // last of them called APFS. They now have their own labelled line.
-        //
-        // The subtitle is the reader's own description - "Generic" - which is the
-        // holder again. Only useful when the row is about the device itself, and not
-        // when the volume line already says what this is: the subtitle is built from
-        // the same disks, so showing both restates the list in two shapes.
-        if !aboutACard, identity.isEmpty, volumeList(row).isEmpty, !row.subtitle.isEmpty {
-            identity.append(row.subtitle)
-        }
-        // What it is formatted as belongs with what it is, not among its rates.
-        let format = Fmt.fsName(row.fsType)
-        if !format.isEmpty { identity.append(format) }
-        return identity.joined(separator: "  ·  ")
-    }
-
-    /// The volumes this device presents, for the line of their own they now get.
+    /// Who is holding this: the enclosure or reader, its maker, and its USB id.
     ///
-    /// Empty for a card: a card's panel is about the card, and its volume is already
-    /// the title above the panel.
-    func volumeList(_ row: Row) -> String {
-        guard row.mediumClass.isEmpty else { return "" }
-        return row.volumes.joined(separator: ", ")
+    /// Not in the device panel. That panel is about what carries the data - the card,
+    /// the volume - and a card in a reader on a cable is three things of which only
+    /// the first is the subject. The maker and the USB id describe the holder, so
+    /// they belong with the holder, under how it is connected.
+    func holderLine(_ row: Row) -> String {
+        var parts: [String] = []
+        // The reader's own name, but only when the title above is the card rather
+        // than the reader - otherwise this repeats the heading.
+        if !row.mediumClass.isEmpty, !row.title.isEmpty { parts.append(row.title) }
+        if !row.vendor.isEmpty, row.vendor != row.title { parts.append(row.vendor) }
+        if !row.deviceID.isEmpty { parts.append(row.deviceID) }
+        return parts.joined(separator: "  ·  ")
     }
 
-    /// Singular when there is one, so the label carries the count and the reader does
-    /// not have to count commas to get it.
-    func volumeListLabel(_ row: Row) -> String {
-        row.volumes.count == 1 ? "VOLUME" : "VOLUMES"
+    // ---- the device panel: a band, then one block per volume ----------------
+
+    /// Width reserved on the right of the band for the bar and its two figures.
+    var capacityBarBlock: CGFloat { 150 }
+    private var capacityBarWidth: CGFloat { 9 }
+
+    /// The band at the top of the device panel: the card badge on the left, how full
+    /// it is on the right. Zero when there is neither.
+    func bandHeight(_ row: Row) -> CGFloat {
+        let hasBadge = !cardText(row).isEmpty
+        guard row.capacityBytes > 0 else { return hasBadge ? 28 : 0 }
+        return 44
     }
 
-    private static let listLabelTracking: CGFloat = 0.7
-    private var listLabelFont: NSFont { NSFont.systemFont(ofSize: 9, weight: .semibold) }
-
-    /// The gutter the names hang in, clear of the label.
-    private func listLabelGutter(_ row: Row) -> CGFloat {
-        let label = volumeListLabel(row)
-        // Tracking is applied per character when drawing and is not counted by
-        // Text.width, so it is added back here. Without it the first name starts
-        // under the tail of the label.
-        return Text.width(label, font: listLabelFont)
-            + MagnifierView.listLabelTracking * CGFloat(label.count) + 12
+    /// What fills the left of the band when there is no card badge.
+    ///
+    /// Only a card gets a badge, so on a plain drive the band was a bar alone on the
+    /// right with an empty half beside it. How big the whole device is answers the
+    /// question the two figures beside it raise - used and free of what? - and the
+    /// volume count says at a glance whether the blocks below are one thing or four.
+    func bandSummary(_ row: Row) -> String {
+        guard cardText(row).isEmpty, row.capacityBytes > 0 else { return "" }
+        var text = Fmt.bytes(Double(row.capacityBytes))
+        let count = row.volumeDetails.count
+        if count > 0 { text += "  ·  \(count) volume" + (count == 1 ? "" : "s") }
+        return text
     }
 
-    /// Height of the volume line. Asked by the sizing and the drawing alike, so the
-    /// panel cannot be measured for one layout and painted in another.
-    func volumeListHeight(_ row: Row, width: CGFloat) -> CGFloat {
-        let list = volumeList(row)
-        guard !list.isEmpty else { return 0 }
-        let available = width - listLabelGutter(row)
-        // Never shorter than the label itself, or a single short name would let the
-        // line collapse to less than the thing labelling it.
-        return max(Text.wrappedHeight(list, font: bodyFont, width: available), 14)
+    /// How full it is, as a vertical bar with the figures beside it.
+    ///
+    /// Vertical rather than the two-column block it replaces: that block wanted 190pt
+    /// of a 344pt panel and put the figures at the far left, which is where the
+    /// volume names want to be. Upright, the same information costs a ninth of the
+    /// width.
+    ///
+    /// Counted once per container. Several volumes of one disk share its space, and
+    /// each of them reports the whole disk's figures as its own - summing them is how
+    /// a 4 TB drive came to claim 3.58 TB used.
+    func drawCapacityBar(_ row: Row, at origin: NSPoint, height: CGFloat) {
+        guard row.capacityBytes > 0 else { return }
+        let fraction = row.fullness ?? 0
+        let bar = NSRect(x: origin.x, y: origin.y + 2,
+                         width: capacityBarWidth, height: max(8, height - 8))
+        Palette.faint.withAlphaComponent(0.28).setFill()
+        NSBezierPath(roundedRect: bar, xRadius: capacityBarWidth / 2,
+                     yRadius: capacityBarWidth / 2).fill()
+        // Filled from the top, so the used figure beside it is level with the part it
+        // describes. The view is flipped, so the top is the smaller y.
+        let full = max(capacityBarWidth, bar.height * CGFloat(min(1, max(0, fraction))))
+        let colour = TrafficListView.capacityColour(fraction: fraction)
+        colour.setFill()
+        NSBezierPath(roundedRect: NSRect(x: bar.minX, y: bar.minY,
+                                         width: bar.width, height: full),
+                     xRadius: capacityBarWidth / 2, yRadius: capacityBarWidth / 2).fill()
+
+        let textX = origin.x + capacityBarWidth + 10
+        let value = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        let used = Double(row.usedBytes)
+        for (index, pair) in [(Fmt.bytes(used), "used", colour),
+                              (Fmt.bytes(Double(row.capacityBytes) - used), "free",
+                               NSColor.labelColor)].enumerated() {
+            let y = origin.y + (index == 0 ? 1 : 21)
+            Text.draw(pair.0, at: NSPoint(x: textX, y: y), font: value, color: pair.2)
+            Text.draw(pair.1,
+                      at: NSPoint(x: textX + Text.width(pair.0, font: value) + 5, y: y + 3),
+                      font: smallFont, color: Palette.faint)
+        }
     }
 
-    /// Draws the label and the names, returning the height consumed.
-    @discardableResult
-    func drawVolumeList(_ row: Row, at origin: NSPoint, width: CGFloat) -> CGFloat {
-        let list = volumeList(row)
-        guard !list.isEmpty else { return 0 }
-        let h = volumeListHeight(row, width: width)
-        Text.draw(volumeListLabel(row), at: NSPoint(x: origin.x, y: origin.y + 2),
-                  font: listLabelFont, color: Palette.faint,
-                  tracking: MagnifierView.listLabelTracking)
-        let gutter = listLabelGutter(row)
-        Text.drawWrapped(list,
-                         in: NSRect(x: origin.x + gutter, y: origin.y,
-                                    width: width - gutter, height: h),
-                         font: bodyFont, color: NSColor.labelColor)
+    /// Every mounted volume, each with its own facts.
+    ///
+    /// One block per volume rather than one set of fields for the device, because the
+    /// fields are per volume: a disk can carry exFAT beside APFS, and on this very Mac
+    /// the sealed system volume is read-only while the Data volume on the same disk is
+    /// not. The old panel took allMounts.first and labelled it as the device's, so a
+    /// drive showing three volume names described exactly one of them.
+    func volumeBlocks(_ row: Row) -> [Row.VolumeDetail] { row.volumeDetails }
+
+    /// The UUID earns its line when there is one volume - it is the card's identity,
+    /// and it is there to be copied. Across several volumes it is four lines of hex
+    /// nobody asked for.
+    func showsVolumeUUID(_ row: Row) -> Bool {
+        row.volumeDetails.count == 1 && !(row.volumeDetails.first?.uuid.isEmpty ?? true)
+    }
+
+    func volumeBlockHeight(_ row: Row) -> CGFloat {
+        guard !row.volumeDetails.isEmpty else { return 0 }
+        var h = CGFloat(row.volumeDetails.count) * 36
+        if showsVolumeUUID(row) { h += 17 }
         return h
     }
 
-    /// How full the device is, as the pair that used to sit at the bottom of the grid.
-    func capacityStats(for row: Row) -> [Stat] {
-        guard row.capacityBytes > 0 else { return [] }
-        // Counted once per container: several volumes of one disk share its space,
-        // and each of them reports the whole disk's figures as its own.
-        let used = Double(row.usedBytes)
-        return [
-            Stat(label: "USED", value: Fmt.bytes(used),
-                 colour: TrafficListView.capacityColour(fraction: row.fullness ?? 0)),
-            Stat(label: "FREE", value: Fmt.bytes(Double(row.capacityBytes) - used),
-                 colour: NSColor.labelColor),
-        ]
+    /// Whether this volume can be written to, said either way.
+    ///
+    /// Always, not only when locked: "read-write" is the answer to a question people
+    /// ask of a card, and silence is not an answer.
+    func volumeAccess(_ volume: Row.VolumeDetail) -> String {
+        volume.readOnly ? "write-protected" : "read-write"
+    }
+
+    /// The line under a volume's name: where it is and what it is formatted as.
+    func volumeUnderLine(_ volume: Row.VolumeDetail) -> String {
+        var under = volume.device
+        let format = Fmt.fsName(volume.fsType)
+        if !format.isEmpty { under += under.isEmpty ? format : "  ·  " + format }
+        // Only when there is one. exFAT records no creation time for the volume, so
+        // this is silent rather than a dash taking a third of a line to say nothing -
+        // and on a card, when it is there, it is when the card was formatted.
+        if let created = volume.created {
+            under += "  ·  formatted " + MagnifierView.day.string(from: created)
+        }
+        return under
+    }
+
+    /// Name and permissions on the first line, node and format under it with the
+    /// allocation unit opposite - the two facts about a volume that change what a
+    /// copy costs, kept in their own column so they can be found in one place.
+    func drawVolumeBlocks(_ row: Row, at origin: NSPoint, width: CGFloat) -> CGFloat {
+        var y = origin.y
+        let rightEdge = origin.x + width
+        for volume in row.volumeDetails {
+            Text.draw(volume.name.isEmpty ? volume.mount : volume.name,
+                      at: NSPoint(x: origin.x, y: y), font: bodyFont,
+                      color: NSColor.labelColor)
+            // Always, not only when locked: "read-write" is the answer to a question
+            // people ask of a card, and silence is not an answer.
+            Text.draw(volumeAccess(volume),
+                      at: NSPoint(x: 0, y: y + 2), font: smallFont,
+                      color: volume.readOnly ? Palette.warning : Palette.faint,
+                      alignRight: rightEdge)
+            y += 18
+            Text.draw(volumeUnderLine(volume), at: NSPoint(x: origin.x, y: y),
+                      font: smallFont, color: Palette.faint)
+            if volume.blockSize > 0 {
+                // "clusters" rather than "allocation unit": same thing, a third the
+                // width, and this line has a column beside it.
+                Text.draw(Fmt.blockSize(volume.blockSize) + " clusters",
+                          at: NSPoint(x: 0, y: y), font: smallFont,
+                          color: Palette.faint, alignRight: rightEdge)
+            }
+            y += 18
+        }
+        if showsVolumeUUID(row), let uuid = row.volumeDetails.first?.uuid {
+            Text.draw(uuid, at: NSPoint(x: origin.x, y: y), font: smallFont,
+                      color: Palette.faint)
+            y += 17
+        }
+        return y - origin.y
     }
 
     func stats(for row: Row) -> [Stat] {
@@ -484,71 +527,24 @@ final class MagnifierView: NSView {
                               : NSColor.systemGreen
     }
 
-    /// How wide the used/free pair is when drawn as a block beside something.
-    var capacityBlockWidth: CGFloat { 190 }
-
-    /// Whether used and free fit beside the badge rather than under it.
-    ///
-    /// The panel had a badge on one line, a word like "exFAT" on the next, and
-    /// two-thirds of both lines empty - then spent a third line on the figures. They
-    /// go in that gap when it is big enough, which for a card it is and for a drive
-    /// listing five device names it is not.
-    func capacityFitsBeside(_ row: Row) -> Bool {
-        guard !capacityStats(for: row).isEmpty else { return false }
-        let badge = cardText(row).isEmpty ? 0
-            : Text.badgeWidth(Palette.mark + cardText(row), font: cardBadgeFont)
-        let identity = Text.width(identityLine(row), font: bodyFont)
-        return max(badge, identity) + capacityBlockWidth + 12 <= panelWidth
-    }
-
-    /// What this device is: the badge where there is one, then identity, capacity and
-    /// any evidence for what the badge claims.
-    /// The lines under the identity: the volume's facts, then its UUID.
-    func volumeLines(_ row: Row) -> [String] {
-        var lines: [String] = []
-        let facts = volumeFacts(row)
-        if !facts.isEmpty { lines.append(facts) }
-        if !row.volumeID.isEmpty { lines.append(row.volumeID) }
-        return lines
-    }
-
     func cardPanelHeight(_ row: Row) -> CGFloat {
         let hasCard = !cardText(row).isEmpty
         // A panel earns its place by grouping more than one thing. A box round a
         // single badge is a box round the row's own title restated - it takes a
         // caption, a border and twenty points of padding to say nothing. So: a card
         // with something known about it, or a volume with space to report.
-        let parts = (hasCard ? 1 : 0) + (identityLine(row).isEmpty ? 0 : 1)
-            + (volumeList(row).isEmpty ? 0 : 1)
-            + (capacityStats(for: row).isEmpty ? 0 : 1) + cardBlocks(for: row).count
+        let parts = (hasCard ? 1 : 0) + (row.capacityBytes > 0 ? 1 : 0)
+            + row.volumeDetails.count + cardBlocks(for: row).count
         guard parts > 1 else { return 0 }
         // No caption: the title above it already names the subject, and the panel's
         // contents - a card badge, a capacity - say what they are without a heading.
         // "HOW IT IS CONNECTED" keeps its own, because a reader and a link are not
         // implied by the name of the card.
-        var h = hasCard ? CGFloat(28) : 0
-        // Beside the capacity block, these lines have the rest of the panel, not all
-        // of it - they were wrapping underneath the figures and colliding with them.
-        let textWidth = capacityFitsBeside(row) ? panelWidth - capacityBlockWidth - 12
-                                                : panelWidth
-        let identity = identityLine(row)
-        if !identity.isEmpty {
-            h += Text.wrappedHeight(identity, font: bodyFont, width: textWidth) + 5
-        }
-        // Same narrowed width as the identity above it: the capacity block is 34pt
-        // tall but the badge only lifts the cursor 28, so the line under the identity
-        // can still be beside the figures.
-        if !volumeList(row).isEmpty {
-            h += volumeListHeight(row, width: textWidth) + 5
-        }
-        for line in volumeLines(row) {
-            h += Text.wrappedHeight(line, font: smallFont, width: panelWidth) + 3
-        }
-        let capacity = capacityStats(for: row)
-        if !capacity.isEmpty, !capacityFitsBeside(row) {
-            h += CGFloat(MagnifierView.statRows(capacity.count))
-                * MagnifierView.statRowHeight + 4
-        }
+        // The band carries the badge and the capacity bar side by side; the volume
+        // blocks have the full width underneath, clear of both.
+        var h = bandHeight(row)
+        if h > 0, !row.volumeDetails.isEmpty { h += 6 }
+        h += volumeBlockHeight(row)
         for block in cardBlocks(for: row) {
             h += Text.wrappedHeight(block.text, font: block.font, width: panelWidth) + 5
         }
@@ -559,6 +555,9 @@ final class MagnifierView: NSView {
     func linkPanelHeight(_ row: Row) -> CGFloat {
         guard hasLinkRow(row) else { return 0 }
         var h = MagnifierView.captionHeight + 26 + practicalWrappedHeight(row)
+        if !holderLine(row).isEmpty {
+            h += Text.wrappedHeight(holderLine(row), font: smallFont, width: panelWidth) + 4
+        }
         let names = alsoKnownText(row)
         if !names.isEmpty {
             h += Text.wrappedHeight(names, font: smallFont, width: panelWidth) + 4
@@ -653,13 +652,7 @@ final class MagnifierView: NSView {
             height += cardHeight + 8
         } else {
             if !cardText(row).isEmpty { height += 28 }
-            if !identityLine(row).isEmpty {
-                height += Text.wrappedHeight(identityLine(row), font: bodyFont,
-                                             width: contentWidth) + 5
-            }
-            if !volumeList(row).isEmpty {
-                height += volumeListHeight(row, width: contentWidth) + 5
-            }
+            height += volumeBlockHeight(row)
             for block in cardBlocks(for: row) {
                 height += Text.wrappedHeight(block.text, font: block.font,
                                              width: contentWidth) + 5
@@ -735,53 +728,28 @@ final class MagnifierView: NSView {
             var py = y + MagnifierView.panelPad
 
 
-            // Used and free go in the empty half of the badge line when there is one.
-            let besideCapacity = capacityFitsBeside(row)
-            if besideCapacity {
-                _ = drawStats(capacityStats(for: row),
-                              at: NSPoint(x: inner + innerWidth - capacityBlockWidth, y: py),
-                              width: capacityBlockWidth)
+            // The band: what the card is on the left, how full it is on the right.
+            let band = bandHeight(row)
+            if band > 0 {
+                drawCapacityBar(row,
+                                at: NSPoint(x: inner + innerWidth - capacityBarBlock, y: py),
+                                height: band)
+                if !cardText(row).isEmpty {
+                    _ = Text.drawBadge(Palette.mark + cardText(row),
+                                       at: NSPoint(x: inner, y: py + 2),
+                                       font: cardBadgeFont,
+                                       fill: Palette.cardBadge,
+                                       textColor: NSColor.labelColor)
+                } else if !bandSummary(row).isEmpty {
+                    Text.draw(bandSummary(row), at: NSPoint(x: inner, y: py + 4),
+                              font: bodyFont, color: NSColor.labelColor)
+                }
+                py += band
+                if !row.volumeDetails.isEmpty { py += 6 }
             }
-            if !cardText(row).isEmpty {
-                _ = Text.drawBadge(Palette.mark + cardText(row),
-                                   at: NSPoint(x: inner, y: py + 2),
-                                   font: cardBadgeFont,
-                                   fill: Palette.cardBadge,
-                                   textColor: NSColor.labelColor)
-                py += 28
-            }
-
-            let textWidth = besideCapacity ? innerWidth - capacityBlockWidth - 12
-                                           : innerWidth
-            let identity = identityLine(row)
-            if !identity.isEmpty {
-                let h = Text.wrappedHeight(identity, font: bodyFont, width: textWidth)
-                Text.drawWrapped(identity,
-                                 in: NSRect(x: inner, y: py, width: textWidth, height: h),
-                                 font: bodyFont, color: NSColor.labelColor)
-                py += h + 5
-            }
-            if !volumeList(row).isEmpty {
-                py += drawVolumeList(row, at: NSPoint(x: inner, y: py),
-                                     width: textWidth) + 5
-            }
-            // Full width again: the capacity block is one row tall and the badge and
-            // identity above have already cleared it, so these lines have the panel to
-            // themselves. Wrapping them into the narrow column broke a device node in
-            // half and a UUID across three lines.
-            for line in volumeLines(row) {
-                let h = Text.wrappedHeight(line, font: smallFont, width: innerWidth)
-                Text.drawWrapped(line, in: NSRect(x: inner, y: py, width: innerWidth, height: h),
-                                 font: smallFont, color: Palette.faint)
-                py += h + 3
-            }
-
-            // Directly under what the device is, because that is what it answers.
-            let capacity = capacityStats(for: row)
-            if !capacity.isEmpty, !besideCapacity {
-                py = drawStats(capacity, at: NSPoint(x: inner, y: py + 2), width: innerWidth)
-                py += 2
-            }
+            // Full width, under the band rather than beside it: the volume names want
+            // the left edge, and the bar has already taken its ninth of the right.
+            py += drawVolumeBlocks(row, at: NSPoint(x: inner, y: py), width: innerWidth)
             for block in cardBlocks(for: row) {
                 let h = Text.wrappedHeight(block.text, font: block.font, width: innerWidth)
                 Text.drawWrapped(block.text,
@@ -799,16 +767,7 @@ final class MagnifierView: NSView {
                                    textColor: NSColor.labelColor)
                 y += 28
             }
-            let identity = identityLine(row)
-            if !identity.isEmpty {
-                let h = Text.wrappedHeight(identity, font: bodyFont, width: width)
-                Text.drawWrapped(identity, in: NSRect(x: left, y: y, width: width, height: h),
-                                 font: bodyFont, color: NSColor.labelColor)
-                y += h + 5
-            }
-            if !volumeList(row).isEmpty {
-                y += drawVolumeList(row, at: NSPoint(x: left, y: y), width: width) + 5
-            }
+            y += drawVolumeBlocks(row, at: NSPoint(x: left, y: y), width: width)
             // The evidence survives the panel. Losing the paragraph that says how the
             // card was identified, because there was too little else to box, would
             // throw away the only part that answers "how do you know?".
@@ -847,15 +806,20 @@ final class MagnifierView: NSView {
             // The reader is part of the answer to "how is this attached", which is why
             // it is here rather than at the top: a card in a reader on a cable is
             // three things, and only the first of them is the subject.
-            if !row.mediumClass.isEmpty {
-                let holder = [row.title, row.vendor].filter { !$0.isEmpty && $0 != row.vendor }
-                Text.draw(holder.first ?? row.title,
-                          at: NSPoint(x: inner + 150, y: y - 1),
-                          font: smallFont, color: Palette.secondary)
-            }
             // Advance past it rather than drawing above the cursor: written above, it
             // landed on top of whatever block ended there.
             y += MagnifierView.captionHeight
+            // A line of its own rather than squeezed beside the caption: with the
+            // maker and the USB id here as well it no longer fits in the gap, and a
+            // vendor string that overflowed simply vanished off the panel edge.
+            let holder = holderLine(row)
+            if !holder.isEmpty {
+                let hh = Text.wrappedHeight(holder, font: smallFont, width: panelWidth)
+                Text.drawWrapped(holder,
+                                 in: NSRect(x: inner, y: y, width: panelWidth, height: hh),
+                                 font: smallFont, color: Palette.secondary)
+                y += hh + 4
+            }
             var x = inner
             if !row.badge.isEmpty {
                 x += Text.drawBadge((row.removable ? "via " : "") + row.badge,
